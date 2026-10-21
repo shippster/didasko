@@ -3,7 +3,7 @@
 window.DIDASKO_CONFIG = {
   // Public address of the app once it's online (used in the join links and QR codes).
   // Leave empty to use whatever address the app is opened from.
-  appUrl: 'https://shippster.github.io/didasko/',
+  appUrl: 'https://didasko.micahshippee.com/',
 
   // Firebase project settings (Firebase console → Project settings → Your apps → Web app → Config).
   // These values are designed to be public; access is controlled by database.rules.json.
