@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!--HEAD-START-->
+<title>Didasko</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="didasko:build" content="pwa">
+<meta name="description" content="Live captions, live translation, lecture notes and formative quizzes for teachers.">
+<!--PWA-ONLY-START-->
+<meta name="theme-color" content="#10201b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Didasko">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<!--PWA-ONLY-END-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,700&family=Source+Sans+3:wght@400;600;700&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;0,7..72,700;1,7..72,400&display=swap">
+<link rel="stylesheet" href="styles.css">
+<!--HEAD-END-->
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></symbol>
+  <symbol id="i-topic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M18 15v6M15 18h6"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-cc" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M10 10.5a2 2 0 1 0 0 3M17 10.5a2 2 0 1 0 0 3"/></symbol>
+  <symbol id="i-notes" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-quiz" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.6V14M12 17.5v.01"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24"><path d="M21 15V6a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/><path d="M12 8v6M9 11h6"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="7"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5M5 21h14"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></symbol>
+  <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v.01M17 21h4v-4M14 18v3"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></symbol>
+  <symbol id="i-chalk" viewBox="0 0 24 24"><path d="M4 6h16v10H4zM8 20l4-4 4 4" stroke="#f2cb52"/><path d="M7 10h6M7 13h9" stroke="#f3f1e7"/></symbol>
+</svg>
+
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark"><svg class="i"><use href="#i-chalk"/></svg></span><span class="brand-name">Didasko</span></div>
+    <button class="lecture-btn" id="lecture-btn" aria-label="Lecture details and library">
+      <span class="lecture-title" id="lecture-title">Lecture</span>
+      <span class="lecture-meta" id="lecture-meta">—</span>
+    </button>
+    <span class="status-pill" id="status-pill"><span class="dot"></span><span id="status-text">Ready</span></span>
+    <button class="icon-btn account-btn" id="btn-account" aria-label="Sign in"><svg class="i"><use href="#i-user"/></svg></button>
+    <button class="icon-btn" id="btn-settings" aria-label="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
+  </header>
+
+  <main>
+    <!-- LIVE -->
+    <section class="view" id="view-live" aria-labelledby="tab-live">
+      <div class="live-layout">
+        <div class="stage" id="stage">
+          <div class="stage-bar">
+            <span class="lang grow" id="stage-lang">EN</span>
+            <button class="stage-btn" id="font-down" aria-label="Smaller captions">A−</button>
+            <button class="stage-btn" id="font-up" aria-label="Larger captions">A+</button>
+            <button class="stage-btn" id="mode-btn" aria-label="Caption display: original and translation" title="Original + translation">⇅</button>
+            <button class="stage-btn" id="fs-btn" aria-label="Projector mode"><svg class="i"><use href="#i-expand"/></svg></button>
+          </div>
+          <div class="captions" id="captions" aria-live="polite" aria-atomic="false"></div>
+          <div class="stage-empty" id="stage-empty">
+            <div><strong>Captions appear here</strong>Tap <b>Start captions</b> and speak. Use projector mode to show them on the classroom screen.</div>
+          </div>
+          <div class="stage-qr" id="stage-qr" hidden></div>
+          <div class="stage-bar rec-bar">
+            <button class="stage-btn" id="fs-rec" aria-label="Start or pause captions"><svg class="i"><use href="#i-mic"/></svg></button>
+            <button class="stage-btn" id="fs-key" aria-label="Mark key point"><svg class="i"><use href="#i-star"/></svg></button>
+            <span class="lang grow" id="fs-status"></span>
+          </div>
+        </div>
+
+        <div class="side-stack">
+          <div class="controls">
+            <button class="ctl" id="btn-key" disabled><svg class="i"><use href="#i-star"/></svg>Key point</button>
+            <button class="ctl rec" id="btn-rec"><svg class="i"><use href="#i-mic"/></svg><span>Start captions</span></button>
+            <button class="ctl" id="btn-topic"><svg class="i"><use href="#i-topic"/></svg>New topic</button>
+          </div>
+
+          <div class="panel">
+            <div class="grid-2 stack-sm">
+              <label class="field"><span>Speaking</span><select id="src-lang"></select></label>
+              <label class="field"><span>Translate captions to</span><select id="tgt-lang"></select></label>
+            </div>
+            <div class="notice" id="engine-note">Checking caption support…</div>
+          </div>
+
+          <div class="panel" id="share-panel">
+            <div class="row between"><h2>Students’ devices</h2><span class="chip" id="share-chip">Off</span></div>
+            <p class="small muted" id="share-text" style="margin:0">Let students follow the captions on their own phone or laptop and choose their own translation. They don’t need an account.</p>
+            <div class="row"><button class="btn sm primary" id="btn-share"><svg class="i"><use href="#i-qr"/></svg>Share captions</button><button class="btn sm" id="btn-qr-stage" hidden>Show code on screen</button></div>
+          </div>
+
+          <div class="panel">
+            <div class="stats">
+              <div class="stat"><b id="st-time">0:00</b><span>Recorded</span></div>
+              <div class="stat"><b id="st-words">0</b><span>Words</span></div>
+              <div class="stat"><b id="st-keys">0</b><span>Key points</span></div>
+            </div>
+            <div class="row">
+              <button class="btn sm" id="btn-to-notes"><svg class="i"><use href="#i-notes"/></svg>Make notes</button>
+              <button class="btn sm" id="btn-to-quiz"><svg class="i"><use href="#i-quiz"/></svg>Make quiz</button>
+              <button class="btn sm ghost" id="btn-type"><svg class="i"><use href="#i-edit"/></svg>Type a line</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- NOTES -->
+    <section class="view" id="view-notes" hidden>
+      <div class="row between">
+        <div class="seg" role="group" aria-label="Notes view">
+          <button id="nv-notes" aria-pressed="true">Notes</button>
+          <button id="nv-transcript" aria-pressed="false">Transcript</button>
+        </div>
+        <div class="toolbar" id="notes-tools">
+          <button class="btn sm" id="notes-edit"><svg class="i"><use href="#i-edit"/></svg><span>Edit</span></button>
+          <div class="menu">
+            <button class="btn sm" id="notes-export-btn" aria-haspopup="true"><svg class="i"><use href="#i-down"/></svg>Export</button>
+            <div class="menu-pop" id="notes-export" hidden>
+              <button data-exp="docx"><svg class="i"><use href="#i-notes"/></svg>Word document (.docx)</button>
+              <button data-exp="html"><svg class="i"><use href="#i-down"/></svg>Web page (.html)</button>
+              <button data-exp="md"><svg class="i"><use href="#i-down"/></svg>Markdown (.md)</button>
+              <button data-exp="print" class="print-only"><svg class="i"><use href="#i-print"/></svg>Print or save as PDF</button>
+              <hr>
+              <button data-exp="copy"><svg class="i"><use href="#i-copy"/></svg>Copy text</button>
+              <button data-exp="transcript"><svg class="i"><use href="#i-down"/></svg>Raw transcript (.txt)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="notes-pane" class="view">
+        <div class="panel" id="notes-gen">
+          <div class="row between"><h2>Organize the notes</h2><span class="chip" id="ai-chip">AI: off</span></div>
+          <div class="grid-2 stack-sm">
+            <label class="field"><span>Format</span>
+              <select id="notes-style">
+                <option value="study">Full journal article</option>
+                <option value="cornell">Article with Cornell cue tables</option>
+                <option value="outline">Article with outline sections</option>
+                <option value="handout">Short communication</option>
+              </select></label>
+            <label class="field"><span>Audience</span>
+              <select id="notes-audience">
+                <option value="middle">Grades 6–8</option>
+                <option value="high">Grades 9–12</option>
+                <option value="undergrad" selected>Undergraduate</option>
+                <option value="grad">Graduate / professional</option>
+              </select></label>
+            <label class="field"><span>Write notes in</span><select id="notes-lang"></select></label>
+            <div class="field"><span>Lecture materials</span><label class="switch"><input type="checkbox" id="notes-use-files" checked> Use files marked for notes</label></div>
+          </div>
+          <p class="small muted" id="notes-cite" style="margin:0"></p>
+          <div class="row">
+            <button class="btn primary" id="notes-generate"><svg class="i"><use href="#i-spark"/></svg><span>Generate notes</span></button>
+            <button class="btn ghost" id="notes-stop" hidden>Stop</button>
+            <span class="small muted" id="notes-gen-hint"></span>
+          </div>
+        </div>
+        <div class="stream-status" id="notes-status" hidden><span class="spinner"></span><span id="notes-status-text">Writing notes…</span></div>
+        <article class="doc" id="notes-doc"></article>
+        <textarea class="notes-editor" id="notes-editor" hidden aria-label="Edit notes (Markdown)"></textarea>
+      </div>
+
+      <div id="transcript-pane" class="view" hidden>
+        <div class="panel">
+          <div class="row between">
+            <span class="small muted" id="transcript-count"></span>
+            <div class="row">
+              <button class="btn sm" id="tr-translate"><svg class="i"><use href="#i-spark"/></svg>Translate all</button>
+              <button class="btn sm" id="tr-import"><svg class="i"><use href="#i-upload"/></svg>Import</button>
+            </div>
+          </div>
+          <p class="small muted" style="margin:0">Tap any line to fix a misheard word. Corrections flow into the notes and quiz.</p>
+        </div>
+        <div class="panel transcript" id="transcript"></div>
+      </div>
+    </section>
+
+    <!-- QUIZ -->
+    <section class="view" id="view-quiz" hidden>
+      <div class="panel">
+        <div class="row between"><h2>Formative check</h2><span class="chip" id="quiz-chip"></span></div>
+        <div class="grid-2 stack-sm">
+          <label class="field"><span>Question type</span>
+            <select id="quiz-type"><option value="mc" selected>Multiple choice</option><option value="tf">True / false</option><option value="mix">Mix of both</option></select></label>
+          <label class="field"><span>Questions</span>
+            <select id="quiz-count"><option>5</option><option selected>8</option><option>10</option><option>15</option><option>20</option></select></label>
+          <label class="field"><span>Thinking level</span>
+            <select id="quiz-level">
+              <option value="recall">Mostly recall</option>
+              <option value="mixed" selected>Mixed (recall → apply)</option>
+              <option value="higher">Apply and analyze</option>
+            </select></label>
+          <label class="field"><span>Question language</span><select id="quiz-lang"></select></label>
+          <div class="field"><span>Sources</span>
+            <label class="switch"><input type="checkbox" id="quiz-use-files" checked> Use files marked for quiz</label>
+            <label class="switch"><input type="checkbox" id="quiz-key-focus" checked> Weight key points</label>
+          </div>
+        </div>
+        <div class="live-opts">
+          <span class="eyebrow">Live quiz on students’ devices</span>
+          <div class="grid-2 stack-sm">
+            <label class="field"><span>Time to answer</span>
+              <select id="quiz-timer"><option value="10">10 seconds</option><option value="20" selected>20 seconds</option><option value="30">30 seconds</option><option value="0">No time limit</option></select></label>
+            <label class="field"><span>Participant names</span>
+              <select id="quiz-names"><option value="animal" selected>Assign color + animal names</option><option value="ask">Students type their names</option></select></label>
+          </div>
+          <label class="switch"><input type="checkbox" id="quiz-board"> Show a leaderboard between questions</label>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="quiz-generate"><svg class="i"><use href="#i-spark"/></svg><span>Generate quiz</span></button>
+          <span class="small muted" id="quiz-hint"></span>
+        </div>
+      </div>
+
+      <div class="row between" id="quiz-bar" hidden>
+        <div class="seg" role="group" aria-label="Quiz view">
+          <button id="qv-teacher" aria-pressed="true">Answers shown</button>
+          <button id="qv-practice" aria-pressed="false">Practice</button>
+        </div>
+        <div class="toolbar">
+          <button class="btn sm primary" id="quiz-live"><svg class="i"><use href="#i-qr"/></svg>Run live with QR</button>
+          <button class="btn sm" id="quiz-present"><svg class="i"><use href="#i-play"/></svg>Present only</button>
+          <div class="menu">
+            <button class="btn sm" id="quiz-export-btn" aria-haspopup="true"><svg class="i"><use href="#i-down"/></svg>Export</button>
+            <div class="menu-pop" id="quiz-export" hidden>
+              <button data-qexp="docx"><svg class="i"><use href="#i-notes"/></svg>Word: student copy + key (.docx)</button>
+              <button data-qexp="gift"><svg class="i"><use href="#i-down"/></svg>Moodle GIFT (.txt)</button>
+              <button data-qexp="csv"><svg class="i"><use href="#i-down"/></svg>Spreadsheet (.csv)</button>
+              <button data-qexp="json"><svg class="i"><use href="#i-down"/></svg>Data (.json)</button>
+              <button data-qexp="print" class="print-only"><svg class="i"><use href="#i-print"/></svg>Print student copy</button>
+              <button data-qexp="printkey" class="print-only"><svg class="i"><use href="#i-print"/></svg>Print answer key</button>
+              <hr>
+              <button data-qexp="copy"><svg class="i"><use href="#i-copy"/></svg>Copy as text</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="stream-status" id="quiz-status" hidden><span class="spinner"></span><span id="quiz-status-text">Writing questions…</span></div>
+      <div class="q-list" id="quiz-list"></div>
+    </section>
+
+    <!-- FILES -->
+    <section class="view" id="view-files" hidden>
+      <label class="drop" id="drop" for="file-input">
+        <svg class="i" style="width:28px;height:28px"><use href="#i-upload"/></svg>
+        <strong>Add lecture materials</strong>
+        <span class="small muted">Slides (.pptx), readings (.pdf, .docx), notes (.txt, .md), captions (.vtt, .srt) or photos of the board. Files stay on this device.</span>
+        <input type="file" id="file-input" multiple accept=".pdf,.docx,.pptx,.txt,.md,.csv,.vtt,.srt,.html,image/*" hidden>
+      </label>
+      <div class="row">
+        <button class="btn sm" id="paste-material"><svg class="i"><use href="#i-plus"/></svg>Paste text</button>
+        <span class="small muted" id="files-summary"></span>
+      </div>
+      <div class="file-list" id="file-list"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" id="tab-live" data-view="live" aria-selected="true"><svg class="i"><use href="#i-cc"/></svg>Live</button>
+    <button class="tab" role="tab" id="tab-notes" data-view="notes" aria-selected="false"><svg class="i"><use href="#i-notes"/></svg>Notes</button>
+    <button class="tab" role="tab" id="tab-quiz" data-view="quiz" aria-selected="false"><svg class="i"><use href="#i-quiz"/></svg>Quiz<span class="badge" id="quiz-badge" hidden></span></button>
+    <button class="tab" role="tab" id="tab-files" data-view="files" aria-selected="false"><svg class="i"><use href="#i-files"/></svg>Files<span class="badge" id="files-badge" hidden></span></button>
+  </nav>
+</div>
+
+<div class="present" id="present" hidden role="dialog" aria-label="Present quiz">
+  <div class="present-top">
+    <span class="count" id="p-count">1 / 8</span>
+    <button class="btn sm" id="p-close"><svg class="i"><use href="#i-close"/></svg>Close</button>
+  </div>
+  <div class="present-body">
+    <h2 class="present-stem" id="p-stem"></h2>
+    <div class="present-opts" id="p-opts"></div>
+    <p class="present-explain" id="p-explain" hidden></p>
+  </div>
+  <div class="present-nav">
+    <button class="btn" id="p-prev">Previous</button>
+    <button class="btn primary" id="p-reveal">Reveal answer</button>
+    <button class="btn" id="p-next">Next</button>
+  </div>
+</div>
+
+<div id="participant" class="participant" hidden></div>
+<div id="sheet-root"></div>
+<div id="print-root"></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
