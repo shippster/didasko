@@ -97,7 +97,7 @@ function renderHome() {
         <p>Caption your lecture live, turn it into notes in the format you need, and check understanding with a live quiz.</p>
       </div>
       <div class="home-cta">
-        <button class="new-lec" id="home-new">${icon('plus')}<span><b>New lecture</b><small>Set up and start captions</small></span></button>
+        <button class="new-lec" id="home-new">${icon('plus')}<span><b>New lecture</b><small>Live, from a recording, a YouTube video or a paper</small></span></button>
         ${hasCur ? `<button class="btn" id="home-resume">${icon(S.rec.running ? 'cc' : 'mic')}${S.rec.running ? 'Back to live captions' : `Continue “${esc(L.title.length > 28 ? L.title.slice(0, 27) + '…' : L.title)}”`}</button>` : ''}
       </div>
     </section>
@@ -134,34 +134,58 @@ function renderHome() {
     showView(view);
   };
 }
-function openNewLectureSheet() {
+function openNewLectureSheet(startFrom) {
   const L = S.lecture, locked = libraryLocked();
   const replaces = locked && (speechSegs(L).length || L.notes);
   const courses = [...new Set(homeLectures().map(m => m.course).filter(Boolean))];
   const canCaption = SR && !IS_ARTIFACT;
+  let mode = startFrom || (canCaption ? 'live' : 'recording');
+  const MODES = [['live', 'Live lecture', 'mic'], ['recording', 'Recording', 'upload'], ['video', 'YouTube video', 'play'], ['paper', 'Paper or reading', 'notes']];
   openSheet('New lecture', `
+    <div class="field"><span>Start from</span><div class="seg start-from" role="group" aria-label="Start from">${MODES.map(([k, l, i]) => `<button type="button" data-mode="${k}" aria-pressed="${k === mode}">${icon(i)}${l}</button>`).join('')}</div></div>
     <label class="field"><span>Title</span><input id="nl-title" placeholder="${esc(newLecture().title)}" autocomplete="off"></label>
     <div class="grid-2 stack-sm">
       <label class="field"><span>Course / section</span><input id="nl-course" list="nl-courses" value="${esc(L.course && !L.sample ? L.course : '')}" placeholder="e.g. BIO 110: Introductory Biology" autocomplete="off"><datalist id="nl-courses">${courses.map(c => `<option value="${esc(c)}"></option>`).join('')}</datalist></label>
-      <label class="field"><span>Speaking</span><select id="nl-lang">${SRC_LANGS.map(([c, l]) => `<option value="${c}" ${c === S.settings.srcLang ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      <label class="field"><span>Language</span><select id="nl-lang">${SRC_LANGS.map(([c, l]) => `<option value="${c}" ${c === S.settings.srcLang ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
     </div>
-    ${canCaption ? `<label class="switch"><input type="checkbox" id="nl-start" checked> Start captions right away</label>` : `<p class="small muted" style="margin:0">${IS_ARTIFACT ? 'Live captions run in the installed app. You can still type or import a transcript.' : 'This browser can’t caption from the microphone. You can type or import a transcript.'}</p>`}
+    <div id="nl-mode"></div>
     ${replaces ? `<div class="notice warn">Without an account, starting a new lecture replaces the one on this device. <button class="linklike" data-signin>Sign in</button> to keep both.</div>` : ''}
-    <div class="row"><button class="btn primary" id="nl-ok">${icon(canCaption ? 'mic' : 'plus')}${canCaption ? 'Create and start' : 'Create lecture'}</button><button class="btn ghost" data-close>Cancel</button></div>`,
+    <div class="row"><button class="btn primary" id="nl-ok"></button><button class="btn ghost" data-close>Cancel</button></div>`,
     sh => {
+      const box = $('#nl-mode', sh), ok = $('#nl-ok', sh);
+      const paint = () => {
+        $$('[data-mode]', sh).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+        const tr = transcriber(), gem = aiReady() && prov().kind === 'gemini';
+        if (mode === 'live') box.innerHTML = canCaption ? `<label class="switch"><input type="checkbox" id="nl-start" checked> Start captions right away</label>` : `<p class="small muted" style="margin:0">${IS_ARTIFACT ? 'Live captions run in the installed app. You can still type or import a transcript.' : 'This browser can’t caption from the microphone. You can type or import a transcript.'}</p>`;
+        if (mode === 'recording') box.innerHTML = `<label class="field"><span>Recording (MP3, M4A, WAV or a video file)</span><input type="file" id="nl-file" accept="audio/*,video/*,.mp3,.m4a,.wav,.ogg,.webm,.flac,.mp4,.mov"></label><p class="small muted" style="margin:0">The recording is transcribed with timestamps, then you can make notes or a quiz from it. The file itself isn’t stored.</p>${tr ? '' : `<div class="notice warn">${esc(NEEDS_TRANSCRIBER)}</div>`}`;
+        if (mode === 'video') box.innerHTML = `<label class="field"><span>YouTube link</span><input id="nl-url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off"></label><p class="small muted" style="margin:0">Gemini watches the public video and writes a timestamped transcript. The video is cited as the source.</p>${gem ? '' : `<div class="notice warn">${esc(NEEDS_GEMINI_VIDEO)}</div>`}`;
+        if (mode === 'paper') box.innerHTML = filesLocked() ? `<div class="notice warn">Adding papers and readings needs a free account. <button class="linklike" data-signin>Sign in</button></div>` : `<label class="field"><span>Papers, readings or slides</span><input type="file" id="nl-docs" multiple accept=".pdf,.docx,.pptx,.txt,.md,.html,image/*"></label><p class="small muted" style="margin:0">No lecture needed: Didasko writes notes and quizzes from the material itself and cites it.</p>`;
+        ok.innerHTML = { live: `${icon(canCaption ? 'mic' : 'plus')}${canCaption ? 'Create and start' : 'Create lecture'}`, recording: `${icon('spark')}Create and transcribe`, video: `${icon('spark')}Create and transcribe`, paper: `${icon('plus')}Create from material` }[mode];
+      };
+      $$('[data-mode]', sh).forEach(b => b.onclick = () => { mode = b.dataset.mode; paint(); });
+      paint();
       const go = async () => {
-        const start = canCaption && $('#nl-start', sh)?.checked;
+        const file = $('#nl-file', sh)?.files?.[0], url = $('#nl-url', sh)?.value?.trim(), docs = [...($('#nl-docs', sh)?.files || [])];
+        if (mode === 'recording' && !file) { toast('Choose a recording first.'); return; }
+        if (mode === 'video' && !youTubeId(url)) { toast('Paste the address of a YouTube video.'); return; }
+        if (mode === 'paper' && !docs.length) { toast(filesLocked() ? 'Sign in to add papers and readings.' : 'Choose a paper or reading first.'); return; }
+        const start = mode === 'live' && canCaption && $('#nl-start', sh)?.checked;
         if (S.rec.running) pauseCaptions(true);
         await saveNow();
-        const n = newLecture($('#nl-title', sh).value.trim() || undefined);
-        n.course = $('#nl-course', sh).value.trim(); n.lecturer = S.settings.lecturer || L.lecturer || ''; n.institution = S.settings.institution || L.institution || ''; n.author = L.sample ? '' : (L.author || '');
+        const typed = $('#nl-title', sh).value.trim();
+        const n = newLecture(typed || (mode === 'recording' ? file.name.replace(/\.[^.]+$/, '') : mode === 'paper' ? docs[0].name.replace(/\.[^.]+$/, '') : undefined));
+        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : (S.settings.lecturer || L.lecturer || ''); n.institution = S.settings.institution || L.institution || ''; n.author = L.sample ? '' : (L.author || '');
         const lang = $('#nl-lang', sh).value;
         if (lang !== S.settings.srcLang) { S.settings.srcLang = lang; saveSettings(); TR.engineCache.clear(); $('#src-lang').value = lang; renderEngineNote(); }
         if (locked) await deleteLecture(L.id);
-        await switchLecture(n); closeSheet(); showView('live');
-        if (start) toggleCaptions(); else toast('New lecture ready');
+        await switchLecture(n); closeSheet();
+        if (mode === 'live') { showView('live'); if (start) toggleCaptions(); else toast('New lecture ready'); return; }
+        showView('notes');
+        if (mode === 'paper') { await addFiles(docs); S.ui.notesTab = 'notes'; renderNotesArea(); toast('Material added. Choose an output and tap Generate, or make a quiz.', 5000); return; }
+        S.ui.notesTab = 'transcript'; renderNotesArea();
+        if (mode === 'recording') await transcribeFile(file, S.lecture); else await transcribeYouTube(url, S.lecture);
+        S.ui.notesTab = 'notes'; renderNotesArea();
       };
-      const ok = $('#nl-ok', sh);
       if (replaces) twoStep(ok, 'Tap again — this replaces the current lecture', go); else ok.onclick = go;
       $('#nl-title', sh).onkeydown = e => { if (e.key === 'Enter' && !replaces) go(); };
     });

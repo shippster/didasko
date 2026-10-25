@@ -287,11 +287,13 @@
       <label class="drop" id="drop" for="file-input">
         <svg class="i" style="width:28px;height:28px"><use href="#i-upload"/></svg>
         <strong>Add lecture materials</strong>
-        <span class="small muted">Slides (.pptx), readings (.pdf, .docx), notes (.txt, .md), captions (.vtt, .srt) or photos of the board. Files stay on this device.</span>
-        <input type="file" id="file-input" multiple accept=".pdf,.docx,.pptx,.txt,.md,.csv,.vtt,.srt,.html,image/*" hidden>
+        <span class="small muted">Papers and readings (.pdf, .docx), slides (.pptx), notes (.txt, .md), captions (.vtt, .srt), photos of the board — or a recording (.mp3, .m4a, .wav, video) to transcribe. You can build notes and quizzes from these alone, without a live lecture.</span>
+        <input type="file" id="file-input" multiple accept=".pdf,.docx,.pptx,.txt,.md,.csv,.vtt,.srt,.html,image/*,audio/*,video/*,.mp3,.m4a,.wav,.ogg,.webm,.flac,.mp4,.mov" hidden>
       </label>
       <div class="row">
         <button class="btn sm" id="paste-material"><svg class="i"><use href="#i-plus"/></svg>Paste text</button>
+        <button class="btn sm" id="add-recording"><svg class="i"><use href="#i-mic"/></svg>Transcribe a recording</button>
+        <button class="btn sm" id="add-video"><svg class="i"><use href="#i-play"/></svg>Add a YouTube link</button>
         <span class="small muted" id="files-summary"></span>
       </div>
       <div class="file-list" id="file-list"></div>

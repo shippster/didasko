@@ -73,13 +73,14 @@ function mlaFileRef(f, titleOverride) {
   return r.trim();
 }
 function mlaLectureRef(L, title) {
-  const lec = lecturerOf(L);
+  const lec = lecturerOf(L), s = L.source || {};
+  if (isVideoSrc(L)) return `${lec ? endDot(mlaAuthors([lec])) + ' ' : ''}“${mlaTitleDot(title || s.title || L.title)}” *YouTube*, ${s.year ? s.year + ', ' : ''}${endDot(s.url.replace(/^https?:\/\//, ''))}`;
   const where = [L.course, mlaDate(L.createdAt), L.institution].filter(Boolean).join(', ');
   return `${lec ? endDot(mlaAuthors([lec])) + ' ' : ''}“${mlaTitleDot(title || L.title)}” ${endDot(where)} Lecture.`;
 }
 function worksCited(L) {
   const n = L.notes || {}, titles = n.titles || {};
-  const refs = [mlaLectureRef(L, n.lectureTitle), ...citedFiles(L).map(f => mlaFileRef(f, titles[f.id]))];
+  const refs = [...(hasTranscript(L) ? [mlaLectureRef(L, n.lectureTitle)] : []), ...citedFiles(L).map(f => mlaFileRef(f, titles[f.id]))];
   const key = r => r.replace(/[*“”"]/g, '').toLowerCase();
   return [...new Set(refs)].sort((a, b) => key(a).localeCompare(key(b)));
 }
@@ -151,7 +152,11 @@ function renderNotes() {
   doc.className = has ? `apa notes-${k}` : 'doc';
   if (has) { doc.innerHTML = notesDocHtml(L); return; }
   const n = speechSegs(L).length;
-  doc.innerHTML = `<div class="empty"><h3>${n ? 'Ready to write' : 'No notes yet'}</h3><p>${n ? `${n} transcript lines and ${citedFiles(L).length} lecture files are ready. Choose an output above — an APA or MLA article, a bulleted outline, a children’s picture book, or anything else you describe — and tap Generate.` : 'Start captions on the Live tab, or import a transcript, and Didasko will turn it into polished notes in the format you choose.'}</p></div>`;
+  const nf = citedFiles(L).filter(f => f.text || f.image).length;
+  doc.innerHTML = `<div class="empty"><h3>${n || nf ? 'Ready to write' : 'No notes yet'}</h3><p>${n || nf ? `${n ? `${n} transcript lines` : 'No transcript — notes will come from your materials'} and ${nf} lecture file${nf === 1 ? '' : 's'} are ready. Choose an output above — an APA or MLA article, a bulleted outline, a children’s picture book, or anything else you describe — and tap Generate.` : 'Start from anything: caption a live lecture, transcribe a recording or YouTube video, or add a paper or reading on the Files tab. Didasko turns it into notes in the format you choose.'}</p>
+    ${n || nf ? '' : `<div class="row" style="justify-content:center"><button class="btn sm" id="nd-rec">${icon('mic')}Transcribe a recording</button><button class="btn sm" id="nd-yt">${icon('play')}Add a video link</button><button class="btn sm" id="nd-files">${icon('files')}Add a paper</button></div>`}</div>`;
+  const b = id => $(id, doc);
+  if (b('#nd-rec')) { b('#nd-rec').onclick = () => pickRecording(); b('#nd-yt').onclick = () => openVideoSheet(); b('#nd-files').onclick = () => showView('files'); }
 }
 
 /* ---- Prompts ---- */
@@ -240,16 +245,19 @@ Reply with JSON only in this shape:
 /* ---- Generate ---- */
 async function generateNotes() {
   const L = S.lecture;
-  if (!speechSegs(L).length) { toast('Record, type or import a transcript first.'); return; }
+  const live = hasTranscript(L), haveMat = citedFiles(L).some(f => f.text || f.image);
+  if (!live && !haveMat) { toast('Add something to work from first: record or import a transcript, transcribe a recording or video, or add a paper or reading on the Files tab.', 6000); return; }
+  if (!live && !$('#notes-use-files').checked) { $('#notes-use-files').checked = true; }
   const style = styleKey($('#notes-style').value), aud = $('#notes-audience').value, lv = $('#notes-lang').value;
   const lang = lv === 'src' ? srcName(S.settings.srcLang) : tgtName(lv);
   const useFiles = $('#notes-use-files').checked;
   const custom = $('#notes-custom').value.trim();
-  if ((style === 'apa' || style === 'mla') && !lecturerOf(L)) { openLectureSheet(true); toast('Add the lecturer’s name so the article can cite the lecture.', 4000); return; }
+  if (live && (style === 'apa' || style === 'mla') && !lecturerOf(L)) { openLectureSheet(true); toast('Add the lecturer’s name so the article can cite the lecture.', 4000); return; }
   if (style === 'other' && !custom) { $('#notes-custom').focus(); toast('Describe the output you’re looking for.'); return; }
   if (!aiReady()) {
     if (style === 'kids' || style === 'other') { toast(`${style === 'kids' ? 'Picture books' : 'Custom outputs'} need an AI model. Choose one in Settings.`, 4500); openSettings(); return; }
-    L.notes = { md: style === 'outline' ? buildLocalOutline(L, useFiles) : buildLocalNarrative(L, useFiles, style), style, local: true, at: Date.now() };
+    const src = live ? L : materialsAsLecture(L);
+    L.notes = { md: style === 'outline' ? buildLocalOutline(src, live && useFiles) : buildLocalNarrative(src, live && useFiles, style), style, local: true, at: Date.now() };
     saveSoon(); S.ui.notesEdit = false; renderNotes(); toast('Notes organized on this device'); return;
   }
   notesCtl = new AbortController();
@@ -258,12 +266,14 @@ async function generateNotes() {
   if (style === 'apa' || style === 'mla' || style === 'other') for (const f of files) if (f.text && !f.cite?.checked && !(f.cite?.authors)) await detectCitation(f, { quiet: true });
   const mat = useFiles ? materials('useNotes') : { text: '', images: [], names: [] };
   const lecT = mlaInTextName([lecturerOf(L)]) || L.course || 'Lecture';
-  const sources = style === 'mla'
+  const sources = !live ? files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${style === 'mla' ? mlaFileInText(f) : fileInText(f)}.`).join('\n') : style === 'mla'
     ? [`- LECTURE — the transcript itself. Cite as ${mlaLectureInText(L)}; for a quotation (${lecT} 00:12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${mlaFileInText(f)}.`)].join('\n')
     : [`- LECTURE — the transcript itself. Cite as ${lectureInText(L)}. For a direct quotation add the timestamp, e.g. (${inTextAuthors([lecturerOf(L)]) || lecT}, ${yearOf(L.createdAt)}, 12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${fileInText(f)}.`)].join('\n');
   const opts = { aud, lang, sources, custom };
-  const system = { apa: apaSystem, mla: mlaSystem, outline: outlineSystem, other: customSystem, kids: kidsSystem }[style](opts);
-  const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
+  const system = { apa: apaSystem, mla: mlaSystem, outline: outlineSystem, other: customSystem, kids: kidsSystem }[style](opts)
+    + (live ? (L.source?.kind ? `\nThe transcript comes from a ${L.source.kind === 'video' ? 'video' : 'recording'}${L.source.title ? ` titled “${L.source.title}”` : ''}, transcribed automatically.` : '')
+      : '\nIMPORTANT: there is no lecture transcript for this session. Build the whole output from the materials alone. Do not mention or cite a lecture or lecturer; where the instructions above say to cite the lecture, cite the materials instead. In the abstract and introduction, describe the material’s topic rather than a lecture.');
+  const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${live ? transcriptForPrompt(L) : '(none — use the materials only)'}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
   if (style === 'kids') return generateKidsBook(L, { system, user, images: mat.images, lang });
   setNotesBusy(true, 'Reading the transcript…');
   const prev = L.notes;
@@ -400,7 +410,7 @@ function buildLocalNarrative(L, useFiles, style) {
   const segs = speechSegs(L), mla = style === 'mla';
   const all = segs.map(s => s.text).join('. ');
   const kws = keyTerms(all, 7);
-  const cite = mla ? mlaLectureInText(L) : lectureInText(L);
+  const cite = L._cite || (mla ? mlaLectureInText(L) : lectureInText(L));
   const para = items => { const sents = items.flatMap(s => sentencesOf(s.text).map(cleanSpoken)).filter(t => words(t) > 3); const out = []; for (let i = 0; i < sents.length; i += 4) out.push(sents.slice(i, i + 4).join(' ').replace(/\.$/, '') + ` ${cite}.`); return out.join('\n\n'); };
   const keys = segs.filter(s => s.key).map(s => cleanSpoken(s.text));
   let md = `# ${L.title}\n\n`;

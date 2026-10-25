@@ -661,7 +661,7 @@ async function generateQuiz() {
     tf: '- Every question is a true/false statement ("type":"tf") whose options are exactly ["True","False"]; "answer" is 0 when the statement is true and 1 when it is false.\n- Each statement is a claim a student might plausibly make; false ones express a real misconception, never a trivial word swap. Avoid double negatives and give-away absolutes ("always", "never").',
     mix: '- About two-thirds of the questions are multiple choice with exactly 4 options ("type":"mc"); the rest are true/false claims ("type":"tf") whose options are exactly ["True","False"], with "answer" 0 for true and 1 for false. False claims express real misconceptions.\n- Spread multiple-choice answers across positions A–D.'
   };
-  const system = `You are an expert in formative assessment. You write short concept checks that a teacher uses during or right after a lecture to find out what students understand and what to reteach, following research-based practice (Black & Wiliam's assessment for learning, Wiliam's hinge questions, Hattie & Timperley's feedback model).
+  let system = `You are an expert in formative assessment. You write short concept checks that a teacher uses during or right after a lecture to find out what students understand and what to reteach, following research-based practice (Black & Wiliam's assessment for learning, Wiliam's hinge questions, Hattie & Timperley's feedback model).
 Rules:
 - Write exactly ${n} questions, in ${lang}, for ${AUDIENCE[$('#notes-audience').value] || 'students'}.
 - Focus: ${LEVELS[level] || LEVELS.mixed}.
@@ -680,7 +680,9 @@ For each question return:
 "source" (a transcript timestamp like "Lecture 12:40", or the material's file name); "level" (Understand, Apply, Analyze or Evaluate).
 Also return "reflection": one exit-ticket question for the end of the quiz that asks students to reflect on their own learning about today's topic.
 Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"feedback":["","","",""],"explanation":"","reflect":"","source":"","level":""}],"reflection":""}`;
-  const user = `${lectureHeader(L)}\n\n<transcript>\n${transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`;
+  const noTr = !speechSegs(L).length;
+  const user = `${lectureHeader(L)}\n\n<transcript>\n${noTr ? '(none — write every question from the materials)' : transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`;
+  if (noTr) system += '\nThere is no lecture transcript for this session: base every question on the materials, and use the material’s file name as "source".';
   quizBusy = true; setQuizBusy(true);
   try {
     const text = await callAI({
@@ -924,6 +926,7 @@ async function extractFile(file) {
 async function addFiles(list) {
   const files = Array.from(list || []); if (!files.length) return;
   for (const file of files) {
+    if (isMediaFile(file)) { showView('notes'); S.ui.notesTab = 'transcript'; renderNotesArea(); await transcribeFile(file, S.lecture); continue; }
     if (file.size > 60 * 1048576) { toast(`${file.name} is larger than 60 MB.`); continue; }
     toast(`Reading ${file.name}…`, 20000);
     try {
@@ -936,13 +939,13 @@ async function addFiles(list) {
 function renderFiles() {
   const fs = S.lecture.files, box = $('#file-list');
   const locked = filesLocked();
-  $('#drop').hidden = locked; $('#paste-material').parentElement.hidden = locked;
+  $('#drop').hidden = locked; $('#paste-material').hidden = locked;
   if (locked) {
-    box.innerHTML = `<div class="panel empty"><h3>Sign in to add lecture files</h3><p>Uploading slides, readings and photos — and saving a library of lectures you can open on any device — needs a free account.</p><div class="row" style="justify-content:center"><button class="btn primary" data-signin>${icon('user')}Sign in or create an account</button></div></div>`;
+    box.innerHTML = `<div class="panel empty"><h3>Sign in to add lecture files</h3><p>Uploading slides, papers, readings and photos — and saving a library of lectures you can open on any device — needs a free account. You can still transcribe a recording or a YouTube video without one.</p><div class="row" style="justify-content:center"><button class="btn primary" data-signin>${icon('user')}Sign in or create an account</button></div></div>`;
     return;
   }
   $('#files-summary').textContent = fs.length ? `${fs.length} source${fs.length > 1 ? 's' : ''} · ${fs.reduce((n, f) => n + words(f.text), 0).toLocaleString()} words of material · each one is cited in the notes` : '';
-  if (!fs.length) { box.innerHTML = `<div class="panel empty"><h3>No materials yet</h3><p>Add your slides, a reading or a photo of the whiteboard. Didasko uses them to correct terms in the notes, writes quiz questions from them, and cites each one in APA style.</p></div>`; return; }
+  if (!fs.length) { box.innerHTML = `<div class="panel empty"><h3>No materials yet</h3><p>Add a paper, a reading, your slides or a photo of the whiteboard — or transcribe a recording or YouTube video. Didasko can write notes and quizzes from these alone or alongside a live lecture, and cites each one.</p></div>`; return; }
   box.innerHTML = fs.map(f => `<div class="file" data-fid="${f.id}">
     <div class="ftype">${f.image ? `<img src="${f.image}" alt="">` : esc(f.kind)}</div>
     <div style="min-width:0"><div class="fname" title="${esc(f.name)}">${esc(f.name)}</div><div class="fmeta">${esc(f.meta)} · ${fmtBytes(f.size)}</div></div>
@@ -997,8 +1000,11 @@ function openImportSheet() {
     <p class="small muted" style="margin:0">Paste text or choose a .txt, .vtt or .srt file — for example from Zoom, Teams or YouTube. Lines are added to this lecture.</p>
     <label class="field"><span>Transcript</span><textarea id="imp-text" placeholder="Paste a transcript…"></textarea></label>
     <div class="row"><label class="btn sm" for="imp-file">${icon('upload')}Choose file</label><input type="file" id="imp-file" accept=".txt,.vtt,.srt,.md" hidden><span class="small muted" id="imp-name"></span></div>
+    <div class="row"><span class="small muted">No transcript yet?</span><button class="btn sm ghost" id="imp-rec">${icon('mic')}Transcribe a recording</button><button class="btn sm ghost" id="imp-yt">${icon('play')}From a YouTube link</button></div>
     <div class="row"><button class="btn primary" id="imp-ok">Import</button><button class="btn ghost" data-close>Cancel</button></div>`,
     sh => {
+      $('#imp-rec', sh).onclick = () => { closeSheet(); pickRecording(); };
+      $('#imp-yt', sh).onclick = () => { closeSheet(); openVideoSheet(); };
       $('#imp-file', sh).onchange = async e => { const f = e.target.files[0]; if (!f) return; $('#imp-text', sh).value = await f.text(); $('#imp-name', sh).textContent = f.name; };
       $('#imp-ok', sh).onclick = () => {
         const rows = parseTimed($('#imp-text', sh).value); if (!rows.length) { toast('Nothing to import'); return; }
@@ -1182,6 +1188,8 @@ function bind() {
   drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
   document.addEventListener('paste', e => { if (S.view !== 'files' || !e.clipboardData?.files?.length) return; addFiles(e.clipboardData.files); });
   $('#paste-material').onclick = openPasteMaterial;
+  $('#add-recording').onclick = () => pickRecording();
+  $('#add-video').onclick = () => openVideoSheet();
   $('#file-list').addEventListener('change', e => {
     const c = e.target.closest('[data-flag]'); if (!c) return;
     const f = S.lecture.files.find(x => x.id === c.closest('.file').dataset.fid); if (f) { f[c.dataset.flag] = c.checked; saveSoon(); }

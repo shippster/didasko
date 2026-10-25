@@ -70,16 +70,20 @@ function fileInText(f) {
   return c.kind === 'article' ? `(“${short}”, ${c.year})` : `(*${short}*, ${c.year})`;
 }
 const lecturerOf = L => (L.lecturer || S.settings.lecturer || '').trim();
-function lectureInText(L) { const w = inTextAuthors([lecturerOf(L)]) || L.course || 'Lecture'; return `(${w}, ${yearOf(L.createdAt)})`; }
+const isVideoSrc = L => L.source?.kind === 'video' && !!L.source.url;
+const lectureYear = L => (isVideoSrc(L) && L.source.year) || yearOf(L.createdAt);
+function lectureInText(L) { const w = inTextAuthors([lecturerOf(L)]) || L.course || (isVideoSrc(L) ? L.source.title?.split(/\s+/).slice(0, 4).join(' ') : '') || 'Lecture'; return `(${w}, ${lectureYear(L)})`; }
 function lectureRef(L, titleSC) {
-  const lec = lecturerOf(L);
+  const lec = lecturerOf(L), s = L.source || {};
+  if (isVideoSrc(L)) return apaRef({ authors: lec ? [lec] : [], date: s.year || 'n.d.', title: titleSC || s.title || L.title, desc: 'Video', source: 'YouTube', url: s.url });
   const src = [L.course, L.institution].filter(Boolean).join(', ');
-  return apaRef({ authors: lec ? [lec] : [], date: apaLongDate(L.createdAt), title: titleSC || L.title, desc: 'Lecture', source: src });
+  return apaRef({ authors: lec ? [lec] : [], date: apaLongDate(L.createdAt), title: titleSC || L.title, desc: s.kind === 'audio' ? 'Lecture recording' : 'Lecture', source: src });
 }
+const hasTranscript = L => speechSegs(L).length > 0;
 function citedFiles(L) { return L.files.filter(f => f.useNotes); }
 function referenceList(L) {
   const n = L.notes || {}, titles = n.titles || {};
-  const refs = [lectureRef(L, n.lectureTitle), ...citedFiles(L).map(f => fileRef(f, titles[f.id]))];
+  const refs = [...(hasTranscript(L) ? [lectureRef(L, n.lectureTitle)] : []), ...citedFiles(L).map(f => fileRef(f, titles[f.id]))];
   const key = r => r.replace(/[*“”"]/g, '').toLowerCase();
   return [...new Set(refs)].sort((a, b) => key(a).localeCompare(key(b)));
 }
@@ -126,12 +130,12 @@ function apaHtml(L) {
     <div class="jr-head">
       <p class="jr-kicker">${esc(c.kind)}</p>
       <h1 class="jr-title">${inl(c.title)}${c.subtitle ? `<span class="jr-sub">${inl(c.subtitle)}</span>` : ''}</h1>
-      <p class="jr-authors">${esc(c.lecturer || 'Lecturer not set')}${aff ? '<sup>1</sup>' : ''}</p>
+      <p class="jr-authors">${esc(c.lecturer || (hasTranscript(L) ? 'Lecturer not set' : c.author || 'Lecture notes'))}${aff ? '<sup>1</sup>' : ''}</p>
       ${aff ? `<p class="jr-affil"><sup>1</sup>${esc(aff)}</p>` : ''}
       <dl class="jr-meta"><div><dt>Lecture date</dt><dd>${esc(c.date)}</dd></div>${c.length !== '0:00' ? `<div><dt>Recorded</dt><dd>${esc(c.length)}</dd></div>` : ''}${c.author ? `<div><dt>Notes prepared by</dt><dd>${esc(c.author)}</dd></div>` : ''}</dl>
     </div>
     ${c.abstract || c.keywords ? `<section class="jr-abstract" aria-label="Abstract"><h2>Abstract</h2>${mdToHtml(c.abstract)}${c.keywords ? `<p class="jr-kw"><em>Keywords:</em> ${esc(c.keywords)}</p>` : ''}</section>` : ''}
-    <p class="jr-cite"><b>Cite this lecture:</b> ${inl(c.cite)}</p>
+    ${hasTranscript(L) ? `<p class="jr-cite"><b>Cite this ${isVideoSrc(L) ? 'video' : 'lecture'}:</b> ${inl(c.cite)}</p>` : ''}
     <div class="jr-body">${mdToHtml(c.body)}<section class="jr-refs"><h2>References</h2>${c.refs.map(r => `<p class="apa-ref">${inl(r)}</p>`).join('')}</section></div>
     <footer class="jr-foot"><span>${esc(c.runningHead)}</span><span>${JOURNAL}</span></footer>
   </article>`;
@@ -225,8 +229,9 @@ function renderNotesCite() {
   const lec = lecturerOf(L);
   const k = styleKey($('#notes-style')?.value || L.notes?.style), mla = k === 'mla', n = citedFiles(L).length;
   if (k === 'kids') { el.innerHTML = lec ? `Based on the lecture by <b>${esc(lec)}</b> · <button class="linklike" id="notes-cite-edit">Edit</button>` : `<button class="linklike" id="notes-cite-edit">Add the lecturer’s name</button> to credit them in the book.`; $('#notes-cite-edit').onclick = () => openLectureSheet(true); return; }
+  if (!hasTranscript(L)) { el.innerHTML = `No transcript: ${n ? `the output is written from your ${n} material${n === 1 ? '' : 's'} and cites ${n === 1 ? 'it' : 'them'}` : 'add a paper or reading on the Files tab, or transcribe a recording or video'}.`; return; }
   el.innerHTML = lec
-    ? `Lecture cited as <b>${inl(mla ? mlaLectureInText(L) : lectureInText(L))}</b> · ${n} more source${n === 1 ? '' : 's'} in ${mla ? 'Works Cited' : k === 'apa' ? 'References' : 'Sources'} · <button class="linklike" id="notes-cite-edit">Edit</button>`
+    ? `${isVideoSrc(L) ? 'Video' : 'Lecture'} cited as <b>${inl(mla ? mlaLectureInText(L) : lectureInText(L))}</b> · ${n} more source${n === 1 ? '' : 's'} in ${mla ? 'Works Cited' : k === 'apa' ? 'References' : 'Sources'} · <button class="linklike" id="notes-cite-edit">Edit</button>`
     : `<b>Add the lecturer’s name</b> so the notes can cite the lecture${k === 'apa' || mla ? ' (required for APA and MLA)' : ''}. <button class="linklike" id="notes-cite-edit">Add</button>`;
   $('#notes-cite-edit').onclick = () => openLectureSheet(true);
 }

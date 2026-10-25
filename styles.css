@@ -778,3 +778,10 @@ body.p-mode::before { background: var(--stage); }
 .field .switch input { min-height: 22px; height: 22px; width: 36px; padding: 0; border: 0; background: var(--line); flex: none; }
 .field .switch input:checked { background: var(--accent); }
 .book .btn { font-family: var(--font-ui); }
+
+/* ---------- v3.1: start from a recording, video or paper ---------- */
+.seg.start-from { display: grid; grid-template-columns: repeat(2, 1fr); }
+@media (min-width: 520px) { .seg.start-from { grid-template-columns: repeat(4, 1fr); } }
+.seg.start-from button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; text-align: center; line-height: 1.2; }
+.seg.start-from svg.i { width: 18px; height: 18px; }
+.field input[type="file"] { padding: 9px 12px; min-height: 44px; }

@@ -664,7 +664,7 @@ async function generateQuiz() {
     tf: '- Every question is a true/false statement ("type":"tf") whose options are exactly ["True","False"]; "answer" is 0 when the statement is true and 1 when it is false.\n- Each statement is a claim a student might plausibly make; false ones express a real misconception, never a trivial word swap. Avoid double negatives and give-away absolutes ("always", "never").',
     mix: '- About two-thirds of the questions are multiple choice with exactly 4 options ("type":"mc"); the rest are true/false claims ("type":"tf") whose options are exactly ["True","False"], with "answer" 0 for true and 1 for false. False claims express real misconceptions.\n- Spread multiple-choice answers across positions A–D.'
   };
-  const system = `You are an expert in formative assessment. You write short concept checks that a teacher uses during or right after a lecture to find out what students understand and what to reteach, following research-based practice (Black & Wiliam's assessment for learning, Wiliam's hinge questions, Hattie & Timperley's feedback model).
+  let system = `You are an expert in formative assessment. You write short concept checks that a teacher uses during or right after a lecture to find out what students understand and what to reteach, following research-based practice (Black & Wiliam's assessment for learning, Wiliam's hinge questions, Hattie & Timperley's feedback model).
 Rules:
 - Write exactly ${n} questions, in ${lang}, for ${AUDIENCE[$('#notes-audience').value] || 'students'}.
 - Focus: ${LEVELS[level] || LEVELS.mixed}.
@@ -683,7 +683,9 @@ For each question return:
 "source" (a transcript timestamp like "Lecture 12:40", or the material's file name); "level" (Understand, Apply, Analyze or Evaluate).
 Also return "reflection": one exit-ticket question for the end of the quiz that asks students to reflect on their own learning about today's topic.
 Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"feedback":["","","",""],"explanation":"","reflect":"","source":"","level":""}],"reflection":""}`;
-  const user = `${lectureHeader(L)}\n\n<transcript>\n${transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`;
+  const noTr = !speechSegs(L).length;
+  const user = `${lectureHeader(L)}\n\n<transcript>\n${noTr ? '(none — write every question from the materials)' : transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`;
+  if (noTr) system += '\nThere is no lecture transcript for this session: base every question on the materials, and use the material’s file name as "source".';
   quizBusy = true; setQuizBusy(true);
   try {
     const text = await callAI({
@@ -927,6 +929,7 @@ async function extractFile(file) {
 async function addFiles(list) {
   const files = Array.from(list || []); if (!files.length) return;
   for (const file of files) {
+    if (isMediaFile(file)) { showView('notes'); S.ui.notesTab = 'transcript'; renderNotesArea(); await transcribeFile(file, S.lecture); continue; }
     if (file.size > 60 * 1048576) { toast(`${file.name} is larger than 60 MB.`); continue; }
     toast(`Reading ${file.name}…`, 20000);
     try {
@@ -939,13 +942,13 @@ async function addFiles(list) {
 function renderFiles() {
   const fs = S.lecture.files, box = $('#file-list');
   const locked = filesLocked();
-  $('#drop').hidden = locked; $('#paste-material').parentElement.hidden = locked;
+  $('#drop').hidden = locked; $('#paste-material').hidden = locked;
   if (locked) {
-    box.innerHTML = `<div class="panel empty"><h3>Sign in to add lecture files</h3><p>Uploading slides, readings and photos — and saving a library of lectures you can open on any device — needs a free account.</p><div class="row" style="justify-content:center"><button class="btn primary" data-signin>${icon('user')}Sign in or create an account</button></div></div>`;
+    box.innerHTML = `<div class="panel empty"><h3>Sign in to add lecture files</h3><p>Uploading slides, papers, readings and photos — and saving a library of lectures you can open on any device — needs a free account. You can still transcribe a recording or a YouTube video without one.</p><div class="row" style="justify-content:center"><button class="btn primary" data-signin>${icon('user')}Sign in or create an account</button></div></div>`;
     return;
   }
   $('#files-summary').textContent = fs.length ? `${fs.length} source${fs.length > 1 ? 's' : ''} · ${fs.reduce((n, f) => n + words(f.text), 0).toLocaleString()} words of material · each one is cited in the notes` : '';
-  if (!fs.length) { box.innerHTML = `<div class="panel empty"><h3>No materials yet</h3><p>Add your slides, a reading or a photo of the whiteboard. Didasko uses them to correct terms in the notes, writes quiz questions from them, and cites each one in APA style.</p></div>`; return; }
+  if (!fs.length) { box.innerHTML = `<div class="panel empty"><h3>No materials yet</h3><p>Add a paper, a reading, your slides or a photo of the whiteboard — or transcribe a recording or YouTube video. Didasko can write notes and quizzes from these alone or alongside a live lecture, and cites each one.</p></div>`; return; }
   box.innerHTML = fs.map(f => `<div class="file" data-fid="${f.id}">
     <div class="ftype">${f.image ? `<img src="${f.image}" alt="">` : esc(f.kind)}</div>
     <div style="min-width:0"><div class="fname" title="${esc(f.name)}">${esc(f.name)}</div><div class="fmeta">${esc(f.meta)} · ${fmtBytes(f.size)}</div></div>
@@ -1000,8 +1003,11 @@ function openImportSheet() {
     <p class="small muted" style="margin:0">Paste text or choose a .txt, .vtt or .srt file — for example from Zoom, Teams or YouTube. Lines are added to this lecture.</p>
     <label class="field"><span>Transcript</span><textarea id="imp-text" placeholder="Paste a transcript…"></textarea></label>
     <div class="row"><label class="btn sm" for="imp-file">${icon('upload')}Choose file</label><input type="file" id="imp-file" accept=".txt,.vtt,.srt,.md" hidden><span class="small muted" id="imp-name"></span></div>
+    <div class="row"><span class="small muted">No transcript yet?</span><button class="btn sm ghost" id="imp-rec">${icon('mic')}Transcribe a recording</button><button class="btn sm ghost" id="imp-yt">${icon('play')}From a YouTube link</button></div>
     <div class="row"><button class="btn primary" id="imp-ok">Import</button><button class="btn ghost" data-close>Cancel</button></div>`,
     sh => {
+      $('#imp-rec', sh).onclick = () => { closeSheet(); pickRecording(); };
+      $('#imp-yt', sh).onclick = () => { closeSheet(); openVideoSheet(); };
       $('#imp-file', sh).onchange = async e => { const f = e.target.files[0]; if (!f) return; $('#imp-text', sh).value = await f.text(); $('#imp-name', sh).textContent = f.name; };
       $('#imp-ok', sh).onclick = () => {
         const rows = parseTimed($('#imp-text', sh).value); if (!rows.length) { toast('Nothing to import'); return; }
@@ -1185,6 +1191,8 @@ function bind() {
   drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
   document.addEventListener('paste', e => { if (S.view !== 'files' || !e.clipboardData?.files?.length) return; addFiles(e.clipboardData.files); });
   $('#paste-material').onclick = openPasteMaterial;
+  $('#add-recording').onclick = () => pickRecording();
+  $('#add-video').onclick = () => openVideoSheet();
   $('#file-list').addEventListener('change', e => {
     const c = e.target.closest('[data-flag]'); if (!c) return;
     const f = S.lecture.files.find(x => x.id === c.closest('.file').dataset.fid); if (f) { f[c.dataset.flag] = c.checked; saveSoon(); }
@@ -1694,16 +1702,20 @@ function fileInText(f) {
   return c.kind === 'article' ? `(“${short}”, ${c.year})` : `(*${short}*, ${c.year})`;
 }
 const lecturerOf = L => (L.lecturer || S.settings.lecturer || '').trim();
-function lectureInText(L) { const w = inTextAuthors([lecturerOf(L)]) || L.course || 'Lecture'; return `(${w}, ${yearOf(L.createdAt)})`; }
+const isVideoSrc = L => L.source?.kind === 'video' && !!L.source.url;
+const lectureYear = L => (isVideoSrc(L) && L.source.year) || yearOf(L.createdAt);
+function lectureInText(L) { const w = inTextAuthors([lecturerOf(L)]) || L.course || (isVideoSrc(L) ? L.source.title?.split(/\s+/).slice(0, 4).join(' ') : '') || 'Lecture'; return `(${w}, ${lectureYear(L)})`; }
 function lectureRef(L, titleSC) {
-  const lec = lecturerOf(L);
+  const lec = lecturerOf(L), s = L.source || {};
+  if (isVideoSrc(L)) return apaRef({ authors: lec ? [lec] : [], date: s.year || 'n.d.', title: titleSC || s.title || L.title, desc: 'Video', source: 'YouTube', url: s.url });
   const src = [L.course, L.institution].filter(Boolean).join(', ');
-  return apaRef({ authors: lec ? [lec] : [], date: apaLongDate(L.createdAt), title: titleSC || L.title, desc: 'Lecture', source: src });
+  return apaRef({ authors: lec ? [lec] : [], date: apaLongDate(L.createdAt), title: titleSC || L.title, desc: s.kind === 'audio' ? 'Lecture recording' : 'Lecture', source: src });
 }
+const hasTranscript = L => speechSegs(L).length > 0;
 function citedFiles(L) { return L.files.filter(f => f.useNotes); }
 function referenceList(L) {
   const n = L.notes || {}, titles = n.titles || {};
-  const refs = [lectureRef(L, n.lectureTitle), ...citedFiles(L).map(f => fileRef(f, titles[f.id]))];
+  const refs = [...(hasTranscript(L) ? [lectureRef(L, n.lectureTitle)] : []), ...citedFiles(L).map(f => fileRef(f, titles[f.id]))];
   const key = r => r.replace(/[*“”"]/g, '').toLowerCase();
   return [...new Set(refs)].sort((a, b) => key(a).localeCompare(key(b)));
 }
@@ -1750,12 +1762,12 @@ function apaHtml(L) {
     <div class="jr-head">
       <p class="jr-kicker">${esc(c.kind)}</p>
       <h1 class="jr-title">${inl(c.title)}${c.subtitle ? `<span class="jr-sub">${inl(c.subtitle)}</span>` : ''}</h1>
-      <p class="jr-authors">${esc(c.lecturer || 'Lecturer not set')}${aff ? '<sup>1</sup>' : ''}</p>
+      <p class="jr-authors">${esc(c.lecturer || (hasTranscript(L) ? 'Lecturer not set' : c.author || 'Lecture notes'))}${aff ? '<sup>1</sup>' : ''}</p>
       ${aff ? `<p class="jr-affil"><sup>1</sup>${esc(aff)}</p>` : ''}
       <dl class="jr-meta"><div><dt>Lecture date</dt><dd>${esc(c.date)}</dd></div>${c.length !== '0:00' ? `<div><dt>Recorded</dt><dd>${esc(c.length)}</dd></div>` : ''}${c.author ? `<div><dt>Notes prepared by</dt><dd>${esc(c.author)}</dd></div>` : ''}</dl>
     </div>
     ${c.abstract || c.keywords ? `<section class="jr-abstract" aria-label="Abstract"><h2>Abstract</h2>${mdToHtml(c.abstract)}${c.keywords ? `<p class="jr-kw"><em>Keywords:</em> ${esc(c.keywords)}</p>` : ''}</section>` : ''}
-    <p class="jr-cite"><b>Cite this lecture:</b> ${inl(c.cite)}</p>
+    ${hasTranscript(L) ? `<p class="jr-cite"><b>Cite this ${isVideoSrc(L) ? 'video' : 'lecture'}:</b> ${inl(c.cite)}</p>` : ''}
     <div class="jr-body">${mdToHtml(c.body)}<section class="jr-refs"><h2>References</h2>${c.refs.map(r => `<p class="apa-ref">${inl(r)}</p>`).join('')}</section></div>
     <footer class="jr-foot"><span>${esc(c.runningHead)}</span><span>${JOURNAL}</span></footer>
   </article>`;
@@ -1849,8 +1861,9 @@ function renderNotesCite() {
   const lec = lecturerOf(L);
   const k = styleKey($('#notes-style')?.value || L.notes?.style), mla = k === 'mla', n = citedFiles(L).length;
   if (k === 'kids') { el.innerHTML = lec ? `Based on the lecture by <b>${esc(lec)}</b> · <button class="linklike" id="notes-cite-edit">Edit</button>` : `<button class="linklike" id="notes-cite-edit">Add the lecturer’s name</button> to credit them in the book.`; $('#notes-cite-edit').onclick = () => openLectureSheet(true); return; }
+  if (!hasTranscript(L)) { el.innerHTML = `No transcript: ${n ? `the output is written from your ${n} material${n === 1 ? '' : 's'} and cites ${n === 1 ? 'it' : 'them'}` : 'add a paper or reading on the Files tab, or transcribe a recording or video'}.`; return; }
   el.innerHTML = lec
-    ? `Lecture cited as <b>${inl(mla ? mlaLectureInText(L) : lectureInText(L))}</b> · ${n} more source${n === 1 ? '' : 's'} in ${mla ? 'Works Cited' : k === 'apa' ? 'References' : 'Sources'} · <button class="linklike" id="notes-cite-edit">Edit</button>`
+    ? `${isVideoSrc(L) ? 'Video' : 'Lecture'} cited as <b>${inl(mla ? mlaLectureInText(L) : lectureInText(L))}</b> · ${n} more source${n === 1 ? '' : 's'} in ${mla ? 'Works Cited' : k === 'apa' ? 'References' : 'Sources'} · <button class="linklike" id="notes-cite-edit">Edit</button>`
     : `<b>Add the lecturer’s name</b> so the notes can cite the lecture${k === 'apa' || mla ? ' (required for APA and MLA)' : ''}. <button class="linklike" id="notes-cite-edit">Add</button>`;
   $('#notes-cite-edit').onclick = () => openLectureSheet(true);
 }
@@ -2139,13 +2152,14 @@ function mlaFileRef(f, titleOverride) {
   return r.trim();
 }
 function mlaLectureRef(L, title) {
-  const lec = lecturerOf(L);
+  const lec = lecturerOf(L), s = L.source || {};
+  if (isVideoSrc(L)) return `${lec ? endDot(mlaAuthors([lec])) + ' ' : ''}“${mlaTitleDot(title || s.title || L.title)}” *YouTube*, ${s.year ? s.year + ', ' : ''}${endDot(s.url.replace(/^https?:\/\//, ''))}`;
   const where = [L.course, mlaDate(L.createdAt), L.institution].filter(Boolean).join(', ');
   return `${lec ? endDot(mlaAuthors([lec])) + ' ' : ''}“${mlaTitleDot(title || L.title)}” ${endDot(where)} Lecture.`;
 }
 function worksCited(L) {
   const n = L.notes || {}, titles = n.titles || {};
-  const refs = [mlaLectureRef(L, n.lectureTitle), ...citedFiles(L).map(f => mlaFileRef(f, titles[f.id]))];
+  const refs = [...(hasTranscript(L) ? [mlaLectureRef(L, n.lectureTitle)] : []), ...citedFiles(L).map(f => mlaFileRef(f, titles[f.id]))];
   const key = r => r.replace(/[*“”"]/g, '').toLowerCase();
   return [...new Set(refs)].sort((a, b) => key(a).localeCompare(key(b)));
 }
@@ -2217,7 +2231,11 @@ function renderNotes() {
   doc.className = has ? `apa notes-${k}` : 'doc';
   if (has) { doc.innerHTML = notesDocHtml(L); return; }
   const n = speechSegs(L).length;
-  doc.innerHTML = `<div class="empty"><h3>${n ? 'Ready to write' : 'No notes yet'}</h3><p>${n ? `${n} transcript lines and ${citedFiles(L).length} lecture files are ready. Choose an output above — an APA or MLA article, a bulleted outline, a children’s picture book, or anything else you describe — and tap Generate.` : 'Start captions on the Live tab, or import a transcript, and Didasko will turn it into polished notes in the format you choose.'}</p></div>`;
+  const nf = citedFiles(L).filter(f => f.text || f.image).length;
+  doc.innerHTML = `<div class="empty"><h3>${n || nf ? 'Ready to write' : 'No notes yet'}</h3><p>${n || nf ? `${n ? `${n} transcript lines` : 'No transcript — notes will come from your materials'} and ${nf} lecture file${nf === 1 ? '' : 's'} are ready. Choose an output above — an APA or MLA article, a bulleted outline, a children’s picture book, or anything else you describe — and tap Generate.` : 'Start from anything: caption a live lecture, transcribe a recording or YouTube video, or add a paper or reading on the Files tab. Didasko turns it into notes in the format you choose.'}</p>
+    ${n || nf ? '' : `<div class="row" style="justify-content:center"><button class="btn sm" id="nd-rec">${icon('mic')}Transcribe a recording</button><button class="btn sm" id="nd-yt">${icon('play')}Add a video link</button><button class="btn sm" id="nd-files">${icon('files')}Add a paper</button></div>`}</div>`;
+  const b = id => $(id, doc);
+  if (b('#nd-rec')) { b('#nd-rec').onclick = () => pickRecording(); b('#nd-yt').onclick = () => openVideoSheet(); b('#nd-files').onclick = () => showView('files'); }
 }
 
 /* ---- Prompts ---- */
@@ -2306,16 +2324,19 @@ Reply with JSON only in this shape:
 /* ---- Generate ---- */
 async function generateNotes() {
   const L = S.lecture;
-  if (!speechSegs(L).length) { toast('Record, type or import a transcript first.'); return; }
+  const live = hasTranscript(L), haveMat = citedFiles(L).some(f => f.text || f.image);
+  if (!live && !haveMat) { toast('Add something to work from first: record or import a transcript, transcribe a recording or video, or add a paper or reading on the Files tab.', 6000); return; }
+  if (!live && !$('#notes-use-files').checked) { $('#notes-use-files').checked = true; }
   const style = styleKey($('#notes-style').value), aud = $('#notes-audience').value, lv = $('#notes-lang').value;
   const lang = lv === 'src' ? srcName(S.settings.srcLang) : tgtName(lv);
   const useFiles = $('#notes-use-files').checked;
   const custom = $('#notes-custom').value.trim();
-  if ((style === 'apa' || style === 'mla') && !lecturerOf(L)) { openLectureSheet(true); toast('Add the lecturer’s name so the article can cite the lecture.', 4000); return; }
+  if (live && (style === 'apa' || style === 'mla') && !lecturerOf(L)) { openLectureSheet(true); toast('Add the lecturer’s name so the article can cite the lecture.', 4000); return; }
   if (style === 'other' && !custom) { $('#notes-custom').focus(); toast('Describe the output you’re looking for.'); return; }
   if (!aiReady()) {
     if (style === 'kids' || style === 'other') { toast(`${style === 'kids' ? 'Picture books' : 'Custom outputs'} need an AI model. Choose one in Settings.`, 4500); openSettings(); return; }
-    L.notes = { md: style === 'outline' ? buildLocalOutline(L, useFiles) : buildLocalNarrative(L, useFiles, style), style, local: true, at: Date.now() };
+    const src = live ? L : materialsAsLecture(L);
+    L.notes = { md: style === 'outline' ? buildLocalOutline(src, live && useFiles) : buildLocalNarrative(src, live && useFiles, style), style, local: true, at: Date.now() };
     saveSoon(); S.ui.notesEdit = false; renderNotes(); toast('Notes organized on this device'); return;
   }
   notesCtl = new AbortController();
@@ -2324,12 +2345,14 @@ async function generateNotes() {
   if (style === 'apa' || style === 'mla' || style === 'other') for (const f of files) if (f.text && !f.cite?.checked && !(f.cite?.authors)) await detectCitation(f, { quiet: true });
   const mat = useFiles ? materials('useNotes') : { text: '', images: [], names: [] };
   const lecT = mlaInTextName([lecturerOf(L)]) || L.course || 'Lecture';
-  const sources = style === 'mla'
+  const sources = !live ? files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${style === 'mla' ? mlaFileInText(f) : fileInText(f)}.`).join('\n') : style === 'mla'
     ? [`- LECTURE — the transcript itself. Cite as ${mlaLectureInText(L)}; for a quotation (${lecT} 00:12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${mlaFileInText(f)}.`)].join('\n')
     : [`- LECTURE — the transcript itself. Cite as ${lectureInText(L)}. For a direct quotation add the timestamp, e.g. (${inTextAuthors([lecturerOf(L)]) || lecT}, ${yearOf(L.createdAt)}, 12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${fileInText(f)}.`)].join('\n');
   const opts = { aud, lang, sources, custom };
-  const system = { apa: apaSystem, mla: mlaSystem, outline: outlineSystem, other: customSystem, kids: kidsSystem }[style](opts);
-  const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
+  const system = { apa: apaSystem, mla: mlaSystem, outline: outlineSystem, other: customSystem, kids: kidsSystem }[style](opts)
+    + (live ? (L.source?.kind ? `\nThe transcript comes from a ${L.source.kind === 'video' ? 'video' : 'recording'}${L.source.title ? ` titled “${L.source.title}”` : ''}, transcribed automatically.` : '')
+      : '\nIMPORTANT: there is no lecture transcript for this session. Build the whole output from the materials alone. Do not mention or cite a lecture or lecturer; where the instructions above say to cite the lecture, cite the materials instead. In the abstract and introduction, describe the material’s topic rather than a lecture.');
+  const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${live ? transcriptForPrompt(L) : '(none — use the materials only)'}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
   if (style === 'kids') return generateKidsBook(L, { system, user, images: mat.images, lang });
   setNotesBusy(true, 'Reading the transcript…');
   const prev = L.notes;
@@ -2466,7 +2489,7 @@ function buildLocalNarrative(L, useFiles, style) {
   const segs = speechSegs(L), mla = style === 'mla';
   const all = segs.map(s => s.text).join('. ');
   const kws = keyTerms(all, 7);
-  const cite = mla ? mlaLectureInText(L) : lectureInText(L);
+  const cite = L._cite || (mla ? mlaLectureInText(L) : lectureInText(L));
   const para = items => { const sents = items.flatMap(s => sentencesOf(s.text).map(cleanSpoken)).filter(t => words(t) > 3); const out = []; for (let i = 0; i < sents.length; i += 4) out.push(sents.slice(i, i + 4).join(' ').replace(/\.$/, '') + ` ${cite}.`); return out.join('\n\n'); };
   const keys = segs.filter(s => s.key).map(s => cleanSpoken(s.text));
   let md = `# ${L.title}\n\n`;
@@ -2623,6 +2646,186 @@ async function exportNotes(t) {
     return printHtml(`<style>${css}</style>${k === 'kids' ? bookHtml(L, { editable: false }) : notesDocHtml(L)}`);
   }
   if (t === 'copy') return copyText(mdToText(formatMarkdown(L)));
+}
+
+/* ================= Recordings and video links → transcript =================
+   Lets a teacher start from an audio/video recording or a YouTube link instead of live captions.
+   Gemini transcribes audio and YouTube videos; ChatGPT (OpenAI) transcribes audio with Whisper.
+   Long recordings are cut into parts under each service's upload limit and stitched back together with their timestamps. */
+const MEDIA_EXT = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', webm: 'audio/webm', flac: 'audio/flac', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime' };
+const extOf = n => (String(n).split('.').pop() || '').toLowerCase();
+const isMediaFile = f => !!MEDIA_EXT[extOf(f.name)] || /^(audio|video)\//.test(f.type || '');
+const YT_RE = /^(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{6,})/i;
+const youTubeId = u => (String(u || '').trim().match(YT_RE) || [])[1] || '';
+function transcriber() {
+  if (!aiReady()) return null;
+  if (prov().kind === 'gemini') return 'gemini';
+  if (S.settings.ai.provider === 'openai') return 'openai';
+  return null;
+}
+const NEEDS_TRANSCRIBER = 'Transcribing a recording needs Gemini or ChatGPT. Choose one in Settings → AI model (Gemini has a free tier), or import a transcript file instead.';
+const NEEDS_GEMINI_VIDEO = 'Video links need Gemini as the AI model (Settings → AI model; it has a free tier). Or open the video on YouTube, choose “Show transcript”, copy it, and use Import transcript.';
+const MEDIA = { busy: false, ctl: null };
+function setMediaStatus(text) {
+  const st = $('#notes-status'); if (!st) return;
+  st.hidden = !text; if (text) $('#notes-status-text').textContent = text;
+  $('#notes-generate').disabled = !!text;
+}
+const blobB64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = () => rej(new Error('Couldn’t read the recording.')); r.readAsDataURL(blob); });
+function mediaDuration(file) {
+  return new Promise(res => {
+    const a = document.createElement(file.type.startsWith('video/') ? 'video' : 'audio'); const url = URL.createObjectURL(file);
+    const done = d => { URL.revokeObjectURL(url); res(Number.isFinite(d) && d > 0 ? d : 0); };
+    a.preload = 'metadata'; a.onloadedmetadata = () => done(a.duration); a.onerror = () => done(0); setTimeout(() => done(0), 8000); a.src = url;
+  });
+}
+/* MP3 is a stream of independent frames, so it can be cut at a frame boundary without re-encoding. */
+async function mp3Parts(file, maxBytes) {
+  const parts = []; let start = 0;
+  while (start < file.size) {
+    let end = Math.min(file.size, start + maxBytes);
+    if (end < file.size) {
+      const win = new Uint8Array(await file.slice(end, Math.min(file.size, end + 8192)).arrayBuffer());
+      let k = 0; while (k < win.length - 1 && !(win[k] === 0xFF && (win[k + 1] & 0xE0) === 0xE0)) k++;
+      end += k;
+    }
+    parts.push({ blob: file.slice(start, end, 'audio/mpeg'), start, end });
+    start = end;
+  }
+  return parts;
+}
+/* Other formats: decode in the browser at 16 kHz mono and cut into WAV parts (speech needs no more). */
+function wavBlob(samples, rate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2), v = new DataView(buf);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) { const s = Math.max(-1, Math.min(1, samples[i])); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true); }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+async function decodedParts(file, secondsPerPart) {
+  const rate = 16000;
+  let audio;
+  try { audio = await new OfflineAudioContext(1, 1, rate).decodeAudioData(await file.arrayBuffer()); }
+  catch { throw new Error(`This browser couldn’t read ${file.name}. Convert it to MP3 and try again.`); }
+  const ch = audio.numberOfChannels, len = audio.length, mono = new Float32Array(len);
+  for (let c = 0; c < ch; c++) { const d = audio.getChannelData(c); for (let i = 0; i < len; i++) mono[i] += d[i] / ch; }
+  const per = secondsPerPart * rate, parts = [];
+  for (let i = 0; i < len; i += per) parts.push({ blob: wavBlob(mono.subarray(i, Math.min(len, i + per)), rate), offsetMs: Math.round(i / rate * 1000) });
+  return { parts, duration: len / rate };
+}
+async function transcribePart(kind, blob, mime, signal) {
+  if (kind === 'openai') {
+    const fd = new FormData();
+    fd.append('file', blob, 'part.' + (Object.keys(MEDIA_EXT).find(k => MEDIA_EXT[k] === mime) || 'mp3'));
+    fd.append('model', 'whisper-1'); fd.append('response_format', 'verbose_json');
+    const res = await aiFetch(`${aiBase()}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${aiKey()}` }, body: fd }, signal);
+    await failIfBad(res);
+    const j = await res.json();
+    return (j.segments || []).map(s => ({ t: Math.round((s.start || 0) * 1000), text: String(s.text || '').trim() })).filter(s => s.text)
+      .concat(!j.segments && j.text ? [{ t: 0, text: j.text }] : []);
+  }
+  const data = await blobB64(blob);
+  const out = await callAI({
+    signal, maxTokens: 16000, images: [{ mime, data, name: 'recording' }],
+    system: 'You are a careful transcriber of lectures and classroom recordings. You write what was said, accurately, in the language spoken.',
+    user: 'Transcribe this recording. Remove filler words (um, uh) and false starts, but keep every idea and keep the speaker’s wording. Write one line per sentence or short passage, each line starting with its timestamp from the start of this clip in [m:ss] form, for example "[3:07] Today we look at…". If there are several speakers, start each line after the timestamp with a short label such as "Student:" for anyone who is not the main speaker. Output the transcript lines only.'
+  });
+  return parseTimed(out);
+}
+async function transcribeFile(file, L) {
+  const kind = transcriber(); if (!kind) { toast(NEEDS_TRANSCRIBER, 7000); return false; }
+  if (MEDIA.busy) { toast('A recording is already being transcribed.'); return false; }
+  MEDIA.busy = true; MEDIA.ctl = new AbortController();
+  const ext = extOf(file.name), mime = file.type && /^(audio|video)\//.test(file.type) ? file.type : MEDIA_EXT[ext] || 'audio/mpeg';
+  const cap = kind === 'gemini' ? 14 * 1048576 : 24 * 1048576;
+  const label = file.name.length > 40 ? file.name.slice(0, 37) + '…' : file.name;
+  try {
+    setMediaStatus(`Preparing ${label}…`);
+    let parts, duration = await mediaDuration(file);
+    if (file.size <= cap) parts = [{ blob: file, offsetMs: 0, mime }];
+    else if (ext === 'mp3' || mime === 'audio/mpeg') {
+      const raw = await mp3Parts(file, cap);
+      const secPerByte = duration ? duration / file.size : 1 / 16000; // 128 kbps if the length is unknown
+      parts = raw.map(p => ({ blob: p.blob, offsetMs: Math.round(p.start * secPerByte * 1000), mime: 'audio/mpeg' }));
+    } else {
+      setMediaStatus(`Converting ${label} for transcription…`);
+      const d = await decodedParts(file, kind === 'gemini' ? 420 : 720);
+      parts = d.parts.map(p => ({ ...p, mime: 'audio/wav' })); duration = duration || d.duration;
+    }
+    const lines = [];
+    for (const [i, p] of parts.entries()) {
+      setMediaStatus(parts.length > 1 ? `Transcribing part ${i + 1} of ${parts.length}…` : `Transcribing ${label}…`);
+      const rows = await transcribePart(kind, p.blob, p.mime, MEDIA.ctl.signal);
+      rows.forEach(r => lines.push({ t: p.offsetMs + r.t, text: r.text }));
+    }
+    if (!lines.length) throw new Error('No speech was found in this recording.');
+    const base = speechSegs(L).length ? elapsed() + 2000 : 0;
+    lines.forEach(r => addSpeech(r.text, base + r.t));
+    L.ms = Math.max(L.ms || 0, base + Math.round((duration || 0) * 1000), base + lines[lines.length - 1].t + 4000);
+    L.source = L.source || { kind: file.type.startsWith('video/') ? 'video' : 'audio', name: file.name };
+    saveSoon(); renderAll();
+    toast(`Transcript ready: ${lines.length} lines from ${label}. Choose an output and tap Generate.`, 5000);
+    return true;
+  } catch (e) {
+    if (!MEDIA.ctl?.signal.aborted) toast(e.message === 'NO_AI' ? NEEDS_TRANSCRIBER : e.message, 6000);
+    return false;
+  } finally { MEDIA.busy = false; MEDIA.ctl = null; setMediaStatus(''); }
+}
+async function transcribeYouTube(url, L) {
+  const id = youTubeId(url);
+  if (!id) { toast('That doesn’t look like a YouTube link. Paste the address of a public video.'); return false; }
+  if (!aiReady() || prov().kind !== 'gemini') { toast(NEEDS_GEMINI_VIDEO, 8000); return false; }
+  if (MEDIA.busy) { toast('A recording is already being transcribed.'); return false; }
+  MEDIA.busy = true; MEDIA.ctl = new AbortController();
+  const watch = `https://www.youtube.com/watch?v=${id}`;
+  try {
+    setMediaStatus('Watching the video and writing the transcript… long videos can take a few minutes.');
+    const prompt = 'Transcribe this video. On the first line write "TITLE: " and the video’s title; on the second line write "SPEAKER: " and the main speaker’s or channel’s name; on the third line write "YEAR: " and the year it was published if you know it, otherwise leave it blank. Then write the transcript: remove filler words and false starts but keep every idea and the speaker’s wording, one line per sentence or short passage, each starting with its timestamp in [m:ss] or [h:mm:ss] form. Output nothing else.';
+    const body = { contents: [{ role: 'user', parts: [{ fileData: { fileUri: watch, mimeType: 'video/*' } }, { text: prompt }] }], generationConfig: { maxOutputTokens: 32768, mediaResolution: 'MEDIA_RESOLUTION_LOW' } };
+    const res = await aiFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(aiModel(false))}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': aiKey() }, body: JSON.stringify(body) }, MEDIA.ctl.signal);
+    await failIfBad(res);
+    const j = await res.json();
+    const text = (j.candidates?.[0]?.content?.parts || []).filter(x => x.text && !x.thought).map(x => x.text).join('');
+    if (!text.trim()) throw new Error(j.promptFeedback?.blockReason ? `Gemini declined this video (${j.promptFeedback.blockReason}).` : 'Gemini couldn’t read this video. It must be public, and very long videos may need to be shortened.');
+    const meta = {}; const body2 = text.replace(/^\s*(TITLE|SPEAKER|YEAR):[ \t]*(.*)$/gim, (_, k, v) => { meta[k.toUpperCase()] = v.trim(); return ''; });
+    const rows = parseTimed(body2.replace(/^\s*\n/gm, ''));
+    if (rows.length < 2) throw new Error('Gemini didn’t return a transcript for this video. Check that it’s public and try again.');
+    const base = speechSegs(L).length ? elapsed() + 2000 : 0;
+    rows.forEach(r => addSpeech(r.text, base + r.t));
+    L.ms = Math.max(L.ms || 0, base + rows[rows.length - 1].t + 5000);
+    L.source = { kind: 'video', url: watch, title: meta.TITLE || '', speaker: meta.SPEAKER || '', year: (meta.YEAR || '').match(/\d{4}/)?.[0] || '' };
+    if (!L.lecturer && meta.SPEAKER) L.lecturer = meta.SPEAKER;
+    if (meta.TITLE && /^Lecture · /.test(L.title)) L.title = meta.TITLE;
+    saveSoon(); renderAll();
+    toast(`Transcript ready: ${rows.length} lines from “${meta.TITLE || 'the video'}”. Choose an output and tap Generate.`, 5000);
+    return true;
+  } catch (e) {
+    if (!MEDIA.ctl?.signal.aborted) toast(e.message === 'NO_AI' ? NEEDS_GEMINI_VIDEO : e.message, 7000);
+    return false;
+  } finally { MEDIA.busy = false; MEDIA.ctl = null; setMediaStatus(''); }
+}
+function openVideoSheet(after) {
+  openSheet('Add a video link', `
+    <p class="small muted" style="margin:0">Paste a public YouTube link. Gemini watches the video and writes a timestamped transcript, which you can turn into notes or a quiz like a recorded lecture.</p>
+    <label class="field"><span>YouTube link</span><input id="yt-url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off"></label>
+    ${prov().kind === 'gemini' && aiReady() ? '' : `<div class="notice warn">${esc(NEEDS_GEMINI_VIDEO)}</div>`}
+    <div class="row"><button class="btn primary" id="yt-ok">${icon('spark')}Transcribe video</button><button class="btn ghost" data-close>Cancel</button></div>`,
+    sh => {
+      const go = async () => { const u = $('#yt-url', sh).value; if (!youTubeId(u)) { toast('Paste the address of a YouTube video.'); return; } closeSheet(); showView('notes'); S.ui.notesTab = 'transcript'; renderNotesArea(); const ok = await transcribeYouTube(u, S.lecture); if (ok && after) after(); };
+      $('#yt-ok', sh).onclick = go; $('#yt-url', sh).onkeydown = e => { if (e.key === 'Enter') go(); };
+    });
+}
+function pickRecording(after) {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.webm,.flac,.mp4,.mov';
+  inp.onchange = async () => { const f = inp.files[0]; if (!f) return; showView('notes'); S.ui.notesTab = 'transcript'; renderNotesArea(); const ok = await transcribeFile(f, S.lecture); if (ok && after) after(); };
+  inp.click();
+}
+/* A lecture built only from uploaded materials: used by the on-device fallbacks so they have sentences to organize. */
+function materialsAsLecture(L) {
+  const fs = citedFiles(L).filter(f => f.text);
+  const segments = fs.flatMap(f => sentencesOf(f.text.replace(/\n+/g, '. ')).filter(t => words(t) > 5).map(t => ({ id: uid(), kind: 'speech', t: 0, text: t, tr: {}, key: false })));
+  return { ...L, segments, _cite: fs[0] ? fileInText(fs[0]) : '' };
 }
 
 /* ================= Cloud: Firebase accounts, lecture library, newsletter ================= */
@@ -3125,7 +3328,7 @@ function renderHome() {
         <p>Caption your lecture live, turn it into notes in the format you need, and check understanding with a live quiz.</p>
       </div>
       <div class="home-cta">
-        <button class="new-lec" id="home-new">${icon('plus')}<span><b>New lecture</b><small>Set up and start captions</small></span></button>
+        <button class="new-lec" id="home-new">${icon('plus')}<span><b>New lecture</b><small>Live, from a recording, a YouTube video or a paper</small></span></button>
         ${hasCur ? `<button class="btn" id="home-resume">${icon(S.rec.running ? 'cc' : 'mic')}${S.rec.running ? 'Back to live captions' : `Continue “${esc(L.title.length > 28 ? L.title.slice(0, 27) + '…' : L.title)}”`}</button>` : ''}
       </div>
     </section>
@@ -3162,34 +3365,58 @@ function renderHome() {
     showView(view);
   };
 }
-function openNewLectureSheet() {
+function openNewLectureSheet(startFrom) {
   const L = S.lecture, locked = libraryLocked();
   const replaces = locked && (speechSegs(L).length || L.notes);
   const courses = [...new Set(homeLectures().map(m => m.course).filter(Boolean))];
   const canCaption = SR && !IS_ARTIFACT;
+  let mode = startFrom || (canCaption ? 'live' : 'recording');
+  const MODES = [['live', 'Live lecture', 'mic'], ['recording', 'Recording', 'upload'], ['video', 'YouTube video', 'play'], ['paper', 'Paper or reading', 'notes']];
   openSheet('New lecture', `
+    <div class="field"><span>Start from</span><div class="seg start-from" role="group" aria-label="Start from">${MODES.map(([k, l, i]) => `<button type="button" data-mode="${k}" aria-pressed="${k === mode}">${icon(i)}${l}</button>`).join('')}</div></div>
     <label class="field"><span>Title</span><input id="nl-title" placeholder="${esc(newLecture().title)}" autocomplete="off"></label>
     <div class="grid-2 stack-sm">
       <label class="field"><span>Course / section</span><input id="nl-course" list="nl-courses" value="${esc(L.course && !L.sample ? L.course : '')}" placeholder="e.g. BIO 110: Introductory Biology" autocomplete="off"><datalist id="nl-courses">${courses.map(c => `<option value="${esc(c)}"></option>`).join('')}</datalist></label>
-      <label class="field"><span>Speaking</span><select id="nl-lang">${SRC_LANGS.map(([c, l]) => `<option value="${c}" ${c === S.settings.srcLang ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      <label class="field"><span>Language</span><select id="nl-lang">${SRC_LANGS.map(([c, l]) => `<option value="${c}" ${c === S.settings.srcLang ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
     </div>
-    ${canCaption ? `<label class="switch"><input type="checkbox" id="nl-start" checked> Start captions right away</label>` : `<p class="small muted" style="margin:0">${IS_ARTIFACT ? 'Live captions run in the installed app. You can still type or import a transcript.' : 'This browser can’t caption from the microphone. You can type or import a transcript.'}</p>`}
+    <div id="nl-mode"></div>
     ${replaces ? `<div class="notice warn">Without an account, starting a new lecture replaces the one on this device. <button class="linklike" data-signin>Sign in</button> to keep both.</div>` : ''}
-    <div class="row"><button class="btn primary" id="nl-ok">${icon(canCaption ? 'mic' : 'plus')}${canCaption ? 'Create and start' : 'Create lecture'}</button><button class="btn ghost" data-close>Cancel</button></div>`,
+    <div class="row"><button class="btn primary" id="nl-ok"></button><button class="btn ghost" data-close>Cancel</button></div>`,
     sh => {
+      const box = $('#nl-mode', sh), ok = $('#nl-ok', sh);
+      const paint = () => {
+        $$('[data-mode]', sh).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+        const tr = transcriber(), gem = aiReady() && prov().kind === 'gemini';
+        if (mode === 'live') box.innerHTML = canCaption ? `<label class="switch"><input type="checkbox" id="nl-start" checked> Start captions right away</label>` : `<p class="small muted" style="margin:0">${IS_ARTIFACT ? 'Live captions run in the installed app. You can still type or import a transcript.' : 'This browser can’t caption from the microphone. You can type or import a transcript.'}</p>`;
+        if (mode === 'recording') box.innerHTML = `<label class="field"><span>Recording (MP3, M4A, WAV or a video file)</span><input type="file" id="nl-file" accept="audio/*,video/*,.mp3,.m4a,.wav,.ogg,.webm,.flac,.mp4,.mov"></label><p class="small muted" style="margin:0">The recording is transcribed with timestamps, then you can make notes or a quiz from it. The file itself isn’t stored.</p>${tr ? '' : `<div class="notice warn">${esc(NEEDS_TRANSCRIBER)}</div>`}`;
+        if (mode === 'video') box.innerHTML = `<label class="field"><span>YouTube link</span><input id="nl-url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off"></label><p class="small muted" style="margin:0">Gemini watches the public video and writes a timestamped transcript. The video is cited as the source.</p>${gem ? '' : `<div class="notice warn">${esc(NEEDS_GEMINI_VIDEO)}</div>`}`;
+        if (mode === 'paper') box.innerHTML = filesLocked() ? `<div class="notice warn">Adding papers and readings needs a free account. <button class="linklike" data-signin>Sign in</button></div>` : `<label class="field"><span>Papers, readings or slides</span><input type="file" id="nl-docs" multiple accept=".pdf,.docx,.pptx,.txt,.md,.html,image/*"></label><p class="small muted" style="margin:0">No lecture needed: Didasko writes notes and quizzes from the material itself and cites it.</p>`;
+        ok.innerHTML = { live: `${icon(canCaption ? 'mic' : 'plus')}${canCaption ? 'Create and start' : 'Create lecture'}`, recording: `${icon('spark')}Create and transcribe`, video: `${icon('spark')}Create and transcribe`, paper: `${icon('plus')}Create from material` }[mode];
+      };
+      $$('[data-mode]', sh).forEach(b => b.onclick = () => { mode = b.dataset.mode; paint(); });
+      paint();
       const go = async () => {
-        const start = canCaption && $('#nl-start', sh)?.checked;
+        const file = $('#nl-file', sh)?.files?.[0], url = $('#nl-url', sh)?.value?.trim(), docs = [...($('#nl-docs', sh)?.files || [])];
+        if (mode === 'recording' && !file) { toast('Choose a recording first.'); return; }
+        if (mode === 'video' && !youTubeId(url)) { toast('Paste the address of a YouTube video.'); return; }
+        if (mode === 'paper' && !docs.length) { toast(filesLocked() ? 'Sign in to add papers and readings.' : 'Choose a paper or reading first.'); return; }
+        const start = mode === 'live' && canCaption && $('#nl-start', sh)?.checked;
         if (S.rec.running) pauseCaptions(true);
         await saveNow();
-        const n = newLecture($('#nl-title', sh).value.trim() || undefined);
-        n.course = $('#nl-course', sh).value.trim(); n.lecturer = S.settings.lecturer || L.lecturer || ''; n.institution = S.settings.institution || L.institution || ''; n.author = L.sample ? '' : (L.author || '');
+        const typed = $('#nl-title', sh).value.trim();
+        const n = newLecture(typed || (mode === 'recording' ? file.name.replace(/\.[^.]+$/, '') : mode === 'paper' ? docs[0].name.replace(/\.[^.]+$/, '') : undefined));
+        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : (S.settings.lecturer || L.lecturer || ''); n.institution = S.settings.institution || L.institution || ''; n.author = L.sample ? '' : (L.author || '');
         const lang = $('#nl-lang', sh).value;
         if (lang !== S.settings.srcLang) { S.settings.srcLang = lang; saveSettings(); TR.engineCache.clear(); $('#src-lang').value = lang; renderEngineNote(); }
         if (locked) await deleteLecture(L.id);
-        await switchLecture(n); closeSheet(); showView('live');
-        if (start) toggleCaptions(); else toast('New lecture ready');
+        await switchLecture(n); closeSheet();
+        if (mode === 'live') { showView('live'); if (start) toggleCaptions(); else toast('New lecture ready'); return; }
+        showView('notes');
+        if (mode === 'paper') { await addFiles(docs); S.ui.notesTab = 'notes'; renderNotesArea(); toast('Material added. Choose an output and tap Generate, or make a quiz.', 5000); return; }
+        S.ui.notesTab = 'transcript'; renderNotesArea();
+        if (mode === 'recording') await transcribeFile(file, S.lecture); else await transcribeYouTube(url, S.lecture);
+        S.ui.notesTab = 'notes'; renderNotesArea();
       };
-      const ok = $('#nl-ok', sh);
       if (replaces) twoStep(ok, 'Tap again — this replaces the current lecture', go); else ok.onclick = go;
       $('#nl-title', sh).onkeydown = e => { if (e.key === 'Enter' && !replaces) go(); };
     });
