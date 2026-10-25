@@ -105,97 +105,122 @@ function splitBody(md) {
   }
   return { title, abstract: abstract.join('\n').trim(), body: body.join('\n').trim().replace(/^(\*\*(?:Table|Figure) \d+\*\*)[ \t]*\n(?=\*[^*\n])/gm, '$1\n\n'), keywords };
 }
-const JOURNAL = 'Didasko Lecture Notes';
-function composeApa(L) {
+/* ---- Compose the article. Layout modeled on a single-column research journal (e.g. Springer):
+   running header, bold title, authors joined by "·", run-in Abstract and Keywords, numbered sections
+   (1 Introduction, 1.1 …), justified body, first-page author footnote, small hanging-indent references. ---- */
+const JOURNAL = 'Didasko Lecture Notes', JOURNAL_SHORT = 'Didasko Lect Notes';
+const UNNUMBERED = /^(abstract|references|works cited|keywords|acknowledg)/i;
+function numberHeadings(md) {
+  let a = 0, b = 0, c = 0;
+  return String(md || '').split('\n').map(l => {
+    const m2 = l.match(/^##\s+(.*)$/), m3 = l.match(/^###\s+(.*)$/), m4 = l.match(/^####\s+(.*)$/);
+    const clean = s => s.replace(/^\d+(\.\d+)*\.?\s+/, '').trim();
+    if (m2 && !UNNUMBERED.test(clean(m2[1]))) { a++; b = 0; c = 0; return `## ${a} ${clean(m2[1])}`; }
+    if (m3 && a) { b++; c = 0; return `### ${a}.${b} ${clean(m3[1])}`; }
+    if (m4 && a && b) { c++; return `#### ${a}.${b}.${c} ${clean(m4[1])}`; }
+    return l;
+  }).join('\n');
+}
+function composeJournal(L, mla) {
   const sb = splitBody(L.notes?.md || '');
   const full = sb.title || L.title;
   const [t, ...sub] = full.split(/:\s+/);
   const lecturer = lecturerOf(L), author = (L.author || S.settings.author || '').trim();
-  const running = full.replace(/:.*$/, '').toUpperCase();
+  const running = full.replace(/:.*$/, '');
+  const src = L.source || {};
   return {
-    fullTitle: full, title: sub.length ? t : full, subtitle: sub.join(': '),
+    mla, fullTitle: full, title: sub.length ? t : full, subtitle: sub.join(': '),
     lecturer, author: author && author !== lecturer ? author : '',
     affiliation: (L.institution || S.settings.institution || '').trim(),
-    course: (L.course || '').trim(), date: titleDate(L.createdAt), length: fmtClock(L.ms || 0),
-    runningHead: running.length > 50 ? running.slice(0, 47).replace(/\s+\S*$/, '') + '…' : running,
-    abstract: sb.abstract, keywords: sb.keywords || (L.notes?.keywords || []).join(', '), body: sb.body,
-    cite: lectureRef(L, L.notes?.lectureTitle), refs: referenceList(L), kind: { cornell: 'Lecture Notes · Cornell Format', outline: 'Lecture Notes · Outline', handout: 'Short Communication' }[L.notes?.style] || 'Lecture Notes'
+    course: (L.course || '').trim(), date: mla ? mlaLongDate(L.createdAt) : titleDate(L.createdAt), length: fmtClock(L.ms || 0),
+    runningHead: running.length > 60 ? running.slice(0, 57).replace(/\s+\S*$/, '') + '…' : running,
+    abstract: sb.abstract, keywords: (sb.keywords || (L.notes?.keywords || []).join(', ')).split(/\s*[,;·]\s*/).filter(Boolean),
+    body: numberHeadings(sb.body),
+    cite: mla ? mlaLectureRef(L, L.notes?.lectureTitle) : lectureRef(L, L.notes?.lectureTitle),
+    refs: mla ? worksCited(L) : referenceList(L), refsTitle: mla ? 'Works Cited' : 'References',
+    kind: hasTranscript(L) ? (isVideoSrc(L) ? 'Notes on a video lecture' : src.kind === 'audio' ? 'Notes on a recorded lecture' : 'Lecture notes') : 'Notes on course materials',
+    hasTr: hasTranscript(L), video: isVideoSrc(L)
   };
 }
-function apaHtml(L) {
-  const c = composeApa(L);
+const composeApa = L => composeJournal(L, false);
+// In-text citation years in the journal's link color, as in the example article.
+const tintYears = html => html.replace(/\(([^()<>]*?\b(?:1[89]|20)\d{2}[a-z]?\b[^()<>]*?)\)/g, (m, inner) => '(' + inner.replace(/\b((?:1[89]|20)\d{2}[a-z]?)\b/g, '<span class="yr">$1</span>') + ')');
+function journalHtml(L, mla) {
+  const c = composeJournal(L, mla);
+  const people = [c.lecturer, c.author].filter(Boolean);
   const aff = [c.affiliation, c.course].filter(Boolean).join(', ');
-  return `<article class="jr">
-    <header class="jr-mast"><span class="jr-journal">${JOURNAL}</span><span>${esc([c.course, c.date].filter(Boolean).join(' · '))}</span></header>
-    <div class="jr-head">
-      <p class="jr-kicker">${esc(c.kind)}</p>
-      <h1 class="jr-title">${inl(c.title)}${c.subtitle ? `<span class="jr-sub">${inl(c.subtitle)}</span>` : ''}</h1>
-      <p class="jr-authors">${esc(c.lecturer || (hasTranscript(L) ? 'Lecturer not set' : c.author || 'Lecture notes'))}${aff ? '<sup>1</sup>' : ''}</p>
-      ${aff ? `<p class="jr-affil"><sup>1</sup>${esc(aff)}</p>` : ''}
-      <dl class="jr-meta"><div><dt>Lecture date</dt><dd>${esc(c.date)}</dd></div>${c.length !== '0:00' ? `<div><dt>Recorded</dt><dd>${esc(c.length)}</dd></div>` : ''}${c.author ? `<div><dt>Notes prepared by</dt><dd>${esc(c.author)}</dd></div>` : ''}</dl>
-    </div>
-    ${c.abstract || c.keywords ? `<section class="jr-abstract" aria-label="Abstract"><h2>Abstract</h2>${mdToHtml(c.abstract)}${c.keywords ? `<p class="jr-kw"><em>Keywords:</em> ${esc(c.keywords)}</p>` : ''}</section>` : ''}
-    ${hasTranscript(L) ? `<p class="jr-cite"><b>Cite this ${isVideoSrc(L) ? 'video' : 'lecture'}:</b> ${inl(c.cite)}</p>` : ''}
-    <div class="jr-body">${mdToHtml(c.body)}<section class="jr-refs"><h2>References</h2>${c.refs.map(r => `<p class="apa-ref">${inl(r)}</p>`).join('')}</section></div>
-    <footer class="jr-foot"><span>${esc(c.runningHead)}</span><span>${JOURNAL}</span></footer>
+  const body = tintYears(mdToHtml(c.body));
+  const cut = body.indexOf('<h2', body.indexOf('<h2') + 1); // the author footnote sits at the foot of the first section, as on page one of a journal
+  const fn = people.length || aff ? `<div class="jr-fn">${people.length ? `<p><b>${esc(people[0])}</b>${aff ? `<br>${esc(aff)}` : ''}</p>` : ''}${c.author ? `<p>${esc(c.author)} prepared these notes.</p>` : ''}</div>` : '';
+  const bodyHtml = cut > 0 ? body.slice(0, cut) + fn + body.slice(cut) : body + fn;
+  return `<article class="jr${mla ? ' jr-mla' : ''}">
+    <header class="jr-run"><span><span class="jr-j">${JOURNAL_SHORT}</span><br>${esc([c.kind, c.date].join(' · '))}</span><span class="jr-rh">${esc(c.course || '')}</span></header>
+    <h1 class="jr-title">${inl(c.title)}${c.subtitle ? `: ${inl(c.subtitle)}` : ''}</h1>
+    ${people.length ? `<p class="jr-authors">${people.map(esc).join(' · ')}</p>` : ''}
+    <p class="jr-meta">${esc([c.hasTr ? (c.video ? 'Video' : 'Lecture') + ` · ${c.date}` : c.date, c.hasTr && c.length !== '0:00' ? `${c.length} recorded` : '', aff].filter(Boolean).join(' · '))}</p>
+    ${c.abstract ? `<div class="jr-abs">${tintYears(mdToHtml(c.abstract)).replace(/^<p>/, '<p><b>Abstract</b> ')}</div>` : ''}
+    ${c.keywords.length ? `<p class="jr-kw"><b>Keywords</b> ${c.keywords.map(esc).join(' · ')}</p>` : ''}
+    <div class="jr-body">${bodyHtml}</div>
+    <section class="jr-refs"><h2>${c.refsTitle}</h2>${c.refs.map(r => `<p class="apa-ref">${inl(r)}</p>`).join('')}</section>
+    <footer class="jr-foot">${c.hasTr ? `<span><b>Cite as:</b> ${inl(c.cite)}</span>` : ''}<span>${JOURNAL}</span></footer>
   </article>`;
 }
+const apaHtml = L => journalHtml(L, false);
 function ensureJournalCss() { if (!document.getElementById('jr-css')) { const st = document.createElement('style'); st.id = 'jr-css'; st.textContent = JOURNAL_CSS; document.head.appendChild(st); } }
-function apaMarkdown(L) {
-  const c = composeApa(L);
-  return [`*${JOURNAL} · ${c.kind}*`, '', `# ${c.fullTitle}`, '', `**${c.lecturer}**${[c.affiliation, c.course].filter(Boolean).length ? '  \n' + [c.affiliation, c.course].filter(Boolean).join(', ') : ''}  \n${c.date}${c.author ? `  \nNotes prepared by ${c.author}` : ''}`, '',
-    c.abstract ? `## Abstract\n\n${c.abstract}` : '', c.keywords ? `\n*Keywords:* ${c.keywords}` : '', '', `**Cite this lecture:** ${c.cite}`, '', '---', '', c.body, '', '## References', '', c.refs.join('\n\n')].join('\n').replace(/\n{3,}/g, '\n\n');
+function journalMarkdown(L, mla) {
+  const c = composeJournal(L, mla);
+  return [`*${JOURNAL} · ${c.kind} · ${c.date}*`, '', `# ${c.fullTitle}`, '', [c.lecturer, c.author].filter(Boolean).map(x => `**${x}**`).join(' · '),
+    [c.affiliation, c.course].filter(Boolean).join(', '), '', c.abstract ? `**Abstract** ${c.abstract.replace(/\n+/g, ' ')}` : '', '', c.keywords.length ? `**Keywords** ${c.keywords.join(' · ')}` : '', '', c.body, '', `## ${c.refsTitle}`, '', c.refs.join('\n\n'), '', c.hasTr ? `*Cite as:* ${c.cite}` : ''].join('\n').replace(/\n{3,}/g, '\n\n');
 }
-function apaStandalone(L) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(composeApa(L).fullTitle)}</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=Source+Sans+3:wght@400;600;700&display=swap">
-<style>body{margin:0;background:#e6e8e7;padding:24px 12px}${JOURNAL_CSS}</style></head><body>${apaHtml(L)}</body></html>`;
+const apaMarkdown = L => journalMarkdown(L, false);
+function journalStandalone(L, mla) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(composeJournal(L, mla).fullTitle)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap">
+<style>body{margin:0;background:#e9eaea;padding:24px 12px}${JOURNAL_CSS}</style></head><body>${journalHtml(L, mla)}</body></html>`;
 }
-/* Journal-article look: masthead, title block, boxed abstract, two-column body (wide screens and print), references in the flow. */
+const apaStandalone = L => journalStandalone(L, false);
 const JOURNAL_CSS = `
-.jr{--jr-ink:#141414;--jr-mute:#5b5b5b;--jr-rule:#c9c9c9;--jr-accent:#1d6b57;--jr-box:#f2f5f4;background:#fff;color:var(--jr-ink);max-width:8.5in;margin:0 auto;padding:clamp(20px,6vw,.8in);font:15px/1.55 "Source Serif 4",Tinos,"Times New Roman",serif;box-shadow:0 1px 4px rgba(0,0,0,.12);border-radius:3px;overflow-wrap:anywhere}
+.jr{--jr-ink:#141414;--jr-mute:#4d4d4d;--jr-rule:#1a1a1a;--jr-link:#1f4e8c;--jr-soft:#f4f4f2;background:#fff;color:var(--jr-ink);max-width:7.4in;margin:0 auto;padding:clamp(22px,6vw,.85in) clamp(18px,6.5vw,1in) clamp(22px,5vw,.7in);font:16.5px/1.52 "STIX Two Text","Times New Roman",Tinos,Times,serif;box-shadow:0 1px 4px rgba(0,0,0,.14);border-radius:2px;overflow-wrap:anywhere;text-rendering:optimizeLegibility}
 .jr *{box-sizing:border-box}
-.jr-mast{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font:600 11px/1.3 "Source Sans 3","Atkinson Hyperlegible",system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--jr-mute);border-bottom:2px solid var(--jr-ink);padding-bottom:6px}
-.jr-journal{color:var(--jr-accent)}
-.jr-head{padding:22px 0 14px}
-.jr-kicker{margin:0 0 8px;font:700 11px/1 "Source Sans 3",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--jr-accent)}
-.jr-title{margin:0;font:700 clamp(24px,4.4vw,34px)/1.15 "Source Serif 4",Tinos,serif;letter-spacing:-.01em;text-wrap:balance;text-align:left;border:0;padding:0;color:var(--jr-ink)}
-.jr-sub{display:block;font-weight:400;font-size:.62em;line-height:1.3;margin-top:6px;color:#333}
-.jr-authors{margin:14px 0 0;font:600 15px/1.4 "Source Sans 3",system-ui,sans-serif}
-.jr-affil{margin:2px 0 0;font:italic 13px/1.4 "Source Serif 4",serif;color:var(--jr-mute)}
-.jr sup{font-size:.7em;line-height:0}
-.jr-meta{display:flex;flex-wrap:wrap;gap:4px 22px;margin:12px 0 0;font:12px/1.4 "Source Sans 3",system-ui,sans-serif;color:var(--jr-mute)}
-.jr-meta div{display:flex;gap:6px}.jr-meta dt{font-weight:700}.jr-meta dd{margin:0}
-.jr-abstract{background:var(--jr-box);border-top:1px solid var(--jr-ink);border-bottom:1px solid var(--jr-ink);padding:14px 18px;margin:6px 0 10px;font-size:14px}
-.jr-abstract h2{margin:0 0 6px;font:700 12px/1 "Source Sans 3",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;text-align:left;border:0;padding:0;color:var(--jr-ink)}
-.jr-abstract p{margin:0 0 .5em;text-indent:0;text-align:justify;hyphens:auto}
-.jr-kw{margin:6px 0 0!important}
-.jr-cite{margin:0 0 18px;font:12.5px/1.45 "Source Sans 3",system-ui,sans-serif;color:var(--jr-mute);padding-left:2em;text-indent:-2em}
-.jr-body{border-top:1px solid var(--jr-rule);padding-top:16px}
-@media (min-width:760px){.jr-body{column-count:2;column-gap:28px;column-rule:1px solid #e3e3e3}}
-.jr-body h2{font:700 14px/1.3 "Source Sans 3",system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;text-align:center;margin:18px 0 8px;break-after:avoid;border:0;padding:0;color:var(--jr-ink)}
+.jr-run{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;font-size:12.5px;line-height:1.4;padding-bottom:7px;border-bottom:1px solid var(--jr-rule);margin-bottom:clamp(26px,5vw,44px)}
+.jr-rh{text-align:right}
+.jr-title{margin:0 0 14px;font-weight:700;font-size:clamp(21px,3.4vw,25px);line-height:1.24;font-family:inherit;letter-spacing:0;text-wrap:balance;text-align:left;border:0;padding:0;color:var(--jr-ink);max-width:34em}
+.jr-authors{margin:0;font-weight:700}
+.jr-meta{margin:clamp(22px,5vw,40px) 0 clamp(18px,4vw,30px);font-size:12.5px;color:var(--jr-mute)}
+.jr-abs p{margin:0;text-align:justify;hyphens:auto}
+.jr-abs b,.jr-kw b{margin-right:.45em}
+.jr-kw{margin:12px 0 clamp(26px,5vw,38px)}
+.jr-body h2{font-weight:700;font-size:1em;line-height:1.3;font-family:inherit;margin:1.9em 0 .85em;text-align:left;border:0;padding:0;color:var(--jr-ink);break-after:avoid}
 .jr-body > h2:first-child{margin-top:0}
-.jr-body h3{font:700 14.5px/1.35 "Source Sans 3",system-ui,sans-serif;margin:14px 0 4px;break-after:avoid}
-.jr-body h4{font:italic 700 14.5px/1.35 "Source Serif 4",serif;margin:12px 0 4px;break-after:avoid}
-.jr-body h5{font:700 14.5px/1.4 "Source Serif 4",serif;margin:8px 0 2px}
-.jr-body p{margin:0;text-indent:1.4em;text-align:justify;hyphens:auto}
-.jr-body h2+p,.jr-body h3+p,.jr-body h4+p,.jr-body .table-wrap+p,.jr-body ul+p,.jr-body ol+p,.jr-body blockquote+p{text-indent:0}
-.jr-body ul,.jr-body ol{margin:.35em 0 .5em;padding-left:1.3em}.jr-body li{margin:.15em 0}
-.jr-body blockquote{margin:.6em 0;padding:.4em .8em;border-left:3px solid var(--jr-accent);background:var(--jr-box);break-inside:avoid}
+.jr-body h3{font-weight:400;font-size:1em;line-height:1.3;font-family:inherit;margin:1.5em 0 .8em;break-after:avoid}
+.jr-body h4{font-style:italic;font-weight:400;font-size:1em;line-height:1.3;font-family:inherit;margin:1.2em 0 .5em;break-after:avoid}
+.jr-body p{margin:0;text-indent:1.5em;text-align:justify;hyphens:auto}
+.jr-body h2+p,.jr-body h3+p,.jr-body h4+p,.jr-body .table-wrap+p,.jr-body ul+p,.jr-body ol+p,.jr-body blockquote+p,.jr-body .jr-fn+p{text-indent:0}
+.jr-body ul,.jr-body ol{margin:.55em 0 .7em;padding-left:2.1em}
+.jr-body li{margin:.12em 0;text-align:justify;padding-left:.3em}
+.jr-body blockquote{margin:.8em 2.2em;padding:0;border:0;background:none;font-size:.96em}
 .jr-body blockquote p{text-indent:0}
-.jr-body p:has(> strong:only-child){text-indent:0;margin-top:.8em;font:700 12.5px/1.3 "Source Sans 3",system-ui,sans-serif}
-.jr-body p:has(> em:only-child){text-indent:0;font-size:13px;margin-bottom:.3em}
-.jr-body .table-wrap{overflow-x:auto;margin:.2em 0 .9em;break-inside:avoid}
-.jr-body table{border-collapse:collapse;width:100%;font:12.5px/1.4 "Source Sans 3",system-ui,sans-serif}
-.jr-body th{border-top:1.5px solid var(--jr-ink);border-bottom:1px solid var(--jr-ink);text-align:left;padding:5px 6px;background:none;font-weight:700}
-.jr-body td{border:0;padding:5px 6px;vertical-align:top}
+.jr-body p:has(> strong:only-child){text-indent:0;margin-top:1em;font-size:.86em}
+.jr-body p:has(> em:only-child){text-indent:0;font-size:.86em;margin-bottom:.4em}
+.jr-body .table-wrap{overflow-x:auto;margin:.4em 0 1.1em;break-inside:avoid}
+.jr-body table{border-collapse:collapse;width:100%;font-size:.86em;line-height:1.4}
+.jr-body th{border-top:1.5px solid var(--jr-ink);border-bottom:1px solid var(--jr-ink);text-align:left;padding:5px 8px;background:none;font-weight:700}
+.jr-body td{border:0;padding:5px 8px;vertical-align:top}
 .jr-body tbody tr:last-child td{border-bottom:1.5px solid var(--jr-ink)}
 .jr-body code{font-family:ui-monospace,monospace;font-size:.85em}
-.jr-refs{margin-top:16px;padding-top:10px;border-top:1px solid var(--jr-rule);font-size:13px}
-.jr-refs .apa-ref{text-indent:-1.6em!important;padding-left:1.6em;margin:0 0 .45em;text-align:left;break-inside:avoid}
-.jr-foot{display:flex;justify-content:space-between;gap:12px;margin-top:22px;padding-top:8px;border-top:1px solid var(--jr-rule);font:600 10.5px/1.3 "Source Sans 3",system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--jr-mute)}
+.jr-fn{margin:1.6em 0 .4em;font-size:12.5px;line-height:1.42}
+.jr-fn::before{content:"";display:block;width:150px;border-top:1px solid var(--jr-rule);margin-bottom:7px}
+.jr-fn p{margin:0 0 .5em!important;text-indent:0!important;text-align:left!important}
+.jr-fn b{font-weight:400}
+.jr .yr{color:var(--jr-link)}
+.jr-refs{margin-top:2.4em}
+.jr-refs h2{font-weight:700;font-size:1em;line-height:1.3;font-family:inherit;margin:0 0 .9em;text-align:left;border:0;padding:0;color:var(--jr-ink)}
+.jr-refs .apa-ref{font-size:12.8px;line-height:1.45;margin:0 0 .42em;padding-left:1.5em;text-indent:-1.5em!important;text-align:left;break-inside:avoid}
+.jr-refs a{color:var(--jr-link)}
+.jr-foot{display:flex;justify-content:space-between;gap:8px 18px;flex-wrap:wrap;margin-top:2.4em;padding-top:8px;border-top:1px solid #cfcfcf;font-size:12px;line-height:1.45;color:var(--jr-mute)}
+.jr-foot span:first-child{padding-left:1.5em;text-indent:-1.5em;flex:1 1 22em}
 .jr a{color:inherit}
-@media print{.jr{box-shadow:none;max-width:none;padding:0;font-size:10pt}.jr-body{column-count:2;column-gap:.3in}}`;
+@media print{.jr{box-shadow:none;max-width:none;padding:0;font-size:10.5pt}.jr-refs .apa-ref{font-size:9pt}.jr-fn,.jr-run,.jr-meta{font-size:8.5pt}}`;
 
 let notesCtl = null, notesRAF = 0;
 async function detectCitation(f, { quiet } = {}) {
@@ -235,34 +260,30 @@ function renderNotesCite() {
     : `<b>Add the lecturer’s name</b> so the notes can cite the lecture${k === 'apa' || mla ? ' (required for APA and MLA)' : ''}. <button class="linklike" id="notes-cite-edit">Add</button>`;
   $('#notes-cite-edit').onclick = () => openLectureSheet(true);
 }
-function apaDocBlocks(L) {
-  const c = composeApa(L), B = [];
-  const aff = [c.affiliation, c.course].filter(Boolean).join(', ');
-  B.push({ type: 'p', style: 'Masthead', runs: [{ text: JOURNAL.toUpperCase() }, { text: '\t' }, { text: [c.course, c.date].filter(Boolean).join(' · ').toUpperCase() }] });
-  B.push({ type: 'p', style: 'Kicker', runs: [{ text: c.kind.toUpperCase() }] });
-  B.push({ type: 'p', style: 'ArticleTitle', runs: parseInline(c.title) });
-  if (c.subtitle) B.push({ type: 'p', style: 'Subtitle', runs: parseInline(c.subtitle) });
-  B.push({ type: 'p', style: 'Authors', runs: [{ text: c.lecturer || 'Lecturer not set' }, ...(aff ? [{ text: '1', sup: true }] : [])] });
-  if (aff) B.push({ type: 'p', style: 'Affiliation', runs: [{ text: '1', sup: true }, { text: aff }] });
-  B.push({ type: 'p', style: 'Meta', runs: [{ text: 'Lecture date: ', b: true }, { text: c.date }, ...(c.length !== '0:00' ? [{ text: '    Recorded: ', b: true }, { text: c.length }] : []), ...(c.author ? [{ text: '    Notes prepared by: ', b: true }, { text: c.author }] : [])] });
-  if (c.abstract || c.keywords) {
-    B.push({ type: 'p', style: 'AbstractHeading', runs: [{ text: 'ABSTRACT' }] });
-    parseMd(c.abstract).forEach(b => B.push({ type: 'p', style: 'Abstract', runs: parseInline(b.text || '') }));
-    if (c.keywords) B.push({ type: 'p', style: 'Keywords', runs: [{ text: 'Keywords: ', i: true }, { text: c.keywords }] });
-  }
-  B.push({ type: 'p', style: 'CiteLine', runs: [{ text: 'Cite this lecture: ', b: true }, ...parseInline(c.cite)] });
-  B.push({ type: 'section', cols: 1 });
-  let prevHead = true;
+function journalDocBlocks(L, mla) {
+  const c = composeJournal(L, mla), B = [];
+  const people = [c.lecturer, c.author].filter(Boolean), aff = [c.affiliation, c.course].filter(Boolean).join(', ');
+  B.push({ type: 'p', style: 'Masthead', runs: [{ text: JOURNAL_SHORT }, { text: '\n' + [c.kind, c.date].join(' · ') }, { text: '\t' }, { text: c.course || '' }] });
+  B.push({ type: 'p', style: 'ArticleTitle', runs: [...parseInline(c.title), ...(c.subtitle ? [{ text: ': ' }, ...parseInline(c.subtitle)] : [])] });
+  if (people.length) B.push({ type: 'p', style: 'Authors', runs: [{ text: people.join(' · ') }] });
+  B.push({ type: 'p', style: 'Meta', runs: [{ text: [c.hasTr ? (c.video ? 'Video' : 'Lecture') + ` · ${c.date}` : c.date, c.hasTr && c.length !== '0:00' ? `${c.length} recorded` : '', aff].filter(Boolean).join(' · ') }] });
+  if (c.abstract) parseMd(c.abstract).forEach((b, i) => B.push({ type: 'p', style: 'Abstract', runs: [...(i ? [] : [{ text: 'Abstract  ', b: true }]), ...parseInline(b.text || '')] }));
+  if (c.keywords.length) B.push({ type: 'p', style: 'Keywords', runs: [{ text: 'Keywords  ', b: true }, { text: c.keywords.join(' · ') }] });
+  let prevHead = true, h2s = 0;
+  const fn = () => { if (people.length || aff) { B.push({ type: 'p', style: 'FootnoteRule', runs: [{ text: '' }] }); B.push({ type: 'p', style: 'AuthorNote', runs: [{ text: [people[0], aff].filter(Boolean).join('\n') + (c.author ? `\n${c.author} prepared these notes.` : '') }] }); } };
   parseMd(c.body).forEach(b => {
+    if (b.type === 'h' && b.level === 2 && ++h2s === 2) fn();
     const label = b.type === 'p' && (/^\*\*(Table|Figure) \d+\*\*$/.test(b.text) || /^\*[^*]+\*$/.test(b.text));
     B.push(b.type === 'p' ? { ...b, noIndent: prevHead || label, style: label ? 'TableLabel' : undefined } : b);
     prevHead = b.type === 'h' || b.type === 'table' || b.type === 'list' || label;
   });
-  B.push({ type: 'h', level: 2, text: 'References' });
+  if (h2s < 2) fn();
+  B.push({ type: 'p', style: 'RefsHeading', runs: [{ text: c.refsTitle }] });
   c.refs.forEach(r => B.push({ type: 'ref', text: r }));
-  B.push({ type: 'section', cols: 2, continuous: true }); // ends the two-column body so Word balances the columns
+  if (c.hasTr) B.push({ type: 'p', style: 'CiteLine', runs: [{ text: 'Cite as: ', b: true }, ...parseInline(c.cite)] });
   return { blocks: B, runningHead: c.runningHead, footer: [JOURNAL, c.course].filter(Boolean).join(' · ') };
 }
+const apaDocBlocks = L => journalDocBlocks(L, false);
 
 /* ---- DOCX writer (WordprocessingML via JSZip). opts.journal: two-column journal article; otherwise a plain document ---- */
 const xe = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
@@ -277,30 +298,29 @@ function docxRuns(runs, base = {}) {
 const SANS = 'w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"';
 function journalStyles(W) {
   const st = (id, name, ppr, rpr, based = 'Normal') => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${name}"/><w:basedOn w:val="${based}"/><w:pPr>${ppr}</w:pPr><w:rPr>${rpr}</w:rPr></w:style>`;
-  const shade = '<w:shd w:val="clear" w:color="auto" w:fill="F2F5F4"/>', box = '<w:ind w:left="0" w:right="0" w:firstLine="0"/>';
+  const left = '<w:jc w:val="left"/><w:ind w:firstLine="0"/>';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}>
-  <w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="en-US"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0" w:line="252" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>
-  <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/><w:ind w:firstLine="284"/></w:pPr></w:style>
-  ${st('Masthead', 'Masthead', '<w:tabs><w:tab w:val="right" w:pos="10080"/></w:tabs><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:pBdr><w:bottom w:val="single" w:sz="12" w:space="3" w:color="141414"/></w:pBdr><w:spacing w:after="240"/>', `<w:rFonts ${SANS}/><w:b/><w:color w:val="555555"/><w:spacing w:val="16"/><w:sz w:val="15"/>`)}
-  ${st('Kicker', 'Article type', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:after="80"/>', `<w:rFonts ${SANS}/><w:b/><w:color w:val="1D6B57"/><w:spacing w:val="20"/><w:sz w:val="16"/>`)}
-  ${st('ArticleTitle', 'Title', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:after="60" w:line="240" w:lineRule="auto"/>', '<w:b/><w:sz w:val="44"/><w:szCs w:val="44"/>')}
-  ${st('Subtitle', 'Subtitle', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:after="160"/>', '<w:color w:val="333333"/><w:sz w:val="28"/>')}
-  ${st('Authors', 'Authors', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="80"/>', `<w:rFonts ${SANS}/><w:b/><w:sz w:val="21"/>`)}
-  ${st('Affiliation', 'Affiliation', '<w:jc w:val="left"/><w:ind w:firstLine="0"/>', '<w:i/><w:color w:val="555555"/><w:sz w:val="18"/>')}
-  ${st('Meta', 'Article metadata', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="100" w:after="200"/>', `<w:rFonts ${SANS}/><w:color w:val="555555"/><w:sz w:val="16"/>`)}
-  ${st('AbstractHeading', 'Abstract heading', `<w:keepNext/>${shade}${box}<w:pBdr><w:top w:val="single" w:sz="6" w:space="6" w:color="141414"/></w:pBdr><w:spacing w:after="60"/>`, `<w:rFonts ${SANS}/><w:b/><w:spacing w:val="20"/><w:sz w:val="16"/>`)}
-  ${st('Abstract', 'Abstract', `${shade}${box}<w:jc w:val="both"/><w:spacing w:after="60"/>`, '<w:sz w:val="19"/>')}
-  ${st('Keywords', 'Keywords', `${shade}${box}<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="6" w:color="141414"/></w:pBdr><w:jc w:val="left"/>`, '<w:sz w:val="19"/>')}
-  ${st('CiteLine', 'Citation line', '<w:jc w:val="left"/><w:ind w:left="284" w:hanging="284"/><w:spacing w:before="160" w:after="240"/>', `<w:rFonts ${SANS}/><w:color w:val="555555"/><w:sz w:val="16"/>`)}
-  ${st('Heading1', 'heading 1', '<w:keepNext/><w:jc w:val="center"/><w:ind w:firstLine="0"/><w:spacing w:before="220" w:after="80"/><w:outlineLvl w:val="0"/>', `<w:rFonts ${SANS}/><w:b/><w:caps/><w:spacing w:val="10"/><w:sz w:val="19"/>`)}
-  ${st('Heading2', 'heading 2', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="160" w:after="40"/><w:outlineLvl w:val="1"/>', `<w:rFonts ${SANS}/><w:b/><w:sz w:val="19"/>`)}
-  ${st('Heading3', 'heading 3', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="120" w:after="20"/><w:outlineLvl w:val="2"/>', '<w:b/><w:i/>')}
-  ${st('ListParagraph', 'List Paragraph', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:after="30"/>', '')}
-  ${st('TableLabel', 'Table label', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="120"/>', `<w:rFonts ${SANS}/><w:sz w:val="17"/>`)}
-  ${st('TableText', 'Table text', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:line="240" w:lineRule="auto"/>', `<w:rFonts ${SANS}/><w:sz w:val="16"/>`)}
-  ${st('Reference', 'Reference', '<w:jc w:val="left"/><w:ind w:left="284" w:hanging="284"/><w:spacing w:after="50"/>', '<w:sz w:val="17"/>')}
-  ${st('Quote', 'Quote', `${shade}<w:ind w:left="142" w:right="0" w:firstLine="0"/><w:pBdr><w:left w:val="single" w:sz="18" w:space="6" w:color="1D6B57"/></w:pBdr><w:spacing w:before="80" w:after="80"/>`, '')}
-  ${st('Footer', 'footer', '<w:tabs><w:tab w:val="right" w:pos="10080"/></w:tabs><w:ind w:firstLine="0"/><w:jc w:val="left"/>', `<w:rFonts ${SANS}/><w:color w:val="666666"/><w:sz w:val="14"/>`)}
+  <w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="en-US"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/><w:ind w:firstLine="340"/></w:pPr></w:style>
+  ${st('Masthead', 'Running header', `<w:tabs><w:tab w:val="right" w:pos="9360"/></w:tabs>${left}<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="4" w:color="1A1A1A"/></w:pBdr><w:spacing w:after="520"/>`, '<w:sz w:val="17"/>')}
+  ${st('ArticleTitle', 'Title', `<w:keepNext/>${left}<w:spacing w:after="200" w:line="276" w:lineRule="auto"/>`, '<w:b/><w:sz w:val="30"/><w:szCs w:val="30"/>')}
+  ${st('Authors', 'Authors', left, '<w:b/>')}
+  ${st('Meta', 'Article metadata', `${left}<w:spacing w:before="480" w:after="360"/>`, '<w:color w:val="4D4D4D"/><w:sz w:val="17"/>')}
+  ${st('Abstract', 'Abstract', '<w:jc w:val="both"/><w:ind w:firstLine="0"/><w:spacing w:after="160"/>', '')}
+  ${st('Keywords', 'Keywords', `${left}<w:spacing w:after="480"/>`, '')}
+  ${st('Heading1', 'heading 1', `<w:keepNext/>${left}<w:spacing w:before="400" w:after="200"/><w:outlineLvl w:val="0"/>`, '<w:b/>')}
+  ${st('Heading2', 'heading 2', `<w:keepNext/>${left}<w:spacing w:before="300" w:after="160"/><w:outlineLvl w:val="1"/>`, '')}
+  ${st('Heading3', 'heading 3', `<w:keepNext/>${left}<w:spacing w:before="200" w:after="100"/><w:outlineLvl w:val="2"/>`, '<w:i/>')}
+  ${st('ListParagraph', 'List Paragraph', '<w:jc w:val="both"/><w:ind w:firstLine="0"/><w:spacing w:after="40"/>', '')}
+  ${st('TableLabel', 'Table label', `<w:keepNext/>${left}<w:spacing w:before="160"/>`, '<w:sz w:val="18"/>')}
+  ${st('TableText', 'Table text', `<w:keepNext/>${left}<w:spacing w:line="240" w:lineRule="auto"/>`, '<w:sz w:val="18"/>')}
+  ${st('FootnoteRule', 'Footnote rule', `${left}<w:spacing w:before="320" w:after="80"/><w:pBdr><w:top w:val="single" w:sz="6" w:space="1" w:color="1A1A1A"/></w:pBdr><w:ind w:left="0" w:right="7200" w:firstLine="0"/>`, '<w:sz w:val="4"/>')}
+  ${st('AuthorNote', 'Author note', `${left}<w:spacing w:after="240" w:line="240" w:lineRule="auto"/>`, '<w:sz w:val="17"/>')}
+  ${st('RefsHeading', 'References heading', `<w:keepNext/>${left}<w:spacing w:before="480" w:after="200"/>`, '<w:b/>')}
+  ${st('Reference', 'Reference', '<w:jc w:val="left"/><w:ind w:left="284" w:hanging="284"/><w:spacing w:after="60" w:line="240" w:lineRule="auto"/>', '<w:sz w:val="18"/>')}
+  ${st('Quote', 'Quote', '<w:ind w:left="567" w:right="567" w:firstLine="0"/><w:spacing w:before="120" w:after="120"/>', '<w:sz w:val="20"/>')}
+  ${st('CiteLine', 'Citation line', `${left}<w:ind w:left="284" w:hanging="284"/><w:spacing w:before="360"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="6" w:color="CFCFCF"/></w:pBdr>`, '<w:color w:val="4D4D4D"/><w:sz w:val="16"/>')}
+  ${st('Footer', 'footer', `<w:tabs><w:tab w:val="right" w:pos="9360"/></w:tabs>${left}`, '<w:color w:val="666666"/><w:sz w:val="15"/>')}
   </w:styles>`;
 }
 function plainStyles(W) {
@@ -347,7 +367,7 @@ async function buildDocx(blocks, title, opts = {}) {
   const jr = !!opts.journal, mla = !!opts.mla, nums = [], media = [];
   const para = (inner, ppr = '') => `<w:p>${ppr ? `<w:pPr>${ppr}</w:pPr>` : ''}${inner}</w:p>`;
   const hStyle = lv => jr ? 'Heading' + Math.max(1, Math.min(3, lv - 1)) : (lv === 1 ? 'Title' : 'Heading' + Math.min(3, lv - 1));
-  const M = jr ? 1080 : mla ? 1440 : 1260;
+  const M = jr ? 1440 : mla ? 1440 : 1260;
   const refs = '<w:headerReference w:type="default" r:id="rId3"/><w:footerReference w:type="default" r:id="rId4"/>';
   const page = `<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="${M}" w:right="${M}" w:bottom="${M}" w:left="${M}" w:header="540" w:footer="540" w:gutter="0"/>`;
   const body = blocks.map(b => {
@@ -402,7 +422,7 @@ async function buildDocx(blocks, title, opts = {}) {
   const header = mla
     ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:jc w:val="right"/><w:ind w:firstLine="0"/></w:pPr><w:r><w:t xml:space="preserve">${xe(opts.runningHead ? opts.runningHead + ' ' : '')}</w:t></w:r>${pageField}</w:p></w:hdr>`
     : jr
-    ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="10080"/></w:tabs><w:ind w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:rFonts ${SANS}/><w:sz w:val="15"/><w:color w:val="555555"/><w:spacing w:val="12"/></w:rPr><w:t xml:space="preserve">${xe(opts.runningHead || title.toUpperCase())}</w:t></w:r><w:r><w:tab/></w:r><w:r><w:rPr><w:rFonts ${SANS}/><w:sz w:val="16"/></w:rPr></w:r>${pageField}</w:p></w:hdr>`
+    ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="9360"/></w:tabs><w:ind w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:sz w:val="17"/></w:rPr><w:t xml:space="preserve">${xe(opts.runningHead || title)}</w:t></w:r><w:r><w:tab/></w:r>${pageField}</w:p></w:hdr>`
     : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:jc w:val="right"/></w:pPr>${pageField}</w:p></w:hdr>`;
   const footer = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ${W}><w:p><w:pPr><w:pStyle w:val="Footer"/></w:pPr><w:r><w:t xml:space="preserve">${xe(opts.footer ?? 'Prepared with Didasko')}</w:t></w:r></w:p></w:ftr>`;
   const finalSect = `<w:sectPr>${refs}${jr ? '<w:type w:val="continuous"/>' : ''}${page}<w:cols w:num="1" w:space="400"/></w:sectPr>`;

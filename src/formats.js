@@ -6,8 +6,8 @@ const STYLES = ['apa', 'mla', 'outline', 'kids', 'other'];
 const styleKey = s => STYLE_ALIAS[s] || (STYLES.includes(s) ? s : 'apa');
 const STYLE_LABEL = { apa: 'APA journal article', mla: 'MLA journal article', outline: 'Outline overview', kids: 'Children’s picture book', other: 'Custom output' };
 function styleHint(k) {
-  if (k === 'apa') return 'A cleaned-up narrative laid out like a journal article: abstract, keywords, sections written in full paragraphs, APA 7 in-text citations and References.';
-  if (k === 'mla') return 'An MLA 9 paper: heading block, centered title, narrative paragraphs with (Author) citations, and a Works Cited list.';
+  if (k === 'apa') return 'A research-journal article: the lecture reorganized by theme (not in speaking order), each idea unpacked, with abstract, keywords, numbered sections, a discussion, APA 7 citations and References.';
+  if (k === 'mla') return 'The same research-journal article, with MLA 9 (Author) citations and a Works Cited list.';
   if (k === 'outline') return 'A quick bulleted overview — main ideas, supporting details and key terms — that’s easy to skim before a test.';
   if (k === 'kids') {
     const ip = imageProvider();
@@ -84,25 +84,8 @@ function worksCited(L) {
   const key = r => r.replace(/[*“”"]/g, '').toLowerCase();
   return [...new Set(refs)].sort((a, b) => key(a).localeCompare(key(b)));
 }
-function composeMla(L) {
-  const sb = splitBody(L.notes?.md || '');
-  const lec = lecturerOf(L), author = (L.author || S.settings.author || '').trim();
-  const writer = author || lec;
-  const head = [writer || 'Lecture notes', author && lec && author !== lec ? lec : (L.institution || S.settings.institution || ''), L.course, mlaLongDate(L.createdAt)].filter(Boolean);
-  return { title: sb.title || L.title, head, body: sb.body, refs: worksCited(L), running: surname(writer || '') || '' };
-}
-
-/* ---- Renderers ---- */
-function mlaHtml(L) {
-  const c = composeMla(L);
-  return `<article class="mla">
-    ${c.running ? `<div class="mla-run">${esc(c.running)} 1</div>` : ''}
-    <div class="mla-head">${c.head.map(h => `<p>${esc(h)}</p>`).join('')}</div>
-    <h1 class="mla-title">${inl(c.title)}</h1>
-    <div class="mla-body">${mdToHtml(c.body)}</div>
-    <section class="mla-wc"><h2>Works Cited</h2>${c.refs.map(r => `<p class="mla-ref">${inl(r)}</p>`).join('')}</section>
-  </article>`;
-}
+const composeMla = L => composeJournal(L, true);
+const mlaHtml = L => journalHtml(L, true);
 function plainDocHtml(L) {
   const k = styleKey(L.notes?.style), md = L.notes?.md || '';
   const meta = [STYLE_LABEL[k], L.course, fmtDate(L.createdAt), lecturerOf(L)].filter(Boolean).join(' · ');
@@ -160,51 +143,57 @@ function renderNotes() {
 }
 
 /* ---- Prompts ---- */
-function apaSystem({ aud, lang, sources }) {
-  return `You are an expert science editor who turns raw lecture transcripts into a polished, narrative article written and structured like a scientific journal article, using APA 7th edition style.
-The transcript comes from live speech recognition: it may lack punctuation and contain misheard words, filler words and false starts. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Do not add facts that are not supported by the transcript or the materials; where the recording is unclear, write "(unclear in recording)".
-Lines marked ★KEY POINT were flagged by the instructor as important: every one must appear in the article, and the most important belong in the abstract. Lines like "== TOPIC: … ==" are section breaks the instructor set: use them as Level 1 headings.
-Write for ${AUDIENCE[aud]}, in ${lang}, in the formal, precise register of a journal article: third person, past tense for what the lecturer said (e.g. "Shippee explained that…") and present tense for established facts, each supported by a citation.
+/* ---- Journal articles (APA and MLA) are written in two passes:
+   1) plan: read the whole transcript and reorganize it into themes, with the definitions, examples and evidence each needs;
+   2) write: a fully unpacked article from that plan, structured like a research-journal paper rather than in speaking order. ---- */
+const CLEANUP = 'The transcript comes from speech recognition: it may lack punctuation and contain misheard words, filler words, false starts and digressions. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Use only facts supported by the transcript or the materials.';
+function journalPlanSystem({ aud, lang }) {
+  return `You are the senior editor of an academic journal. You are planning an article that turns a lecture (its transcript and any course materials) into a well-organized journal article for ${AUDIENCE[aud]}, written in ${lang}.
+${CLEANUP}
+Read the ENTIRE transcript and all materials before planning. Lectures wander: the speaker returns to ideas, gives examples out of order and mixes background with detail. Do NOT follow the order in which things were said. Instead:
+- Work out the lecture's central question and its main argument (thesis).
+- Group everything that belongs together, wherever in the transcript it was said, into 3 to 6 major themes.
+- Order the themes for a reader: background and key definitions first, then the core concepts, mechanisms or frameworks, then applications and examples, then implications, challenges or debates.
+- Within each theme plan 2 to 4 subsections. For each, list the points to make, the concepts that must be defined, the lecturer's examples, evidence or data, any material (F1, F2 …) that supports it, and the transcript timestamps it draws on.
+- Note tensions, misconceptions, limitations and open questions the lecture raised, for a Discussion section.
+- Every line marked ★KEY POINT must be placed somewhere in the plan.
+Reply with JSON only:
+{"title":"","subtitle":"","thesis":"","keywords":[""],"introduction":{"context":"","problem":"","purpose":""},"sections":[{"heading":"","purpose":"","subsections":[{"heading":"","points":[""],"define":[""],"examples":[""],"materials":["F1"],"timestamps":["12:40"]}]}],"discussion":[""],"conclusion":[""]}`;
+}
+function journalSystem({ aud, lang, sources, mla }) {
+  const cite = mla
+    ? `Citations (MLA 9 in-text): cite the sources below using exactly the forms given, placed before the sentence's final punctuation, e.g. "…from water (Rivera)." For a direct quotation from the lecture add the timestamp, e.g. (Rivera 00:12:40). Do not use page numbers unless the material shows them. Do not write a Works Cited list — it is added automatically.`
+    : `Citations (APA 7 in-text): cite the sources below using exactly the in-text forms given, as parenthetical citations at the end of the sentence they support or as narrative citations ("Rivera (2026) argued that…"). For a direct quotation add the timestamp. Do not write a References section — it is added automatically.`;
+  return `You are an expert academic writer and editor. You write a polished research-journal article from a lecture, following the editor's plan you are given. The article should read like a peer-reviewed paper in a journal such as Education and Information Technologies: it organizes ideas thematically, unpacks each one fully, and synthesizes rather than summarizing the lecture in order.
+${CLEANUP}
+Write for ${AUDIENCE[aud]}, in ${lang}, in a formal, precise academic register: third person; ${mla ? 'present tense when discussing what the lecture argues ("Rivera explains that…")' : 'past tense for what the lecturer said ("Rivera explained that…")'} and present tense for established facts.
 
-Write the whole article as connected prose. Do NOT use bulleted lists, numbered lists, tables, bold run-in labels, Q&A, "Key Terms" or "Review Questions" sections. Explain ideas in developed paragraphs, each with a topic sentence, supporting detail and examples from the lecture, and transitions that show how ideas connect. Bold a key term only the first time it is defined.
+How to write it:
+- Follow the plan's structure and order, not the order of the transcript.
+- Unpack every idea. Define each key concept when it first appears, explain how and why it works, give the lecturer's examples and evidence, connect it to the materials, and say why it matters. Never just list what the lecturer said.
+- Each major section opens with a short framing paragraph that tells the reader what the section covers and how it connects to the article's argument. Each subsection has two to four developed paragraphs of four to seven sentences, with a clear topic sentence and transitions. End subsections with a sentence that links to the next idea.
+- Write in connected prose. Use a numbered list only where the lecture itself set out a defined set of items (for example stages, factors or criteria); introduce it with a full sentence, give each item a short explanation, and use at most two such lists in the whole article. Use a table only if it genuinely clarifies a comparison; put "**Table N**" on its own line and the table title in italic title case on the next line.
+- Bold a key term only the first time it is defined. No bold run-in labels, no Q&A, no "Key Terms" or "Review Questions" sections.
+- Length: about 1,200 words for every 15 minutes of lecture, between 1,500 and 4,500 words in total (shorter if the source is short).
 
 Output GitHub-flavored Markdown in exactly this order:
-1. "# Title: Subtitle" — a concise, descriptive APA title in title case, with a subtitle after a colon.
-2. "## Abstract" followed by one paragraph of 150–220 words that states the lecture's purpose, its main points and their significance.
-3. A line "*Keywords:* " followed by 5–8 keywords, lowercase except proper nouns, separated by commas.
-4. The body, using APA heading levels: "##" = Level 1, "###" = Level 2 (only when a section clearly has parts), headings in title case.
-   - "## Introduction": one or two paragraphs on the background, why the topic matters, and what the lecture covered.
-   - One "##" section per major topic, in lecture order, each with two to four well-developed paragraphs.
-   - "## Conclusion": one or two paragraphs that synthesize the main ideas and their implications, and note what comes next if the lecture says so.
+1. "# Title: Subtitle" — a concise, informative ${mla ? 'MLA title-case' : 'APA title-case'} title with a subtitle after a colon.
+2. "## Abstract" — one paragraph of 150–250 words: the topic and why it matters, the article's purpose, the main themes in the order they appear, and the key implication.
+3. A line "*Keywords:* " with 4–6 keywords or short phrases separated by commas.
+4. "## Introduction" — three or four paragraphs: the context and background; the problem or question that makes the topic important; the purpose of the article; and a final roadmap sentence that names the sections that follow.
+5. One "##" section per theme in the plan, each with "###" subsections. Do not number headings — the app numbers them.
+6. "## Discussion" — synthesize across the themes: how the ideas relate, what they mean for students and practice, the misconceptions, limitations or open questions the lecture raised.
+7. "## Conclusion" — one or two paragraphs restating the thesis in light of the article and noting what comes next if the lecture says so.
 
-Citations (APA 7 in-text): cite the sources below using exactly the in-text forms given, at the end of the sentence or paragraph they support. Cite the lecture at least once per Level 1 section. Cite a material wherever its content is used. Do not cite anything else and do not write a References section — it is added automatically.
+${cite} Cite the lecture in every major section, and a material wherever its content is used. Do not cite anything else.
 ${sources}
 
 After the article, output exactly one final line and nothing after it:
-<!--didasko {"lectureTitle":"<the lecture's title in APA sentence case>","titles":{"F1":"<title of F1 in APA sentence case>"}}-->
+<!--didasko {"lectureTitle":"<the lecture's title in ${mla ? 'MLA title case' : 'APA sentence case'}>","titles":{"F1":"<title of F1 in ${mla ? 'MLA title case' : 'APA sentence case'}>"}}-->
 Include every F-number listed above in "titles".`;
 }
-function mlaSystem({ aud, lang, sources }) {
-  return `You are an expert editor who turns raw lecture transcripts into a polished narrative article in MLA style (MLA Handbook, 9th edition).
-The transcript comes from live speech recognition: it may lack punctuation and contain misheard words, filler words and false starts. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Do not add facts that are not supported by the transcript or the materials.
-Lines marked ★KEY POINT were flagged by the instructor as important: every one must appear in the article. Lines like "== TOPIC: … ==" are section breaks the instructor set.
-Write for ${AUDIENCE[aud]}, in ${lang}, in a clear academic register: present tense when discussing what the lecture argues ("Rivera explains that…"), with an introduction that states the lecture's central idea as a thesis.
-
-Write the whole article as connected prose: no bulleted or numbered lists, no tables, no bold labels. Use developed paragraphs with topic sentences and transitions.
-
-Output GitHub-flavored Markdown in exactly this order:
-1. "# Title" — an informative title in MLA title case (a subtitle after a colon is fine). Do not write a name, date or course heading — the app adds it.
-2. An introductory paragraph with no heading.
-3. One "##" section per major topic in lecture order (headings in title case), each with two to four paragraphs.
-4. "## Conclusion" with one or two paragraphs.
-
-Citations (MLA 9 in-text): cite the sources below using exactly the forms given, placed before the sentence's final punctuation, e.g. "…from water (Rivera)." For a direct quotation from the lecture add the timestamp, e.g. (Rivera 00:12:40). Do not use page numbers unless the material shows them. Do not cite anything else and do not write a Works Cited list — it is added automatically.
-${sources}
-
-After the article, output exactly one final line and nothing after it:
-<!--didasko {"lectureTitle":"<the lecture's title in MLA title case>","titles":{"F1":"<title of F1 in MLA title case>"}}-->
-Include every F-number listed above in "titles".`;
-}
+const apaSystem = o => journalSystem({ ...o, mla: false });
+const mlaSystem = o => journalSystem({ ...o, mla: true });
 function outlineSystem({ aud, lang }) {
   return `You turn raw lecture transcripts into a crisp, skimmable outline for ${AUDIENCE[aud]}, written in ${lang}.
 The transcript comes from speech recognition: fix obvious recognition errors silently and drop filler. Do not add facts that are not in the transcript or the materials. Lines marked ★KEY POINT were flagged by the instructor: include every one and start its bullet with "★ ". Lines like "== TOPIC: … ==" are the instructor's section breaks.
@@ -275,13 +264,22 @@ async function generateNotes() {
       : '\nIMPORTANT: there is no lecture transcript for this session. Build the whole output from the materials alone. Do not mention or cite a lecture or lecturer; where the instructions above say to cite the lecture, cite the materials instead. In the abstract and introduction, describe the material’s topic rather than a lecture.');
   const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${live ? transcriptForPrompt(L) : '(none — use the materials only)'}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
   if (style === 'kids') return generateKidsBook(L, { system, user, images: mat.images, lang });
-  setNotesBusy(true, 'Reading the transcript…');
   const prev = L.notes;
-  let latest = '';
+  let latest = '', userMsg = user;
+  if (style === 'apa' || style === 'mla') {
+    setNotesBusy(true, 'Reading the whole lecture and planning the article…');
+    try {
+      const planText = await callAI({ system: journalPlanSystem(opts), user, images: mat.images, maxTokens: 6000, json: true, signal: notesCtl.signal,
+        onText: t => { const k = (t.match(/"heading"\s*:/g) || []).length; if (k) $('#notes-status-text').textContent = `Planning the article… ${k} section${k === 1 ? '' : 's'} so far`; } });
+      const plan = parseJson(planText);
+      if (Array.isArray(plan.sections) && plan.sections.length) userMsg = `${user}\n\n<editor_plan>\n${JSON.stringify(plan, null, 1)}\n</editor_plan>\n\nWrite the article now, following the editor's plan.`;
+    } catch (e) { if (notesCtl?.signal.aborted) { setNotesBusy(false); notesCtl = null; toast('Stopped'); return; } /* no plan: the writer organizes it in one pass */ }
+  }
+  setNotesBusy(true, style === 'apa' || style === 'mla' ? 'Writing the article…' : 'Reading the transcript…');
   const show = t => { L.notes = { ...(L.notes || {}), style, md: stripFences(t.split('<!--didasko')[0]) }; delete L.notes.book; const d = $('#notes-doc'); d.className = `apa notes-${style}`; d.innerHTML = notesDocHtml(L); };
   try {
     const out = await callAI({
-      system, user, images: mat.images, maxTokens: 10000, signal: notesCtl.signal,
+      system, user: userMsg, images: mat.images, maxTokens: 14000, signal: notesCtl.signal,
       onText: t => { latest = t; $('#notes-status-text').textContent = 'Writing…'; if (!notesRAF) notesRAF = requestAnimationFrame(() => { notesRAF = 0; show(latest); }); }
     });
     const [body, meta] = out.split('<!--didasko');
@@ -440,23 +438,6 @@ function buildLocalOutline(L, useFiles) {
 }
 
 /* ---- Exports ---- */
-const MLA_CSS = `
-.mla{background:#fff;color:#111;max-width:8.5in;margin:0 auto;padding:clamp(22px,7vw,1in);font:1.02rem/2 "Times New Roman",Tinos,Times,serif;box-shadow:0 1px 4px rgba(0,0,0,.12);border-radius:3px;overflow-wrap:anywhere;position:relative}
-.mla p{margin:0}
-.mla-run{text-align:right;margin-bottom:.2em}
-.mla-head p{text-indent:0}
-.mla-title{font-weight:400;font-size:1em;line-height:2;font-family:inherit;text-align:center;margin:0;border:0;padding:0;color:inherit;text-wrap:balance}
-.mla-body p{text-indent:.5in}
-.mla-body h2{font-weight:700;font-size:1em;line-height:2;font-family:inherit;margin:0;text-align:left;border:0;padding:0;color:inherit}
-.mla-body h3{font-style:italic;font-weight:400;font-size:1em;line-height:2;font-family:inherit;margin:0}
-.mla-body blockquote{margin:0 0 0 .5in;padding:0;border:0;background:none}
-.mla-body blockquote p{text-indent:0}
-.mla-body ul,.mla-body ol{margin:0;padding-left:.5in}
-.mla-wc{margin-top:2em}
-.mla-wc h2{font-weight:400;font-size:1em;line-height:2;font-family:inherit;text-align:center;margin:0;border:0;padding:0;color:inherit}
-.mla-ref{padding-left:.5in;text-indent:-.5in}
-.mla a{color:inherit}
-@media print{.mla{box-shadow:none;max-width:none;padding:0;font-size:12pt}.mla-wc{break-before:page}}`;
 const ND_CSS = `
 .nd{background:#fff;color:#15201c;max-width:820px;margin:0 auto;padding:clamp(20px,5vw,52px);border-radius:12px;border:1px solid #d6dfdb;font:1.02rem/1.65 Literata,Georgia,serif;overflow-wrap:anywhere}
 .nd-kicker{margin:0 0 .6em;font:700 .74rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:#1d6b57}
@@ -499,13 +480,14 @@ const BOOK_CSS = `
 .book-src{margin-top:1.4em;font:.78rem/1.4 "Atkinson Hyperlegible",system-ui,sans-serif;color:#8a7a5c;padding-left:1.6em;text-indent:-1.6em}
 .book .btn{background:rgba(255,255,255,.85);border-color:#e0d4b8;color:#2b2218}
 @media print{.book{display:block}.book-page{break-inside:avoid;break-after:page;box-shadow:none;border:0;max-width:6.5in;margin:0 auto}.book-tools,.book-foot .btn{display:none}}`;
-function ensureFormatCss() { if (!document.getElementById('fmt-css')) { const st = document.createElement('style'); st.id = 'fmt-css'; st.textContent = MLA_CSS + ND_CSS + BOOK_CSS; document.head.appendChild(st); } }
+function ensureFormatCss() { if (!document.getElementById('fmt-css')) { const st = document.createElement('style'); st.id = 'fmt-css'; st.textContent = ND_CSS + BOOK_CSS; document.head.appendChild(st); } }
 function standaloneHtml(L) {
   const k = styleKey(L.notes?.style);
   if (k === 'apa') return apaStandalone(L);
-  const title = k === 'mla' ? composeMla(L).title : k === 'kids' ? L.notes.book.title : (splitBody(L.notes.md).title || L.title);
-  const css = k === 'mla' ? MLA_CSS : k === 'kids' ? BOOK_CSS : ND_CSS;
-  const body = k === 'mla' ? mlaHtml(L) : k === 'kids' ? bookHtml(L, { editable: false }) : plainDocHtml(L);
+  if (k === 'mla') return journalStandalone(L, true);
+  const title = k === 'kids' ? L.notes.book.title : (splitBody(L.notes.md).title || L.title);
+  const css = k === 'kids' ? BOOK_CSS : ND_CSS;
+  const body = k === 'kids' ? bookHtml(L, { editable: false }) : plainDocHtml(L);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,700;1,7..72,400&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
 <style>body{margin:0;background:${k === 'kids' ? '#f4efe3' : '#e6e8e7'};padding:24px 12px}${css}</style></head><body>${body}</body></html>`;
@@ -513,18 +495,9 @@ function standaloneHtml(L) {
 function formatMarkdown(L) {
   const k = styleKey(L.notes?.style);
   if (k === 'apa') return apaMarkdown(L);
-  if (k === 'mla') { const c = composeMla(L); return [...c.head.map(h => h + '  '), '', `# ${c.title}`, '', c.body, '', '## Works Cited', '', c.refs.join('\n\n')].join('\n').replace(/\n{3,}/g, '\n\n'); }
+  if (k === 'mla') return journalMarkdown(L, true);
   if (k === 'kids') return bookMarkdown(L, L.notes.book) + `\n\n---\n\n${lectureRef(L, L.notes?.lectureTitle)}\n`;
   return `${L.notes.md}\n\n## Sources\n\n${referenceList(L).join('\n\n')}\n`;
-}
-function mlaDocBlocks(L) {
-  const c = composeMla(L), B = [];
-  c.head.forEach(h => B.push({ type: 'p', style: 'NoIndent', runs: [{ text: h }] }));
-  B.push({ type: 'p', style: 'MlaTitle', runs: parseInline(c.title) });
-  parseMd(c.body).forEach(b => B.push(b.type === 'h' ? { ...b, level: 2 } : b));
-  B.push({ type: 'pagebreak' }, { type: 'p', style: 'MlaTitle', runs: [{ text: 'Works Cited' }] });
-  c.refs.forEach(r => B.push({ type: 'ref', text: r }));
-  return { blocks: B, running: c.running };
 }
 function plainDocBlocks(L) {
   const B = [{ type: 'p', runs: [{ text: [STYLE_LABEL[styleKey(L.notes.style)], L.course, fmtDate(L.createdAt), lecturerOf(L)].filter(Boolean).join(' · '), i: true }] }, ...parseMd(L.notes.md)];
@@ -556,14 +529,14 @@ async function exportNotes(t) {
   const suffix = { apa: 'apa', mla: 'mla', outline: 'outline', kids: 'picture-book', other: 'notes' }[k];
   if (t === 'docx') {
     if (k === 'apa') { const d = apaDocBlocks(L); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeApa(L).fullTitle, { journal: true, runningHead: d.runningHead, footer: d.footer })); }
-    if (k === 'mla') { const d = mlaDocBlocks(L); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeMla(L).title, { mla: true, runningHead: d.running, footer: '' })); }
+    if (k === 'mla') { const d = journalDocBlocks(L, true); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeMla(L).fullTitle, { journal: true, runningHead: d.runningHead, footer: d.footer })); }
     if (k === 'kids') { toast('Preparing pictures…'); return saveFile(`${name}-${suffix}.docx`, await buildDocx(await bookDocBlocks(L), L.notes.book.title, { footer: L.notes.book.title })); }
     return saveFile(`${name}-${suffix}.docx`, await buildDocx(plainDocBlocks(L), splitBody(L.notes.md).title || L.title));
   }
   if (t === 'html') return saveFile(`${name}-${suffix}.html`, standaloneHtml(L), 'text/html');
   if (t === 'md') return saveFile(`${name}-${suffix}.md`, formatMarkdown(L), 'text/markdown');
   if (t === 'print') {
-    const css = k === 'apa' ? JOURNAL_CSS.replace(/\.jr/g, '#print-root .jr') : (k === 'mla' ? MLA_CSS : k === 'kids' ? BOOK_CSS : ND_CSS);
+    const css = k === 'apa' || k === 'mla' ? JOURNAL_CSS.replace(/\.jr/g, '#print-root .jr') : (k === 'kids' ? BOOK_CSS : ND_CSS);
     return printHtml(`<style>${css}</style>${k === 'kids' ? bookHtml(L, { editable: false }) : notesDocHtml(L)}`);
   }
   if (t === 'copy') return copyText(mdToText(formatMarkdown(L)));

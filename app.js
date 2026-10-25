@@ -1267,36 +1267,56 @@ Common misconception: the O2 released by plants comes from water, not from CO2. 
     cite: { authors: 'Sample State University Biology Department', year: '2025', title: 'Chapter 8.2: The light-dependent reactions', source: 'BIO 110 course reader', kind: 'chapter', checked: true } });
   L.notes = { style: 'apa', at: Date.now(), lectureTitle: 'Photosynthesis: The light-dependent reactions', titles: { [fid]: 'Chapter 8.2: The light-dependent reactions' },
     keywords: ['photosynthesis', 'light-dependent reactions', 'photosystem II', 'photolysis', 'electron transport chain', 'chemiosmosis', 'NADPH'],
-    md: `# Photosynthesis: The Light-Dependent Reactions
+    md: `# Photosynthesis: How the Light-Dependent Reactions Turn Sunlight Into Chemical Energy
 
 ## Abstract
-This lecture introduced the first stage of photosynthesis, the light-dependent reactions, which take place in the thylakoid membranes of the chloroplast. Rivera explained that light energizes electrons in Photosystem II and that water is split to replace them, releasing the oxygen in Earth’s atmosphere. As electrons pass along the electron transport chain, protons are pumped into the thylakoid space, and ATP synthase uses the resulting gradient to make ATP through chemiosmosis. At Photosystem I, electrons are re-energized and used to form NADPH. The ATP and NADPH produced in these reactions power the Calvin cycle, the topic of the next class (Rivera, 2026).
+Photosynthesis is usually summarized in a single equation, yet that equation conceals two distinct stages with different locations, inputs and purposes. This article examines the first stage, the light-dependent reactions, as presented in an introductory biology lecture (Rivera, 2026) and its accompanying course reading. It first establishes where the reactions take place and why their location in the thylakoid membrane matters. It then follows energy from its capture by two photosystems, through an electron transport chain that builds a proton gradient, to the synthesis of ATP and NADPH. A discussion section addresses the most persistent misconception about photosynthesis, the origin of atmospheric oxygen, and links the light reactions to cellular respiration and the Calvin cycle. Understanding the light reactions as an energy-conversion pathway, rather than a list of named molecules, gives students a framework for reasoning about how disruptions to any step affect the whole process.
 
-*Keywords:* photosynthesis, light-dependent reactions, photosystem II, photolysis, electron transport chain, chemiosmosis, NADPH
+*Keywords:* photosynthesis, light-dependent reactions, photolysis, electron transport chain, chemiosmosis
 
 ## Introduction
-Photosynthesis is the process by which plants, algae and some bacteria capture light energy and store it in chemical bonds. This lecture continued the course’s unit on photosynthesis by turning from the process as a whole to its first stage, the light-dependent reactions. Rivera’s aim was to show how the chloroplast converts the energy of light into two chemical energy carriers, ATP and NADPH, and why that conversion also explains the origin of the oxygen that animals breathe (Rivera, 2026).
+Nearly all energy that flows through living systems enters them through photosynthesis, the process by which plants, algae and some bacteria capture light and store its energy in chemical bonds. Students usually meet the process as a balanced equation, 6 CO₂ + 6 H₂O + light energy → C₆H₁₂O₆ + 6 O₂, which accurately describes the overall inputs and outputs but says nothing about how the conversion happens (Rivera, 2026).
 
-## Why Light Matters
-Rivera began by recalling the overall equation for photosynthesis, 6 CO₂ + 6 H₂O + light energy → C₆H₁₂O₆ + 6 O₂, and cautioned that the single equation conceals two distinct stages (Rivera, 2026). The first, the **light-dependent reactions**, captures energy from light; the second, the **Calvin cycle**, uses that energy to build sugar and was reserved for the next class.
+That gap matters. When the process is reduced to an equation, students tend to treat its parts as interchangeable and to draw incorrect conclusions, most commonly that the oxygen plants release comes from carbon dioxide (Rivera, 2026). Rivera therefore separated photosynthesis into its two stages and devoted the lecture to the first, the **light-dependent reactions**, which convert light into the chemical energy carriers that the second stage, the Calvin cycle, later spends to build sugar.
 
-The light-dependent reactions are anchored in a particular place within the cell. They occur in the **thylakoid membranes** of the chloroplast, flattened discs that are stacked into columns called **grana**. Locating the reactions in a membrane is not incidental: as the later sections showed, the membrane is what allows the chloroplast to build and use a proton gradient (Rivera, 2026; Sample State University Biology Department, 2025).
+This article organizes the lecture's content around that conversion of energy. Section 2 explains where the light reactions occur and why the structure of the chloroplast is essential to them. Section 3 traces the pathway of energy from light to ATP and NADPH. Section 4 discusses the misconceptions and connections the lecture highlighted, and Section 5 concludes.
 
-## Photosystem II and the Splitting of Water
-Light strikes **Photosystem II** first. Rivera noted that the numbering is a frequent source of confusion, because it reflects the order in which the two photosystems were discovered rather than the order in which they act (Rivera, 2026). Within Photosystem II, the reaction-center chlorophyll *a*, known as **P680**, absorbs light energy, and one of its electrons is raised to a higher energy level and passed on.
+## The Setting: Two Stages and a Specialized Membrane
+Before following any single molecule, it helps to see the light reactions in context: what they contribute to photosynthesis as a whole, and the physical structure that makes them possible.
 
-The electron that leaves P680 must be replaced, and the plant obtains it by splitting water in a process called **photolysis**. Photolysis releases hydrogen ions into the thylakoid space and gives off oxygen as a by-product (Sample State University Biology Department, 2025). Rivera stressed the significance of this step: the oxygen in Earth’s atmosphere comes from water rather than from carbon dioxide, which corrects one of the most common misconceptions about photosynthesis (Rivera, 2026). Isotope-labelling experiments with ¹⁸O confirmed this origin in 1941 (Sample State University Biology Department, 2025).
+### Two Stages With Different Jobs
+Rivera described photosynthesis as a two-part system in which each stage depends on the other (Rivera, 2026). The light-dependent reactions capture energy and produce three things: ATP, NADPH and oxygen. The **Calvin cycle**, which the class would study next, uses the ATP and NADPH to fix carbon dioxide into sugar. The two stages are therefore linked by energy carriers rather than by a shared location or set of reactions.
 
-## The Electron Transport Chain
-From Photosystem II, the excited electron travels along an electron transport chain. It passes first to plastoquinone, then through the cytochrome b6f complex, and finally to plastocyanin, which delivers it to Photosystem I (Rivera, 2026). Each carrier accepts the electron at a slightly lower energy than the one before, so energy is released at every step.
+This division clarifies what the light reactions are for. Their purpose is not to make sugar, but to make the energy available in a usable chemical form. Seeing them this way prepares students to ask the right questions about each step: where the energy comes from, where it goes, and what is produced along the way.
 
-The chloroplast puts that released energy to work. As the electron moves through the cytochrome complex, protons are pumped into the thylakoid space, building a concentration gradient across the membrane. **ATP synthase** then allows the protons to flow back out into the stroma and couples that flow to the synthesis of ATP, a mechanism known as **chemiosmosis** or photophosphorylation (Rivera, 2026; Sample State University Biology Department, 2025). Rivera pointed out that mitochondria rely on the same principle and announced that the two organelles would be compared the following week.
+### The Thylakoid Membrane
+The light reactions take place in the **thylakoid membranes** inside the chloroplast, flattened discs that are stacked into columns called **grana** (Rivera, 2026; Sample State University Biology Department, 2025). The location is not incidental. As Section 3 shows, the reactions work by moving protons from one side of a membrane to the other and then harnessing their return. A sealed membrane is what allows that difference in concentration to exist at all.
 
-## Photosystem I and NADPH
-When the electron reaches **Photosystem I**, its reaction center, **P700**, absorbs light and re-energizes it. The electron is passed to ferredoxin, and the enzyme **NADP⁺ reductase** uses it to reduce NADP⁺ to **NADPH** in the stroma (Rivera, 2026). By the end of this sequence, the light-dependent reactions have produced three things: ATP, NADPH and oxygen. The first two remain in the chloroplast to drive the Calvin cycle, while oxygen is released from the leaf.
+## From Light to Chemical Energy
+The core of the lecture followed a single pathway of energy through the thylakoid membrane. It is easiest to understand as three linked steps: capturing light, using it to build a proton gradient, and using the gradient and a second burst of light to make the energy carriers.
+
+### Capturing Light and Splitting Water at Photosystem II
+Light first strikes **Photosystem II**. Rivera noted that the name causes confusion because the numbering reflects the order of discovery, not the order of action (Rivera, 2026). In the reaction center, a chlorophyll *a* molecule called **P680** absorbs light energy, and one of its electrons is raised to a higher energy level and passed on.
+
+The electron that leaves P680 must be replaced, and the plant replaces it by splitting water, a process called **photolysis**. Splitting water releases hydrogen ions into the thylakoid space and gives off oxygen as a by-product (Sample State University Biology Department, 2025). This single step is the source of the oxygen in Earth's atmosphere, a point Section 4 returns to.
+
+### Building a Proton Gradient Along the Electron Transport Chain
+From Photosystem II the excited electron moves along an **electron transport chain**, passing from plastoquinone to the cytochrome b6f complex and then to plastocyanin (Rivera, 2026). At each transfer the electron is held a little less tightly, and the energy released is used by the cytochrome complex to pump protons into the thylakoid space.
+
+The result is a store of potential energy: many more protons inside the thylakoid than outside it. **ATP synthase**, an enzyme spanning the membrane, lets the protons flow back out and couples that flow to the synthesis of ATP. This mechanism is called **chemiosmosis**, or photophosphorylation in the course reading (Rivera, 2026; Sample State University Biology Department, 2025).
+
+### Re-energizing Electrons and Making NADPH at Photosystem I
+When the electron reaches **Photosystem I**, its reaction center, **P700**, absorbs more light and re-energizes it. The electron passes to ferredoxin, and the enzyme NADP⁺ reductase uses it to reduce NADP⁺ to **NADPH** in the stroma (Rivera, 2026). With this final step the light reactions have completed their job: ATP and NADPH stay in the chloroplast to power the Calvin cycle, and oxygen leaves the leaf.
+
+## Discussion: Misconceptions and Connections
+The lecture used the pathway to correct a common misunderstanding and to connect photosynthesis to other topics in the course.
+
+The most persistent misconception is that atmospheric oxygen comes from carbon dioxide. The pathway shows why that cannot be true: oxygen is released when water is split to replace electrons lost from Photosystem II, while carbon dioxide is not used until the Calvin cycle (Rivera, 2026). Isotope-labelling experiments with ¹⁸O confirmed this origin in 1941 (Sample State University Biology Department, 2025). Asking students to trace an oxygen atom through the process is a direct way to test whether the correction has taken hold.
+
+The pathway also shows how the stages depend on one another. Because ATP production relies on the proton gradient, anything that makes the thylakoid membrane leaky would cut ATP output even if electrons kept flowing. Rivera pointed out that mitochondria use the same principle to make ATP during cellular respiration, a comparison the class would take up the following week (Rivera, 2026).
 
 ## Conclusion
-The light-dependent reactions transform light energy into chemical energy through a coordinated sequence: water is split at Photosystem II, protons are pumped as electrons move along the transport chain, ATP is made by chemiosmosis, and NADPH is formed at Photosystem I (Rivera, 2026; Sample State University Biology Department, 2025). Understanding this sequence explains where atmospheric oxygen comes from and prepares students for the Calvin cycle, which will use these products to fix carbon in the next class. Students were asked to read Section 8.3 and complete its practice problems before then.` };
+The light-dependent reactions are best understood as an energy-conversion pathway: light is captured at Photosystem II, water is split, energy from moving electrons builds a proton gradient that drives ATP synthase, and a second photosystem produces NADPH (Rivera, 2026; Sample State University Biology Department, 2025). Framing the process this way explains where atmospheric oxygen comes from, why the chloroplast's membranes matter, and how the light reactions supply the Calvin cycle. Students were asked to read Section 8.3 on the Calvin cycle and complete its practice problems before the next class.` };
   L.quiz = { at: Date.now(), reflection: 'Which step of the light reactions could you now teach to a classmate, and which step still feels fuzzy? What question would you ask to clear it up?', questions: normalizeQuestions([
     { stem: 'A classmate says, “Plants release oxygen because they break apart the CO₂ they take in.” Based on the lecture, what is the best response?', options: ['That’s right — the oxygen atoms in O₂ come from CO₂.', 'Not quite — the O₂ comes from water that is split to replace electrons lost from Photosystem II.', 'Not quite — the O₂ comes from glucose broken down during the Calvin cycle.', 'Not quite — the O₂ is made by ATP synthase as protons cross the membrane.'], answer: 1,
       feedback: ['This is the misconception the lecture warned about. Think about which molecule is split in Photosystem II and what it gives off.', 'Yes. Photolysis splits water to replace P680’s electrons, and the oxygen is a by-product — confirmed with ¹⁸O labelling.', 'Glucose is built in the Calvin cycle, not broken down there. Trace where the oxygen appears in the light reactions.', 'ATP synthase makes ATP from a proton flow; it doesn’t produce any gas. Where does water enter the process?'],
@@ -1737,97 +1757,122 @@ function splitBody(md) {
   }
   return { title, abstract: abstract.join('\n').trim(), body: body.join('\n').trim().replace(/^(\*\*(?:Table|Figure) \d+\*\*)[ \t]*\n(?=\*[^*\n])/gm, '$1\n\n'), keywords };
 }
-const JOURNAL = 'Didasko Lecture Notes';
-function composeApa(L) {
+/* ---- Compose the article. Layout modeled on a single-column research journal (e.g. Springer):
+   running header, bold title, authors joined by "·", run-in Abstract and Keywords, numbered sections
+   (1 Introduction, 1.1 …), justified body, first-page author footnote, small hanging-indent references. ---- */
+const JOURNAL = 'Didasko Lecture Notes', JOURNAL_SHORT = 'Didasko Lect Notes';
+const UNNUMBERED = /^(abstract|references|works cited|keywords|acknowledg)/i;
+function numberHeadings(md) {
+  let a = 0, b = 0, c = 0;
+  return String(md || '').split('\n').map(l => {
+    const m2 = l.match(/^##\s+(.*)$/), m3 = l.match(/^###\s+(.*)$/), m4 = l.match(/^####\s+(.*)$/);
+    const clean = s => s.replace(/^\d+(\.\d+)*\.?\s+/, '').trim();
+    if (m2 && !UNNUMBERED.test(clean(m2[1]))) { a++; b = 0; c = 0; return `## ${a} ${clean(m2[1])}`; }
+    if (m3 && a) { b++; c = 0; return `### ${a}.${b} ${clean(m3[1])}`; }
+    if (m4 && a && b) { c++; return `#### ${a}.${b}.${c} ${clean(m4[1])}`; }
+    return l;
+  }).join('\n');
+}
+function composeJournal(L, mla) {
   const sb = splitBody(L.notes?.md || '');
   const full = sb.title || L.title;
   const [t, ...sub] = full.split(/:\s+/);
   const lecturer = lecturerOf(L), author = (L.author || S.settings.author || '').trim();
-  const running = full.replace(/:.*$/, '').toUpperCase();
+  const running = full.replace(/:.*$/, '');
+  const src = L.source || {};
   return {
-    fullTitle: full, title: sub.length ? t : full, subtitle: sub.join(': '),
+    mla, fullTitle: full, title: sub.length ? t : full, subtitle: sub.join(': '),
     lecturer, author: author && author !== lecturer ? author : '',
     affiliation: (L.institution || S.settings.institution || '').trim(),
-    course: (L.course || '').trim(), date: titleDate(L.createdAt), length: fmtClock(L.ms || 0),
-    runningHead: running.length > 50 ? running.slice(0, 47).replace(/\s+\S*$/, '') + '…' : running,
-    abstract: sb.abstract, keywords: sb.keywords || (L.notes?.keywords || []).join(', '), body: sb.body,
-    cite: lectureRef(L, L.notes?.lectureTitle), refs: referenceList(L), kind: { cornell: 'Lecture Notes · Cornell Format', outline: 'Lecture Notes · Outline', handout: 'Short Communication' }[L.notes?.style] || 'Lecture Notes'
+    course: (L.course || '').trim(), date: mla ? mlaLongDate(L.createdAt) : titleDate(L.createdAt), length: fmtClock(L.ms || 0),
+    runningHead: running.length > 60 ? running.slice(0, 57).replace(/\s+\S*$/, '') + '…' : running,
+    abstract: sb.abstract, keywords: (sb.keywords || (L.notes?.keywords || []).join(', ')).split(/\s*[,;·]\s*/).filter(Boolean),
+    body: numberHeadings(sb.body),
+    cite: mla ? mlaLectureRef(L, L.notes?.lectureTitle) : lectureRef(L, L.notes?.lectureTitle),
+    refs: mla ? worksCited(L) : referenceList(L), refsTitle: mla ? 'Works Cited' : 'References',
+    kind: hasTranscript(L) ? (isVideoSrc(L) ? 'Notes on a video lecture' : src.kind === 'audio' ? 'Notes on a recorded lecture' : 'Lecture notes') : 'Notes on course materials',
+    hasTr: hasTranscript(L), video: isVideoSrc(L)
   };
 }
-function apaHtml(L) {
-  const c = composeApa(L);
+const composeApa = L => composeJournal(L, false);
+// In-text citation years in the journal's link color, as in the example article.
+const tintYears = html => html.replace(/\(([^()<>]*?\b(?:1[89]|20)\d{2}[a-z]?\b[^()<>]*?)\)/g, (m, inner) => '(' + inner.replace(/\b((?:1[89]|20)\d{2}[a-z]?)\b/g, '<span class="yr">$1</span>') + ')');
+function journalHtml(L, mla) {
+  const c = composeJournal(L, mla);
+  const people = [c.lecturer, c.author].filter(Boolean);
   const aff = [c.affiliation, c.course].filter(Boolean).join(', ');
-  return `<article class="jr">
-    <header class="jr-mast"><span class="jr-journal">${JOURNAL}</span><span>${esc([c.course, c.date].filter(Boolean).join(' · '))}</span></header>
-    <div class="jr-head">
-      <p class="jr-kicker">${esc(c.kind)}</p>
-      <h1 class="jr-title">${inl(c.title)}${c.subtitle ? `<span class="jr-sub">${inl(c.subtitle)}</span>` : ''}</h1>
-      <p class="jr-authors">${esc(c.lecturer || (hasTranscript(L) ? 'Lecturer not set' : c.author || 'Lecture notes'))}${aff ? '<sup>1</sup>' : ''}</p>
-      ${aff ? `<p class="jr-affil"><sup>1</sup>${esc(aff)}</p>` : ''}
-      <dl class="jr-meta"><div><dt>Lecture date</dt><dd>${esc(c.date)}</dd></div>${c.length !== '0:00' ? `<div><dt>Recorded</dt><dd>${esc(c.length)}</dd></div>` : ''}${c.author ? `<div><dt>Notes prepared by</dt><dd>${esc(c.author)}</dd></div>` : ''}</dl>
-    </div>
-    ${c.abstract || c.keywords ? `<section class="jr-abstract" aria-label="Abstract"><h2>Abstract</h2>${mdToHtml(c.abstract)}${c.keywords ? `<p class="jr-kw"><em>Keywords:</em> ${esc(c.keywords)}</p>` : ''}</section>` : ''}
-    ${hasTranscript(L) ? `<p class="jr-cite"><b>Cite this ${isVideoSrc(L) ? 'video' : 'lecture'}:</b> ${inl(c.cite)}</p>` : ''}
-    <div class="jr-body">${mdToHtml(c.body)}<section class="jr-refs"><h2>References</h2>${c.refs.map(r => `<p class="apa-ref">${inl(r)}</p>`).join('')}</section></div>
-    <footer class="jr-foot"><span>${esc(c.runningHead)}</span><span>${JOURNAL}</span></footer>
+  const body = tintYears(mdToHtml(c.body));
+  const cut = body.indexOf('<h2', body.indexOf('<h2') + 1); // the author footnote sits at the foot of the first section, as on page one of a journal
+  const fn = people.length || aff ? `<div class="jr-fn">${people.length ? `<p><b>${esc(people[0])}</b>${aff ? `<br>${esc(aff)}` : ''}</p>` : ''}${c.author ? `<p>${esc(c.author)} prepared these notes.</p>` : ''}</div>` : '';
+  const bodyHtml = cut > 0 ? body.slice(0, cut) + fn + body.slice(cut) : body + fn;
+  return `<article class="jr${mla ? ' jr-mla' : ''}">
+    <header class="jr-run"><span><span class="jr-j">${JOURNAL_SHORT}</span><br>${esc([c.kind, c.date].join(' · '))}</span><span class="jr-rh">${esc(c.course || '')}</span></header>
+    <h1 class="jr-title">${inl(c.title)}${c.subtitle ? `: ${inl(c.subtitle)}` : ''}</h1>
+    ${people.length ? `<p class="jr-authors">${people.map(esc).join(' · ')}</p>` : ''}
+    <p class="jr-meta">${esc([c.hasTr ? (c.video ? 'Video' : 'Lecture') + ` · ${c.date}` : c.date, c.hasTr && c.length !== '0:00' ? `${c.length} recorded` : '', aff].filter(Boolean).join(' · '))}</p>
+    ${c.abstract ? `<div class="jr-abs">${tintYears(mdToHtml(c.abstract)).replace(/^<p>/, '<p><b>Abstract</b> ')}</div>` : ''}
+    ${c.keywords.length ? `<p class="jr-kw"><b>Keywords</b> ${c.keywords.map(esc).join(' · ')}</p>` : ''}
+    <div class="jr-body">${bodyHtml}</div>
+    <section class="jr-refs"><h2>${c.refsTitle}</h2>${c.refs.map(r => `<p class="apa-ref">${inl(r)}</p>`).join('')}</section>
+    <footer class="jr-foot">${c.hasTr ? `<span><b>Cite as:</b> ${inl(c.cite)}</span>` : ''}<span>${JOURNAL}</span></footer>
   </article>`;
 }
+const apaHtml = L => journalHtml(L, false);
 function ensureJournalCss() { if (!document.getElementById('jr-css')) { const st = document.createElement('style'); st.id = 'jr-css'; st.textContent = JOURNAL_CSS; document.head.appendChild(st); } }
-function apaMarkdown(L) {
-  const c = composeApa(L);
-  return [`*${JOURNAL} · ${c.kind}*`, '', `# ${c.fullTitle}`, '', `**${c.lecturer}**${[c.affiliation, c.course].filter(Boolean).length ? '  \n' + [c.affiliation, c.course].filter(Boolean).join(', ') : ''}  \n${c.date}${c.author ? `  \nNotes prepared by ${c.author}` : ''}`, '',
-    c.abstract ? `## Abstract\n\n${c.abstract}` : '', c.keywords ? `\n*Keywords:* ${c.keywords}` : '', '', `**Cite this lecture:** ${c.cite}`, '', '---', '', c.body, '', '## References', '', c.refs.join('\n\n')].join('\n').replace(/\n{3,}/g, '\n\n');
+function journalMarkdown(L, mla) {
+  const c = composeJournal(L, mla);
+  return [`*${JOURNAL} · ${c.kind} · ${c.date}*`, '', `# ${c.fullTitle}`, '', [c.lecturer, c.author].filter(Boolean).map(x => `**${x}**`).join(' · '),
+    [c.affiliation, c.course].filter(Boolean).join(', '), '', c.abstract ? `**Abstract** ${c.abstract.replace(/\n+/g, ' ')}` : '', '', c.keywords.length ? `**Keywords** ${c.keywords.join(' · ')}` : '', '', c.body, '', `## ${c.refsTitle}`, '', c.refs.join('\n\n'), '', c.hasTr ? `*Cite as:* ${c.cite}` : ''].join('\n').replace(/\n{3,}/g, '\n\n');
 }
-function apaStandalone(L) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(composeApa(L).fullTitle)}</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=Source+Sans+3:wght@400;600;700&display=swap">
-<style>body{margin:0;background:#e6e8e7;padding:24px 12px}${JOURNAL_CSS}</style></head><body>${apaHtml(L)}</body></html>`;
+const apaMarkdown = L => journalMarkdown(L, false);
+function journalStandalone(L, mla) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(composeJournal(L, mla).fullTitle)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap">
+<style>body{margin:0;background:#e9eaea;padding:24px 12px}${JOURNAL_CSS}</style></head><body>${journalHtml(L, mla)}</body></html>`;
 }
-/* Journal-article look: masthead, title block, boxed abstract, two-column body (wide screens and print), references in the flow. */
+const apaStandalone = L => journalStandalone(L, false);
 const JOURNAL_CSS = `
-.jr{--jr-ink:#141414;--jr-mute:#5b5b5b;--jr-rule:#c9c9c9;--jr-accent:#1d6b57;--jr-box:#f2f5f4;background:#fff;color:var(--jr-ink);max-width:8.5in;margin:0 auto;padding:clamp(20px,6vw,.8in);font:15px/1.55 "Source Serif 4",Tinos,"Times New Roman",serif;box-shadow:0 1px 4px rgba(0,0,0,.12);border-radius:3px;overflow-wrap:anywhere}
+.jr{--jr-ink:#141414;--jr-mute:#4d4d4d;--jr-rule:#1a1a1a;--jr-link:#1f4e8c;--jr-soft:#f4f4f2;background:#fff;color:var(--jr-ink);max-width:7.4in;margin:0 auto;padding:clamp(22px,6vw,.85in) clamp(18px,6.5vw,1in) clamp(22px,5vw,.7in);font:16.5px/1.52 "STIX Two Text","Times New Roman",Tinos,Times,serif;box-shadow:0 1px 4px rgba(0,0,0,.14);border-radius:2px;overflow-wrap:anywhere;text-rendering:optimizeLegibility}
 .jr *{box-sizing:border-box}
-.jr-mast{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font:600 11px/1.3 "Source Sans 3","Atkinson Hyperlegible",system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--jr-mute);border-bottom:2px solid var(--jr-ink);padding-bottom:6px}
-.jr-journal{color:var(--jr-accent)}
-.jr-head{padding:22px 0 14px}
-.jr-kicker{margin:0 0 8px;font:700 11px/1 "Source Sans 3",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--jr-accent)}
-.jr-title{margin:0;font:700 clamp(24px,4.4vw,34px)/1.15 "Source Serif 4",Tinos,serif;letter-spacing:-.01em;text-wrap:balance;text-align:left;border:0;padding:0;color:var(--jr-ink)}
-.jr-sub{display:block;font-weight:400;font-size:.62em;line-height:1.3;margin-top:6px;color:#333}
-.jr-authors{margin:14px 0 0;font:600 15px/1.4 "Source Sans 3",system-ui,sans-serif}
-.jr-affil{margin:2px 0 0;font:italic 13px/1.4 "Source Serif 4",serif;color:var(--jr-mute)}
-.jr sup{font-size:.7em;line-height:0}
-.jr-meta{display:flex;flex-wrap:wrap;gap:4px 22px;margin:12px 0 0;font:12px/1.4 "Source Sans 3",system-ui,sans-serif;color:var(--jr-mute)}
-.jr-meta div{display:flex;gap:6px}.jr-meta dt{font-weight:700}.jr-meta dd{margin:0}
-.jr-abstract{background:var(--jr-box);border-top:1px solid var(--jr-ink);border-bottom:1px solid var(--jr-ink);padding:14px 18px;margin:6px 0 10px;font-size:14px}
-.jr-abstract h2{margin:0 0 6px;font:700 12px/1 "Source Sans 3",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;text-align:left;border:0;padding:0;color:var(--jr-ink)}
-.jr-abstract p{margin:0 0 .5em;text-indent:0;text-align:justify;hyphens:auto}
-.jr-kw{margin:6px 0 0!important}
-.jr-cite{margin:0 0 18px;font:12.5px/1.45 "Source Sans 3",system-ui,sans-serif;color:var(--jr-mute);padding-left:2em;text-indent:-2em}
-.jr-body{border-top:1px solid var(--jr-rule);padding-top:16px}
-@media (min-width:760px){.jr-body{column-count:2;column-gap:28px;column-rule:1px solid #e3e3e3}}
-.jr-body h2{font:700 14px/1.3 "Source Sans 3",system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;text-align:center;margin:18px 0 8px;break-after:avoid;border:0;padding:0;color:var(--jr-ink)}
+.jr-run{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;font-size:12.5px;line-height:1.4;padding-bottom:7px;border-bottom:1px solid var(--jr-rule);margin-bottom:clamp(26px,5vw,44px)}
+.jr-rh{text-align:right}
+.jr-title{margin:0 0 14px;font-weight:700;font-size:clamp(21px,3.4vw,25px);line-height:1.24;font-family:inherit;letter-spacing:0;text-wrap:balance;text-align:left;border:0;padding:0;color:var(--jr-ink);max-width:34em}
+.jr-authors{margin:0;font-weight:700}
+.jr-meta{margin:clamp(22px,5vw,40px) 0 clamp(18px,4vw,30px);font-size:12.5px;color:var(--jr-mute)}
+.jr-abs p{margin:0;text-align:justify;hyphens:auto}
+.jr-abs b,.jr-kw b{margin-right:.45em}
+.jr-kw{margin:12px 0 clamp(26px,5vw,38px)}
+.jr-body h2{font-weight:700;font-size:1em;line-height:1.3;font-family:inherit;margin:1.9em 0 .85em;text-align:left;border:0;padding:0;color:var(--jr-ink);break-after:avoid}
 .jr-body > h2:first-child{margin-top:0}
-.jr-body h3{font:700 14.5px/1.35 "Source Sans 3",system-ui,sans-serif;margin:14px 0 4px;break-after:avoid}
-.jr-body h4{font:italic 700 14.5px/1.35 "Source Serif 4",serif;margin:12px 0 4px;break-after:avoid}
-.jr-body h5{font:700 14.5px/1.4 "Source Serif 4",serif;margin:8px 0 2px}
-.jr-body p{margin:0;text-indent:1.4em;text-align:justify;hyphens:auto}
-.jr-body h2+p,.jr-body h3+p,.jr-body h4+p,.jr-body .table-wrap+p,.jr-body ul+p,.jr-body ol+p,.jr-body blockquote+p{text-indent:0}
-.jr-body ul,.jr-body ol{margin:.35em 0 .5em;padding-left:1.3em}.jr-body li{margin:.15em 0}
-.jr-body blockquote{margin:.6em 0;padding:.4em .8em;border-left:3px solid var(--jr-accent);background:var(--jr-box);break-inside:avoid}
+.jr-body h3{font-weight:400;font-size:1em;line-height:1.3;font-family:inherit;margin:1.5em 0 .8em;break-after:avoid}
+.jr-body h4{font-style:italic;font-weight:400;font-size:1em;line-height:1.3;font-family:inherit;margin:1.2em 0 .5em;break-after:avoid}
+.jr-body p{margin:0;text-indent:1.5em;text-align:justify;hyphens:auto}
+.jr-body h2+p,.jr-body h3+p,.jr-body h4+p,.jr-body .table-wrap+p,.jr-body ul+p,.jr-body ol+p,.jr-body blockquote+p,.jr-body .jr-fn+p{text-indent:0}
+.jr-body ul,.jr-body ol{margin:.55em 0 .7em;padding-left:2.1em}
+.jr-body li{margin:.12em 0;text-align:justify;padding-left:.3em}
+.jr-body blockquote{margin:.8em 2.2em;padding:0;border:0;background:none;font-size:.96em}
 .jr-body blockquote p{text-indent:0}
-.jr-body p:has(> strong:only-child){text-indent:0;margin-top:.8em;font:700 12.5px/1.3 "Source Sans 3",system-ui,sans-serif}
-.jr-body p:has(> em:only-child){text-indent:0;font-size:13px;margin-bottom:.3em}
-.jr-body .table-wrap{overflow-x:auto;margin:.2em 0 .9em;break-inside:avoid}
-.jr-body table{border-collapse:collapse;width:100%;font:12.5px/1.4 "Source Sans 3",system-ui,sans-serif}
-.jr-body th{border-top:1.5px solid var(--jr-ink);border-bottom:1px solid var(--jr-ink);text-align:left;padding:5px 6px;background:none;font-weight:700}
-.jr-body td{border:0;padding:5px 6px;vertical-align:top}
+.jr-body p:has(> strong:only-child){text-indent:0;margin-top:1em;font-size:.86em}
+.jr-body p:has(> em:only-child){text-indent:0;font-size:.86em;margin-bottom:.4em}
+.jr-body .table-wrap{overflow-x:auto;margin:.4em 0 1.1em;break-inside:avoid}
+.jr-body table{border-collapse:collapse;width:100%;font-size:.86em;line-height:1.4}
+.jr-body th{border-top:1.5px solid var(--jr-ink);border-bottom:1px solid var(--jr-ink);text-align:left;padding:5px 8px;background:none;font-weight:700}
+.jr-body td{border:0;padding:5px 8px;vertical-align:top}
 .jr-body tbody tr:last-child td{border-bottom:1.5px solid var(--jr-ink)}
 .jr-body code{font-family:ui-monospace,monospace;font-size:.85em}
-.jr-refs{margin-top:16px;padding-top:10px;border-top:1px solid var(--jr-rule);font-size:13px}
-.jr-refs .apa-ref{text-indent:-1.6em!important;padding-left:1.6em;margin:0 0 .45em;text-align:left;break-inside:avoid}
-.jr-foot{display:flex;justify-content:space-between;gap:12px;margin-top:22px;padding-top:8px;border-top:1px solid var(--jr-rule);font:600 10.5px/1.3 "Source Sans 3",system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--jr-mute)}
+.jr-fn{margin:1.6em 0 .4em;font-size:12.5px;line-height:1.42}
+.jr-fn::before{content:"";display:block;width:150px;border-top:1px solid var(--jr-rule);margin-bottom:7px}
+.jr-fn p{margin:0 0 .5em!important;text-indent:0!important;text-align:left!important}
+.jr-fn b{font-weight:400}
+.jr .yr{color:var(--jr-link)}
+.jr-refs{margin-top:2.4em}
+.jr-refs h2{font-weight:700;font-size:1em;line-height:1.3;font-family:inherit;margin:0 0 .9em;text-align:left;border:0;padding:0;color:var(--jr-ink)}
+.jr-refs .apa-ref{font-size:12.8px;line-height:1.45;margin:0 0 .42em;padding-left:1.5em;text-indent:-1.5em!important;text-align:left;break-inside:avoid}
+.jr-refs a{color:var(--jr-link)}
+.jr-foot{display:flex;justify-content:space-between;gap:8px 18px;flex-wrap:wrap;margin-top:2.4em;padding-top:8px;border-top:1px solid #cfcfcf;font-size:12px;line-height:1.45;color:var(--jr-mute)}
+.jr-foot span:first-child{padding-left:1.5em;text-indent:-1.5em;flex:1 1 22em}
 .jr a{color:inherit}
-@media print{.jr{box-shadow:none;max-width:none;padding:0;font-size:10pt}.jr-body{column-count:2;column-gap:.3in}}`;
+@media print{.jr{box-shadow:none;max-width:none;padding:0;font-size:10.5pt}.jr-refs .apa-ref{font-size:9pt}.jr-fn,.jr-run,.jr-meta{font-size:8.5pt}}`;
 
 let notesCtl = null, notesRAF = 0;
 async function detectCitation(f, { quiet } = {}) {
@@ -1867,34 +1912,30 @@ function renderNotesCite() {
     : `<b>Add the lecturer’s name</b> so the notes can cite the lecture${k === 'apa' || mla ? ' (required for APA and MLA)' : ''}. <button class="linklike" id="notes-cite-edit">Add</button>`;
   $('#notes-cite-edit').onclick = () => openLectureSheet(true);
 }
-function apaDocBlocks(L) {
-  const c = composeApa(L), B = [];
-  const aff = [c.affiliation, c.course].filter(Boolean).join(', ');
-  B.push({ type: 'p', style: 'Masthead', runs: [{ text: JOURNAL.toUpperCase() }, { text: '\t' }, { text: [c.course, c.date].filter(Boolean).join(' · ').toUpperCase() }] });
-  B.push({ type: 'p', style: 'Kicker', runs: [{ text: c.kind.toUpperCase() }] });
-  B.push({ type: 'p', style: 'ArticleTitle', runs: parseInline(c.title) });
-  if (c.subtitle) B.push({ type: 'p', style: 'Subtitle', runs: parseInline(c.subtitle) });
-  B.push({ type: 'p', style: 'Authors', runs: [{ text: c.lecturer || 'Lecturer not set' }, ...(aff ? [{ text: '1', sup: true }] : [])] });
-  if (aff) B.push({ type: 'p', style: 'Affiliation', runs: [{ text: '1', sup: true }, { text: aff }] });
-  B.push({ type: 'p', style: 'Meta', runs: [{ text: 'Lecture date: ', b: true }, { text: c.date }, ...(c.length !== '0:00' ? [{ text: '    Recorded: ', b: true }, { text: c.length }] : []), ...(c.author ? [{ text: '    Notes prepared by: ', b: true }, { text: c.author }] : [])] });
-  if (c.abstract || c.keywords) {
-    B.push({ type: 'p', style: 'AbstractHeading', runs: [{ text: 'ABSTRACT' }] });
-    parseMd(c.abstract).forEach(b => B.push({ type: 'p', style: 'Abstract', runs: parseInline(b.text || '') }));
-    if (c.keywords) B.push({ type: 'p', style: 'Keywords', runs: [{ text: 'Keywords: ', i: true }, { text: c.keywords }] });
-  }
-  B.push({ type: 'p', style: 'CiteLine', runs: [{ text: 'Cite this lecture: ', b: true }, ...parseInline(c.cite)] });
-  B.push({ type: 'section', cols: 1 });
-  let prevHead = true;
+function journalDocBlocks(L, mla) {
+  const c = composeJournal(L, mla), B = [];
+  const people = [c.lecturer, c.author].filter(Boolean), aff = [c.affiliation, c.course].filter(Boolean).join(', ');
+  B.push({ type: 'p', style: 'Masthead', runs: [{ text: JOURNAL_SHORT }, { text: '\n' + [c.kind, c.date].join(' · ') }, { text: '\t' }, { text: c.course || '' }] });
+  B.push({ type: 'p', style: 'ArticleTitle', runs: [...parseInline(c.title), ...(c.subtitle ? [{ text: ': ' }, ...parseInline(c.subtitle)] : [])] });
+  if (people.length) B.push({ type: 'p', style: 'Authors', runs: [{ text: people.join(' · ') }] });
+  B.push({ type: 'p', style: 'Meta', runs: [{ text: [c.hasTr ? (c.video ? 'Video' : 'Lecture') + ` · ${c.date}` : c.date, c.hasTr && c.length !== '0:00' ? `${c.length} recorded` : '', aff].filter(Boolean).join(' · ') }] });
+  if (c.abstract) parseMd(c.abstract).forEach((b, i) => B.push({ type: 'p', style: 'Abstract', runs: [...(i ? [] : [{ text: 'Abstract  ', b: true }]), ...parseInline(b.text || '')] }));
+  if (c.keywords.length) B.push({ type: 'p', style: 'Keywords', runs: [{ text: 'Keywords  ', b: true }, { text: c.keywords.join(' · ') }] });
+  let prevHead = true, h2s = 0;
+  const fn = () => { if (people.length || aff) { B.push({ type: 'p', style: 'FootnoteRule', runs: [{ text: '' }] }); B.push({ type: 'p', style: 'AuthorNote', runs: [{ text: [people[0], aff].filter(Boolean).join('\n') + (c.author ? `\n${c.author} prepared these notes.` : '') }] }); } };
   parseMd(c.body).forEach(b => {
+    if (b.type === 'h' && b.level === 2 && ++h2s === 2) fn();
     const label = b.type === 'p' && (/^\*\*(Table|Figure) \d+\*\*$/.test(b.text) || /^\*[^*]+\*$/.test(b.text));
     B.push(b.type === 'p' ? { ...b, noIndent: prevHead || label, style: label ? 'TableLabel' : undefined } : b);
     prevHead = b.type === 'h' || b.type === 'table' || b.type === 'list' || label;
   });
-  B.push({ type: 'h', level: 2, text: 'References' });
+  if (h2s < 2) fn();
+  B.push({ type: 'p', style: 'RefsHeading', runs: [{ text: c.refsTitle }] });
   c.refs.forEach(r => B.push({ type: 'ref', text: r }));
-  B.push({ type: 'section', cols: 2, continuous: true }); // ends the two-column body so Word balances the columns
+  if (c.hasTr) B.push({ type: 'p', style: 'CiteLine', runs: [{ text: 'Cite as: ', b: true }, ...parseInline(c.cite)] });
   return { blocks: B, runningHead: c.runningHead, footer: [JOURNAL, c.course].filter(Boolean).join(' · ') };
 }
+const apaDocBlocks = L => journalDocBlocks(L, false);
 
 /* ---- DOCX writer (WordprocessingML via JSZip). opts.journal: two-column journal article; otherwise a plain document ---- */
 const xe = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
@@ -1909,30 +1950,29 @@ function docxRuns(runs, base = {}) {
 const SANS = 'w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"';
 function journalStyles(W) {
   const st = (id, name, ppr, rpr, based = 'Normal') => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${name}"/><w:basedOn w:val="${based}"/><w:pPr>${ppr}</w:pPr><w:rPr>${rpr}</w:rPr></w:style>`;
-  const shade = '<w:shd w:val="clear" w:color="auto" w:fill="F2F5F4"/>', box = '<w:ind w:left="0" w:right="0" w:firstLine="0"/>';
+  const left = '<w:jc w:val="left"/><w:ind w:firstLine="0"/>';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}>
-  <w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="en-US"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0" w:line="252" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>
-  <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/><w:ind w:firstLine="284"/></w:pPr></w:style>
-  ${st('Masthead', 'Masthead', '<w:tabs><w:tab w:val="right" w:pos="10080"/></w:tabs><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:pBdr><w:bottom w:val="single" w:sz="12" w:space="3" w:color="141414"/></w:pBdr><w:spacing w:after="240"/>', `<w:rFonts ${SANS}/><w:b/><w:color w:val="555555"/><w:spacing w:val="16"/><w:sz w:val="15"/>`)}
-  ${st('Kicker', 'Article type', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:after="80"/>', `<w:rFonts ${SANS}/><w:b/><w:color w:val="1D6B57"/><w:spacing w:val="20"/><w:sz w:val="16"/>`)}
-  ${st('ArticleTitle', 'Title', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:after="60" w:line="240" w:lineRule="auto"/>', '<w:b/><w:sz w:val="44"/><w:szCs w:val="44"/>')}
-  ${st('Subtitle', 'Subtitle', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:after="160"/>', '<w:color w:val="333333"/><w:sz w:val="28"/>')}
-  ${st('Authors', 'Authors', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="80"/>', `<w:rFonts ${SANS}/><w:b/><w:sz w:val="21"/>`)}
-  ${st('Affiliation', 'Affiliation', '<w:jc w:val="left"/><w:ind w:firstLine="0"/>', '<w:i/><w:color w:val="555555"/><w:sz w:val="18"/>')}
-  ${st('Meta', 'Article metadata', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="100" w:after="200"/>', `<w:rFonts ${SANS}/><w:color w:val="555555"/><w:sz w:val="16"/>`)}
-  ${st('AbstractHeading', 'Abstract heading', `<w:keepNext/>${shade}${box}<w:pBdr><w:top w:val="single" w:sz="6" w:space="6" w:color="141414"/></w:pBdr><w:spacing w:after="60"/>`, `<w:rFonts ${SANS}/><w:b/><w:spacing w:val="20"/><w:sz w:val="16"/>`)}
-  ${st('Abstract', 'Abstract', `${shade}${box}<w:jc w:val="both"/><w:spacing w:after="60"/>`, '<w:sz w:val="19"/>')}
-  ${st('Keywords', 'Keywords', `${shade}${box}<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="6" w:color="141414"/></w:pBdr><w:jc w:val="left"/>`, '<w:sz w:val="19"/>')}
-  ${st('CiteLine', 'Citation line', '<w:jc w:val="left"/><w:ind w:left="284" w:hanging="284"/><w:spacing w:before="160" w:after="240"/>', `<w:rFonts ${SANS}/><w:color w:val="555555"/><w:sz w:val="16"/>`)}
-  ${st('Heading1', 'heading 1', '<w:keepNext/><w:jc w:val="center"/><w:ind w:firstLine="0"/><w:spacing w:before="220" w:after="80"/><w:outlineLvl w:val="0"/>', `<w:rFonts ${SANS}/><w:b/><w:caps/><w:spacing w:val="10"/><w:sz w:val="19"/>`)}
-  ${st('Heading2', 'heading 2', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="160" w:after="40"/><w:outlineLvl w:val="1"/>', `<w:rFonts ${SANS}/><w:b/><w:sz w:val="19"/>`)}
-  ${st('Heading3', 'heading 3', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="120" w:after="20"/><w:outlineLvl w:val="2"/>', '<w:b/><w:i/>')}
-  ${st('ListParagraph', 'List Paragraph', '<w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:after="30"/>', '')}
-  ${st('TableLabel', 'Table label', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:before="120"/>', `<w:rFonts ${SANS}/><w:sz w:val="17"/>`)}
-  ${st('TableText', 'Table text', '<w:keepNext/><w:jc w:val="left"/><w:ind w:firstLine="0"/><w:spacing w:line="240" w:lineRule="auto"/>', `<w:rFonts ${SANS}/><w:sz w:val="16"/>`)}
-  ${st('Reference', 'Reference', '<w:jc w:val="left"/><w:ind w:left="284" w:hanging="284"/><w:spacing w:after="50"/>', '<w:sz w:val="17"/>')}
-  ${st('Quote', 'Quote', `${shade}<w:ind w:left="142" w:right="0" w:firstLine="0"/><w:pBdr><w:left w:val="single" w:sz="18" w:space="6" w:color="1D6B57"/></w:pBdr><w:spacing w:before="80" w:after="80"/>`, '')}
-  ${st('Footer', 'footer', '<w:tabs><w:tab w:val="right" w:pos="10080"/></w:tabs><w:ind w:firstLine="0"/><w:jc w:val="left"/>', `<w:rFonts ${SANS}/><w:color w:val="666666"/><w:sz w:val="14"/>`)}
+  <w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="en-US"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/><w:ind w:firstLine="340"/></w:pPr></w:style>
+  ${st('Masthead', 'Running header', `<w:tabs><w:tab w:val="right" w:pos="9360"/></w:tabs>${left}<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="4" w:color="1A1A1A"/></w:pBdr><w:spacing w:after="520"/>`, '<w:sz w:val="17"/>')}
+  ${st('ArticleTitle', 'Title', `<w:keepNext/>${left}<w:spacing w:after="200" w:line="276" w:lineRule="auto"/>`, '<w:b/><w:sz w:val="30"/><w:szCs w:val="30"/>')}
+  ${st('Authors', 'Authors', left, '<w:b/>')}
+  ${st('Meta', 'Article metadata', `${left}<w:spacing w:before="480" w:after="360"/>`, '<w:color w:val="4D4D4D"/><w:sz w:val="17"/>')}
+  ${st('Abstract', 'Abstract', '<w:jc w:val="both"/><w:ind w:firstLine="0"/><w:spacing w:after="160"/>', '')}
+  ${st('Keywords', 'Keywords', `${left}<w:spacing w:after="480"/>`, '')}
+  ${st('Heading1', 'heading 1', `<w:keepNext/>${left}<w:spacing w:before="400" w:after="200"/><w:outlineLvl w:val="0"/>`, '<w:b/>')}
+  ${st('Heading2', 'heading 2', `<w:keepNext/>${left}<w:spacing w:before="300" w:after="160"/><w:outlineLvl w:val="1"/>`, '')}
+  ${st('Heading3', 'heading 3', `<w:keepNext/>${left}<w:spacing w:before="200" w:after="100"/><w:outlineLvl w:val="2"/>`, '<w:i/>')}
+  ${st('ListParagraph', 'List Paragraph', '<w:jc w:val="both"/><w:ind w:firstLine="0"/><w:spacing w:after="40"/>', '')}
+  ${st('TableLabel', 'Table label', `<w:keepNext/>${left}<w:spacing w:before="160"/>`, '<w:sz w:val="18"/>')}
+  ${st('TableText', 'Table text', `<w:keepNext/>${left}<w:spacing w:line="240" w:lineRule="auto"/>`, '<w:sz w:val="18"/>')}
+  ${st('FootnoteRule', 'Footnote rule', `${left}<w:spacing w:before="320" w:after="80"/><w:pBdr><w:top w:val="single" w:sz="6" w:space="1" w:color="1A1A1A"/></w:pBdr><w:ind w:left="0" w:right="7200" w:firstLine="0"/>`, '<w:sz w:val="4"/>')}
+  ${st('AuthorNote', 'Author note', `${left}<w:spacing w:after="240" w:line="240" w:lineRule="auto"/>`, '<w:sz w:val="17"/>')}
+  ${st('RefsHeading', 'References heading', `<w:keepNext/>${left}<w:spacing w:before="480" w:after="200"/>`, '<w:b/>')}
+  ${st('Reference', 'Reference', '<w:jc w:val="left"/><w:ind w:left="284" w:hanging="284"/><w:spacing w:after="60" w:line="240" w:lineRule="auto"/>', '<w:sz w:val="18"/>')}
+  ${st('Quote', 'Quote', '<w:ind w:left="567" w:right="567" w:firstLine="0"/><w:spacing w:before="120" w:after="120"/>', '<w:sz w:val="20"/>')}
+  ${st('CiteLine', 'Citation line', `${left}<w:ind w:left="284" w:hanging="284"/><w:spacing w:before="360"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="6" w:color="CFCFCF"/></w:pBdr>`, '<w:color w:val="4D4D4D"/><w:sz w:val="16"/>')}
+  ${st('Footer', 'footer', `<w:tabs><w:tab w:val="right" w:pos="9360"/></w:tabs>${left}`, '<w:color w:val="666666"/><w:sz w:val="15"/>')}
   </w:styles>`;
 }
 function plainStyles(W) {
@@ -1979,7 +2019,7 @@ async function buildDocx(blocks, title, opts = {}) {
   const jr = !!opts.journal, mla = !!opts.mla, nums = [], media = [];
   const para = (inner, ppr = '') => `<w:p>${ppr ? `<w:pPr>${ppr}</w:pPr>` : ''}${inner}</w:p>`;
   const hStyle = lv => jr ? 'Heading' + Math.max(1, Math.min(3, lv - 1)) : (lv === 1 ? 'Title' : 'Heading' + Math.min(3, lv - 1));
-  const M = jr ? 1080 : mla ? 1440 : 1260;
+  const M = jr ? 1440 : mla ? 1440 : 1260;
   const refs = '<w:headerReference w:type="default" r:id="rId3"/><w:footerReference w:type="default" r:id="rId4"/>';
   const page = `<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="${M}" w:right="${M}" w:bottom="${M}" w:left="${M}" w:header="540" w:footer="540" w:gutter="0"/>`;
   const body = blocks.map(b => {
@@ -2034,7 +2074,7 @@ async function buildDocx(blocks, title, opts = {}) {
   const header = mla
     ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:jc w:val="right"/><w:ind w:firstLine="0"/></w:pPr><w:r><w:t xml:space="preserve">${xe(opts.runningHead ? opts.runningHead + ' ' : '')}</w:t></w:r>${pageField}</w:p></w:hdr>`
     : jr
-    ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="10080"/></w:tabs><w:ind w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:rFonts ${SANS}/><w:sz w:val="15"/><w:color w:val="555555"/><w:spacing w:val="12"/></w:rPr><w:t xml:space="preserve">${xe(opts.runningHead || title.toUpperCase())}</w:t></w:r><w:r><w:tab/></w:r><w:r><w:rPr><w:rFonts ${SANS}/><w:sz w:val="16"/></w:rPr></w:r>${pageField}</w:p></w:hdr>`
+    ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="9360"/></w:tabs><w:ind w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:sz w:val="17"/></w:rPr><w:t xml:space="preserve">${xe(opts.runningHead || title)}</w:t></w:r><w:r><w:tab/></w:r>${pageField}</w:p></w:hdr>`
     : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:jc w:val="right"/></w:pPr>${pageField}</w:p></w:hdr>`;
   const footer = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ${W}><w:p><w:pPr><w:pStyle w:val="Footer"/></w:pPr><w:r><w:t xml:space="preserve">${xe(opts.footer ?? 'Prepared with Didasko')}</w:t></w:r></w:p></w:ftr>`;
   const finalSect = `<w:sectPr>${refs}${jr ? '<w:type w:val="continuous"/>' : ''}${page}<w:cols w:num="1" w:space="400"/></w:sectPr>`;
@@ -2085,8 +2125,8 @@ const STYLES = ['apa', 'mla', 'outline', 'kids', 'other'];
 const styleKey = s => STYLE_ALIAS[s] || (STYLES.includes(s) ? s : 'apa');
 const STYLE_LABEL = { apa: 'APA journal article', mla: 'MLA journal article', outline: 'Outline overview', kids: 'Children’s picture book', other: 'Custom output' };
 function styleHint(k) {
-  if (k === 'apa') return 'A cleaned-up narrative laid out like a journal article: abstract, keywords, sections written in full paragraphs, APA 7 in-text citations and References.';
-  if (k === 'mla') return 'An MLA 9 paper: heading block, centered title, narrative paragraphs with (Author) citations, and a Works Cited list.';
+  if (k === 'apa') return 'A research-journal article: the lecture reorganized by theme (not in speaking order), each idea unpacked, with abstract, keywords, numbered sections, a discussion, APA 7 citations and References.';
+  if (k === 'mla') return 'The same research-journal article, with MLA 9 (Author) citations and a Works Cited list.';
   if (k === 'outline') return 'A quick bulleted overview — main ideas, supporting details and key terms — that’s easy to skim before a test.';
   if (k === 'kids') {
     const ip = imageProvider();
@@ -2163,25 +2203,8 @@ function worksCited(L) {
   const key = r => r.replace(/[*“”"]/g, '').toLowerCase();
   return [...new Set(refs)].sort((a, b) => key(a).localeCompare(key(b)));
 }
-function composeMla(L) {
-  const sb = splitBody(L.notes?.md || '');
-  const lec = lecturerOf(L), author = (L.author || S.settings.author || '').trim();
-  const writer = author || lec;
-  const head = [writer || 'Lecture notes', author && lec && author !== lec ? lec : (L.institution || S.settings.institution || ''), L.course, mlaLongDate(L.createdAt)].filter(Boolean);
-  return { title: sb.title || L.title, head, body: sb.body, refs: worksCited(L), running: surname(writer || '') || '' };
-}
-
-/* ---- Renderers ---- */
-function mlaHtml(L) {
-  const c = composeMla(L);
-  return `<article class="mla">
-    ${c.running ? `<div class="mla-run">${esc(c.running)} 1</div>` : ''}
-    <div class="mla-head">${c.head.map(h => `<p>${esc(h)}</p>`).join('')}</div>
-    <h1 class="mla-title">${inl(c.title)}</h1>
-    <div class="mla-body">${mdToHtml(c.body)}</div>
-    <section class="mla-wc"><h2>Works Cited</h2>${c.refs.map(r => `<p class="mla-ref">${inl(r)}</p>`).join('')}</section>
-  </article>`;
-}
+const composeMla = L => composeJournal(L, true);
+const mlaHtml = L => journalHtml(L, true);
 function plainDocHtml(L) {
   const k = styleKey(L.notes?.style), md = L.notes?.md || '';
   const meta = [STYLE_LABEL[k], L.course, fmtDate(L.createdAt), lecturerOf(L)].filter(Boolean).join(' · ');
@@ -2239,51 +2262,57 @@ function renderNotes() {
 }
 
 /* ---- Prompts ---- */
-function apaSystem({ aud, lang, sources }) {
-  return `You are an expert science editor who turns raw lecture transcripts into a polished, narrative article written and structured like a scientific journal article, using APA 7th edition style.
-The transcript comes from live speech recognition: it may lack punctuation and contain misheard words, filler words and false starts. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Do not add facts that are not supported by the transcript or the materials; where the recording is unclear, write "(unclear in recording)".
-Lines marked ★KEY POINT were flagged by the instructor as important: every one must appear in the article, and the most important belong in the abstract. Lines like "== TOPIC: … ==" are section breaks the instructor set: use them as Level 1 headings.
-Write for ${AUDIENCE[aud]}, in ${lang}, in the formal, precise register of a journal article: third person, past tense for what the lecturer said (e.g. "Shippee explained that…") and present tense for established facts, each supported by a citation.
+/* ---- Journal articles (APA and MLA) are written in two passes:
+   1) plan: read the whole transcript and reorganize it into themes, with the definitions, examples and evidence each needs;
+   2) write: a fully unpacked article from that plan, structured like a research-journal paper rather than in speaking order. ---- */
+const CLEANUP = 'The transcript comes from speech recognition: it may lack punctuation and contain misheard words, filler words, false starts and digressions. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Use only facts supported by the transcript or the materials.';
+function journalPlanSystem({ aud, lang }) {
+  return `You are the senior editor of an academic journal. You are planning an article that turns a lecture (its transcript and any course materials) into a well-organized journal article for ${AUDIENCE[aud]}, written in ${lang}.
+${CLEANUP}
+Read the ENTIRE transcript and all materials before planning. Lectures wander: the speaker returns to ideas, gives examples out of order and mixes background with detail. Do NOT follow the order in which things were said. Instead:
+- Work out the lecture's central question and its main argument (thesis).
+- Group everything that belongs together, wherever in the transcript it was said, into 3 to 6 major themes.
+- Order the themes for a reader: background and key definitions first, then the core concepts, mechanisms or frameworks, then applications and examples, then implications, challenges or debates.
+- Within each theme plan 2 to 4 subsections. For each, list the points to make, the concepts that must be defined, the lecturer's examples, evidence or data, any material (F1, F2 …) that supports it, and the transcript timestamps it draws on.
+- Note tensions, misconceptions, limitations and open questions the lecture raised, for a Discussion section.
+- Every line marked ★KEY POINT must be placed somewhere in the plan.
+Reply with JSON only:
+{"title":"","subtitle":"","thesis":"","keywords":[""],"introduction":{"context":"","problem":"","purpose":""},"sections":[{"heading":"","purpose":"","subsections":[{"heading":"","points":[""],"define":[""],"examples":[""],"materials":["F1"],"timestamps":["12:40"]}]}],"discussion":[""],"conclusion":[""]}`;
+}
+function journalSystem({ aud, lang, sources, mla }) {
+  const cite = mla
+    ? `Citations (MLA 9 in-text): cite the sources below using exactly the forms given, placed before the sentence's final punctuation, e.g. "…from water (Rivera)." For a direct quotation from the lecture add the timestamp, e.g. (Rivera 00:12:40). Do not use page numbers unless the material shows them. Do not write a Works Cited list — it is added automatically.`
+    : `Citations (APA 7 in-text): cite the sources below using exactly the in-text forms given, as parenthetical citations at the end of the sentence they support or as narrative citations ("Rivera (2026) argued that…"). For a direct quotation add the timestamp. Do not write a References section — it is added automatically.`;
+  return `You are an expert academic writer and editor. You write a polished research-journal article from a lecture, following the editor's plan you are given. The article should read like a peer-reviewed paper in a journal such as Education and Information Technologies: it organizes ideas thematically, unpacks each one fully, and synthesizes rather than summarizing the lecture in order.
+${CLEANUP}
+Write for ${AUDIENCE[aud]}, in ${lang}, in a formal, precise academic register: third person; ${mla ? 'present tense when discussing what the lecture argues ("Rivera explains that…")' : 'past tense for what the lecturer said ("Rivera explained that…")'} and present tense for established facts.
 
-Write the whole article as connected prose. Do NOT use bulleted lists, numbered lists, tables, bold run-in labels, Q&A, "Key Terms" or "Review Questions" sections. Explain ideas in developed paragraphs, each with a topic sentence, supporting detail and examples from the lecture, and transitions that show how ideas connect. Bold a key term only the first time it is defined.
+How to write it:
+- Follow the plan's structure and order, not the order of the transcript.
+- Unpack every idea. Define each key concept when it first appears, explain how and why it works, give the lecturer's examples and evidence, connect it to the materials, and say why it matters. Never just list what the lecturer said.
+- Each major section opens with a short framing paragraph that tells the reader what the section covers and how it connects to the article's argument. Each subsection has two to four developed paragraphs of four to seven sentences, with a clear topic sentence and transitions. End subsections with a sentence that links to the next idea.
+- Write in connected prose. Use a numbered list only where the lecture itself set out a defined set of items (for example stages, factors or criteria); introduce it with a full sentence, give each item a short explanation, and use at most two such lists in the whole article. Use a table only if it genuinely clarifies a comparison; put "**Table N**" on its own line and the table title in italic title case on the next line.
+- Bold a key term only the first time it is defined. No bold run-in labels, no Q&A, no "Key Terms" or "Review Questions" sections.
+- Length: about 1,200 words for every 15 minutes of lecture, between 1,500 and 4,500 words in total (shorter if the source is short).
 
 Output GitHub-flavored Markdown in exactly this order:
-1. "# Title: Subtitle" — a concise, descriptive APA title in title case, with a subtitle after a colon.
-2. "## Abstract" followed by one paragraph of 150–220 words that states the lecture's purpose, its main points and their significance.
-3. A line "*Keywords:* " followed by 5–8 keywords, lowercase except proper nouns, separated by commas.
-4. The body, using APA heading levels: "##" = Level 1, "###" = Level 2 (only when a section clearly has parts), headings in title case.
-   - "## Introduction": one or two paragraphs on the background, why the topic matters, and what the lecture covered.
-   - One "##" section per major topic, in lecture order, each with two to four well-developed paragraphs.
-   - "## Conclusion": one or two paragraphs that synthesize the main ideas and their implications, and note what comes next if the lecture says so.
+1. "# Title: Subtitle" — a concise, informative ${mla ? 'MLA title-case' : 'APA title-case'} title with a subtitle after a colon.
+2. "## Abstract" — one paragraph of 150–250 words: the topic and why it matters, the article's purpose, the main themes in the order they appear, and the key implication.
+3. A line "*Keywords:* " with 4–6 keywords or short phrases separated by commas.
+4. "## Introduction" — three or four paragraphs: the context and background; the problem or question that makes the topic important; the purpose of the article; and a final roadmap sentence that names the sections that follow.
+5. One "##" section per theme in the plan, each with "###" subsections. Do not number headings — the app numbers them.
+6. "## Discussion" — synthesize across the themes: how the ideas relate, what they mean for students and practice, the misconceptions, limitations or open questions the lecture raised.
+7. "## Conclusion" — one or two paragraphs restating the thesis in light of the article and noting what comes next if the lecture says so.
 
-Citations (APA 7 in-text): cite the sources below using exactly the in-text forms given, at the end of the sentence or paragraph they support. Cite the lecture at least once per Level 1 section. Cite a material wherever its content is used. Do not cite anything else and do not write a References section — it is added automatically.
+${cite} Cite the lecture in every major section, and a material wherever its content is used. Do not cite anything else.
 ${sources}
 
 After the article, output exactly one final line and nothing after it:
-<!--didasko {"lectureTitle":"<the lecture's title in APA sentence case>","titles":{"F1":"<title of F1 in APA sentence case>"}}-->
+<!--didasko {"lectureTitle":"<the lecture's title in ${mla ? 'MLA title case' : 'APA sentence case'}>","titles":{"F1":"<title of F1 in ${mla ? 'MLA title case' : 'APA sentence case'}>"}}-->
 Include every F-number listed above in "titles".`;
 }
-function mlaSystem({ aud, lang, sources }) {
-  return `You are an expert editor who turns raw lecture transcripts into a polished narrative article in MLA style (MLA Handbook, 9th edition).
-The transcript comes from live speech recognition: it may lack punctuation and contain misheard words, filler words and false starts. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Do not add facts that are not supported by the transcript or the materials.
-Lines marked ★KEY POINT were flagged by the instructor as important: every one must appear in the article. Lines like "== TOPIC: … ==" are section breaks the instructor set.
-Write for ${AUDIENCE[aud]}, in ${lang}, in a clear academic register: present tense when discussing what the lecture argues ("Rivera explains that…"), with an introduction that states the lecture's central idea as a thesis.
-
-Write the whole article as connected prose: no bulleted or numbered lists, no tables, no bold labels. Use developed paragraphs with topic sentences and transitions.
-
-Output GitHub-flavored Markdown in exactly this order:
-1. "# Title" — an informative title in MLA title case (a subtitle after a colon is fine). Do not write a name, date or course heading — the app adds it.
-2. An introductory paragraph with no heading.
-3. One "##" section per major topic in lecture order (headings in title case), each with two to four paragraphs.
-4. "## Conclusion" with one or two paragraphs.
-
-Citations (MLA 9 in-text): cite the sources below using exactly the forms given, placed before the sentence's final punctuation, e.g. "…from water (Rivera)." For a direct quotation from the lecture add the timestamp, e.g. (Rivera 00:12:40). Do not use page numbers unless the material shows them. Do not cite anything else and do not write a Works Cited list — it is added automatically.
-${sources}
-
-After the article, output exactly one final line and nothing after it:
-<!--didasko {"lectureTitle":"<the lecture's title in MLA title case>","titles":{"F1":"<title of F1 in MLA title case>"}}-->
-Include every F-number listed above in "titles".`;
-}
+const apaSystem = o => journalSystem({ ...o, mla: false });
+const mlaSystem = o => journalSystem({ ...o, mla: true });
 function outlineSystem({ aud, lang }) {
   return `You turn raw lecture transcripts into a crisp, skimmable outline for ${AUDIENCE[aud]}, written in ${lang}.
 The transcript comes from speech recognition: fix obvious recognition errors silently and drop filler. Do not add facts that are not in the transcript or the materials. Lines marked ★KEY POINT were flagged by the instructor: include every one and start its bullet with "★ ". Lines like "== TOPIC: … ==" are the instructor's section breaks.
@@ -2354,13 +2383,22 @@ async function generateNotes() {
       : '\nIMPORTANT: there is no lecture transcript for this session. Build the whole output from the materials alone. Do not mention or cite a lecture or lecturer; where the instructions above say to cite the lecture, cite the materials instead. In the abstract and introduction, describe the material’s topic rather than a lecture.');
   const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${live ? transcriptForPrompt(L) : '(none — use the materials only)'}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
   if (style === 'kids') return generateKidsBook(L, { system, user, images: mat.images, lang });
-  setNotesBusy(true, 'Reading the transcript…');
   const prev = L.notes;
-  let latest = '';
+  let latest = '', userMsg = user;
+  if (style === 'apa' || style === 'mla') {
+    setNotesBusy(true, 'Reading the whole lecture and planning the article…');
+    try {
+      const planText = await callAI({ system: journalPlanSystem(opts), user, images: mat.images, maxTokens: 6000, json: true, signal: notesCtl.signal,
+        onText: t => { const k = (t.match(/"heading"\s*:/g) || []).length; if (k) $('#notes-status-text').textContent = `Planning the article… ${k} section${k === 1 ? '' : 's'} so far`; } });
+      const plan = parseJson(planText);
+      if (Array.isArray(plan.sections) && plan.sections.length) userMsg = `${user}\n\n<editor_plan>\n${JSON.stringify(plan, null, 1)}\n</editor_plan>\n\nWrite the article now, following the editor's plan.`;
+    } catch (e) { if (notesCtl?.signal.aborted) { setNotesBusy(false); notesCtl = null; toast('Stopped'); return; } /* no plan: the writer organizes it in one pass */ }
+  }
+  setNotesBusy(true, style === 'apa' || style === 'mla' ? 'Writing the article…' : 'Reading the transcript…');
   const show = t => { L.notes = { ...(L.notes || {}), style, md: stripFences(t.split('<!--didasko')[0]) }; delete L.notes.book; const d = $('#notes-doc'); d.className = `apa notes-${style}`; d.innerHTML = notesDocHtml(L); };
   try {
     const out = await callAI({
-      system, user, images: mat.images, maxTokens: 10000, signal: notesCtl.signal,
+      system, user: userMsg, images: mat.images, maxTokens: 14000, signal: notesCtl.signal,
       onText: t => { latest = t; $('#notes-status-text').textContent = 'Writing…'; if (!notesRAF) notesRAF = requestAnimationFrame(() => { notesRAF = 0; show(latest); }); }
     });
     const [body, meta] = out.split('<!--didasko');
@@ -2519,23 +2557,6 @@ function buildLocalOutline(L, useFiles) {
 }
 
 /* ---- Exports ---- */
-const MLA_CSS = `
-.mla{background:#fff;color:#111;max-width:8.5in;margin:0 auto;padding:clamp(22px,7vw,1in);font:1.02rem/2 "Times New Roman",Tinos,Times,serif;box-shadow:0 1px 4px rgba(0,0,0,.12);border-radius:3px;overflow-wrap:anywhere;position:relative}
-.mla p{margin:0}
-.mla-run{text-align:right;margin-bottom:.2em}
-.mla-head p{text-indent:0}
-.mla-title{font-weight:400;font-size:1em;line-height:2;font-family:inherit;text-align:center;margin:0;border:0;padding:0;color:inherit;text-wrap:balance}
-.mla-body p{text-indent:.5in}
-.mla-body h2{font-weight:700;font-size:1em;line-height:2;font-family:inherit;margin:0;text-align:left;border:0;padding:0;color:inherit}
-.mla-body h3{font-style:italic;font-weight:400;font-size:1em;line-height:2;font-family:inherit;margin:0}
-.mla-body blockquote{margin:0 0 0 .5in;padding:0;border:0;background:none}
-.mla-body blockquote p{text-indent:0}
-.mla-body ul,.mla-body ol{margin:0;padding-left:.5in}
-.mla-wc{margin-top:2em}
-.mla-wc h2{font-weight:400;font-size:1em;line-height:2;font-family:inherit;text-align:center;margin:0;border:0;padding:0;color:inherit}
-.mla-ref{padding-left:.5in;text-indent:-.5in}
-.mla a{color:inherit}
-@media print{.mla{box-shadow:none;max-width:none;padding:0;font-size:12pt}.mla-wc{break-before:page}}`;
 const ND_CSS = `
 .nd{background:#fff;color:#15201c;max-width:820px;margin:0 auto;padding:clamp(20px,5vw,52px);border-radius:12px;border:1px solid #d6dfdb;font:1.02rem/1.65 Literata,Georgia,serif;overflow-wrap:anywhere}
 .nd-kicker{margin:0 0 .6em;font:700 .74rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:#1d6b57}
@@ -2578,13 +2599,14 @@ const BOOK_CSS = `
 .book-src{margin-top:1.4em;font:.78rem/1.4 "Atkinson Hyperlegible",system-ui,sans-serif;color:#8a7a5c;padding-left:1.6em;text-indent:-1.6em}
 .book .btn{background:rgba(255,255,255,.85);border-color:#e0d4b8;color:#2b2218}
 @media print{.book{display:block}.book-page{break-inside:avoid;break-after:page;box-shadow:none;border:0;max-width:6.5in;margin:0 auto}.book-tools,.book-foot .btn{display:none}}`;
-function ensureFormatCss() { if (!document.getElementById('fmt-css')) { const st = document.createElement('style'); st.id = 'fmt-css'; st.textContent = MLA_CSS + ND_CSS + BOOK_CSS; document.head.appendChild(st); } }
+function ensureFormatCss() { if (!document.getElementById('fmt-css')) { const st = document.createElement('style'); st.id = 'fmt-css'; st.textContent = ND_CSS + BOOK_CSS; document.head.appendChild(st); } }
 function standaloneHtml(L) {
   const k = styleKey(L.notes?.style);
   if (k === 'apa') return apaStandalone(L);
-  const title = k === 'mla' ? composeMla(L).title : k === 'kids' ? L.notes.book.title : (splitBody(L.notes.md).title || L.title);
-  const css = k === 'mla' ? MLA_CSS : k === 'kids' ? BOOK_CSS : ND_CSS;
-  const body = k === 'mla' ? mlaHtml(L) : k === 'kids' ? bookHtml(L, { editable: false }) : plainDocHtml(L);
+  if (k === 'mla') return journalStandalone(L, true);
+  const title = k === 'kids' ? L.notes.book.title : (splitBody(L.notes.md).title || L.title);
+  const css = k === 'kids' ? BOOK_CSS : ND_CSS;
+  const body = k === 'kids' ? bookHtml(L, { editable: false }) : plainDocHtml(L);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,700;1,7..72,400&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
 <style>body{margin:0;background:${k === 'kids' ? '#f4efe3' : '#e6e8e7'};padding:24px 12px}${css}</style></head><body>${body}</body></html>`;
@@ -2592,18 +2614,9 @@ function standaloneHtml(L) {
 function formatMarkdown(L) {
   const k = styleKey(L.notes?.style);
   if (k === 'apa') return apaMarkdown(L);
-  if (k === 'mla') { const c = composeMla(L); return [...c.head.map(h => h + '  '), '', `# ${c.title}`, '', c.body, '', '## Works Cited', '', c.refs.join('\n\n')].join('\n').replace(/\n{3,}/g, '\n\n'); }
+  if (k === 'mla') return journalMarkdown(L, true);
   if (k === 'kids') return bookMarkdown(L, L.notes.book) + `\n\n---\n\n${lectureRef(L, L.notes?.lectureTitle)}\n`;
   return `${L.notes.md}\n\n## Sources\n\n${referenceList(L).join('\n\n')}\n`;
-}
-function mlaDocBlocks(L) {
-  const c = composeMla(L), B = [];
-  c.head.forEach(h => B.push({ type: 'p', style: 'NoIndent', runs: [{ text: h }] }));
-  B.push({ type: 'p', style: 'MlaTitle', runs: parseInline(c.title) });
-  parseMd(c.body).forEach(b => B.push(b.type === 'h' ? { ...b, level: 2 } : b));
-  B.push({ type: 'pagebreak' }, { type: 'p', style: 'MlaTitle', runs: [{ text: 'Works Cited' }] });
-  c.refs.forEach(r => B.push({ type: 'ref', text: r }));
-  return { blocks: B, running: c.running };
 }
 function plainDocBlocks(L) {
   const B = [{ type: 'p', runs: [{ text: [STYLE_LABEL[styleKey(L.notes.style)], L.course, fmtDate(L.createdAt), lecturerOf(L)].filter(Boolean).join(' · '), i: true }] }, ...parseMd(L.notes.md)];
@@ -2635,14 +2648,14 @@ async function exportNotes(t) {
   const suffix = { apa: 'apa', mla: 'mla', outline: 'outline', kids: 'picture-book', other: 'notes' }[k];
   if (t === 'docx') {
     if (k === 'apa') { const d = apaDocBlocks(L); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeApa(L).fullTitle, { journal: true, runningHead: d.runningHead, footer: d.footer })); }
-    if (k === 'mla') { const d = mlaDocBlocks(L); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeMla(L).title, { mla: true, runningHead: d.running, footer: '' })); }
+    if (k === 'mla') { const d = journalDocBlocks(L, true); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeMla(L).fullTitle, { journal: true, runningHead: d.runningHead, footer: d.footer })); }
     if (k === 'kids') { toast('Preparing pictures…'); return saveFile(`${name}-${suffix}.docx`, await buildDocx(await bookDocBlocks(L), L.notes.book.title, { footer: L.notes.book.title })); }
     return saveFile(`${name}-${suffix}.docx`, await buildDocx(plainDocBlocks(L), splitBody(L.notes.md).title || L.title));
   }
   if (t === 'html') return saveFile(`${name}-${suffix}.html`, standaloneHtml(L), 'text/html');
   if (t === 'md') return saveFile(`${name}-${suffix}.md`, formatMarkdown(L), 'text/markdown');
   if (t === 'print') {
-    const css = k === 'apa' ? JOURNAL_CSS.replace(/\.jr/g, '#print-root .jr') : (k === 'mla' ? MLA_CSS : k === 'kids' ? BOOK_CSS : ND_CSS);
+    const css = k === 'apa' || k === 'mla' ? JOURNAL_CSS.replace(/\.jr/g, '#print-root .jr') : (k === 'kids' ? BOOK_CSS : ND_CSS);
     return printHtml(`<style>${css}</style>${k === 'kids' ? bookHtml(L, { editable: false }) : notesDocHtml(L)}`);
   }
   if (t === 'copy') return copyText(mdToText(formatMarkdown(L)));

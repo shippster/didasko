@@ -641,7 +641,6 @@ body.p-mode::before { background: var(--stage); }
 #notes-doc .nd th { background: var(--surface-2); } #notes-doc .nd th, #notes-doc .nd td { border-color: var(--line); }
 #notes-doc .nd blockquote { background: var(--surface-2); }
 #notes-doc .nd-src { color: var(--muted); }
-#notes-doc .mla { background: var(--paper); color: var(--paper-ink); }
 .field textarea#notes-custom { min-height: 76px; }
 
 /* ---------- v3: formative quiz ---------- */
