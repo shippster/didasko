@@ -650,8 +650,12 @@ async function generateQuiz() {
   const n = +$('#quiz-count').value, level = $('#quiz-level').value, lv = $('#quiz-lang').value, qtype = $('#quiz-type').value;
   const lang = lv === 'src' ? srcName(S.settings.srcLang) : tgtName(lv);
   const useFiles = $('#quiz-use-files').checked, keyFocus = $('#quiz-key-focus').checked;
+  if (!aiReady() && !S.ui.localQuizOk) {
+    openAiSetupSheet('Scenario and misconception questions are written by an AI model. No AI model is connected on this device yet.', () => generateQuiz(), { label: 'Build simple checks without AI', run: () => { S.ui.localQuizOk = true; generateQuiz(); S.ui.localQuizOk = false; } });
+    return;
+  }
   if (!aiReady()) {
-    try { L.quiz = { questions: buildLocalQuiz(L, useFiles, n, qtype), reflection: DEFAULT_REFLECTION, local: true, at: Date.now() }; S.ui.practice = {}; saveSoon(); renderQuiz(); renderBadges(); toast('Concept checks built on this device'); }
+    try { L.quiz = { questions: buildLocalQuiz(L, useFiles, n, qtype), reflection: DEFAULT_REFLECTION, local: true, at: Date.now() }; S.ui.practice = {}; saveSoon(); renderQuiz(); renderBadges(); toast('Simple concept checks built on this device'); }
     catch (e) { toast(e.message, 4500); }
     return;
   }
@@ -982,18 +986,32 @@ function openTypeSheet() {
     });
 }
 function parseTimed(text) {
-  const lines = text.replace(/\r/g, '').split('\n'); const out = []; let t = null;
+  const lines = String(text || '').replace(/\r/g, '').split('\n'); const out = []; let t = null, pending = null;
   const toMs = s => { const p = s.replace(',', '.').split(':').map(Number); return Math.round(((p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1]) || 0) * 1000); };
   for (const l of lines) {
     const m = l.match(/^\s*(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})\s*-->/);
     if (m) { t = toMs(m[1]); continue; }
-    if (!l.trim() || /^WEBVTT|^NOTE\b|^\d+$/.test(l.trim())) continue;
-    const ts = l.match(/^\s*\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+(.*)$/);
-    if (ts) out.push({ t: toMs(ts[1] + '.0'), text: ts[2] });
-    else out.push({ t, text: l.replace(/<[^>]+>/g, '') });
+    const tl = l.trim();
+    if (!tl || /^WEBVTT|^NOTE\b|^\d+$/.test(tl)) continue;
+    if (/^\d+\s+(seconds?|minutes?|hours?)(,\s*\d+\s+(seconds?|minutes?))*$/i.test(tl)) continue; // YouTube's spoken-time labels
+    const only = tl.match(/^\[?\(?(\d{1,2}:\d{2}(?::\d{2})?)\)?\]?$/);           // YouTube copy: a timestamp on its own line
+    if (only) { pending = toMs(only[1] + '.0'); continue; }
+    const ts = tl.match(/^\[?\(?(\d{1,2}:\d{2}(?::\d{2})?)\)?\]?\s*[-–—:]?\s+(.*)$/);
+    if (ts) { out.push({ t: toMs(ts[1] + '.0'), text: ts[2] }); pending = null; }
+    else { out.push({ t: pending ?? t, text: tl.replace(/<[^>]+>/g, '') }); pending = null; }
   }
   let last = 0;
-  return out.map(x => { const tt = x.t ?? last + 5000; last = tt; return { t: tt, text: x.text }; }).filter(x => x.text.trim());
+  const rows = out.map(x => { const tt = x.t ?? last + 5000; last = tt; return { t: tt, text: x.text.trim() }; }).filter(x => x.text);
+  // Caption files and copied transcripts break speech into fragments: join them back into sentences (or ~35-word passages when unpunctuated).
+  const merged = []; let cur = null;
+  const ends = s => /[.?!…]["”’)\]]?$/.test(s);
+  for (const r of rows) {
+    if (!cur) cur = { ...r };
+    else cur.text += ' ' + r.text;
+    if (ends(cur.text) || words(cur.text) >= 35) { merged.push(cur); cur = null; }
+  }
+  if (cur) merged.push(cur);
+  return merged;
 }
 function openImportSheet() {
   openSheet('Import a transcript', `

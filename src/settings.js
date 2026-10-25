@@ -88,9 +88,52 @@ function renderAiState() {
   const chip = $('#ai-chip');
   if (chip) { chip.textContent = ok ? `AI: ${aiLabel()}` : 'AI: not set up'; chip.className = 'chip ' + (ok ? 'ok' : 'warn'); }
   const nh = $('#notes-gen-hint'), qh = $('#quiz-hint');
-  if (nh) nh.textContent = ok ? '' : 'No AI model is set up, so Didasko organizes simple notes on this device. Choose an AI service in Settings for fully written articles, picture books and custom outputs.';
+  if (nh) nh.innerHTML = ok ? '' : `<b>No AI model is connected.</b> Articles, picture books and custom outputs need one. <button class="linklike" id="nh-ai">Connect one</button> (Gemini is free).`;
+  const nb = $('#nh-ai'); if (nb) nb.onclick = () => openAiSetupSheet('Connect an AI model to write articles, picture books, custom outputs and quizzes from your lectures.', null);
   if (qh) qh.textContent = ok ? '' : 'No AI model is set up, so Didasko builds simple concept checks on this device. Choose an AI service in Settings for scenario and misconception questions.';
   if ($('#notes-style-hint')) renderNotesStyleUi();
   if (S.view === 'home') renderHome();
   TR.engineCache.clear(); renderEngineNote();
+}
+/* Quick AI setup, shown when a feature needs an AI model and none is connected. On success it continues the task. */
+function openAiSetupSheet(why, onReady, alt) {
+  const st = S.settings.ai;
+  const QUICK = [['gemini', 'Gemini', 'Free tier — usually enough for a class. Can also transcribe recordings and YouTube videos and paint pictures.'], ['anthropic', 'Claude', 'Paid API, strong writing.'], ['openai', 'ChatGPT', 'Paid API. Can transcribe recordings and paint pictures.']];
+  let pick = QUICK.some(q => q[0] === st.provider) ? st.provider : 'gemini';
+  openSheet('Connect an AI model', `
+    <p style="margin:0">${esc(why)}</p>
+    <div class="seg start-from" role="group" aria-label="AI service" style="grid-template-columns:repeat(3,1fr)">${QUICK.map(([k, l]) => `<button type="button" data-ai="${k}" aria-pressed="${k === pick}">${esc(l)}</button>`).join('')}</div>
+    <p class="small muted" id="aq-note" style="margin:0"></p>
+    <ol class="small" id="aq-steps" style="margin:0;padding-left:1.3em;display:grid;gap:4px"></ol>
+    <label class="field"><span id="aq-label">API key</span><input id="aq-key" type="password" autocomplete="off" spellcheck="false"></label>
+    <p class="small muted" style="margin:0">The key is saved only on this device and goes straight to that service. You can change it any time in Settings → AI model.</p>
+    <div class="row"><button class="btn primary" id="aq-go">${icon('spark')}Connect and continue</button>${alt ? `<button class="btn ghost" id="aq-alt">${esc(alt.label)}</button>` : ''}<span class="small muted" id="aq-out"></span></div>`,
+    sh => {
+      const paint = () => {
+        const p = PROVIDERS[pick];
+        $$('[data-ai]', sh).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ai === pick)));
+        $('#aq-note', sh).textContent = QUICK.find(q => q[0] === pick)[2];
+        $('#aq-steps', sh).innerHTML = `<li>Open <a href="${p.keyUrl}" target="_blank" rel="noopener">${esc(p.keyUrl.replace(/^https:\/\//, ''))}</a> and sign in.</li><li>Create an API key and copy it.</li><li>Paste it below.</li>`;
+        $('#aq-label', sh).textContent = `${p.label.replace(/ \(.*\)$/, '')} API key`;
+        $('#aq-key', sh).placeholder = p.keyHint; $('#aq-key', sh).value = st.keys[pick] || '';
+      };
+      $$('[data-ai]', sh).forEach(b => b.onclick = () => { pick = b.dataset.ai; paint(); });
+      paint();
+      $('#aq-go', sh).onclick = async () => {
+        const key = $('#aq-key', sh).value.trim(), out = $('#aq-out', sh);
+        if (!key) { out.textContent = 'Paste the key first.'; return; }
+        const prevProv = st.provider, prevKey = st.keys[pick];
+        st.provider = pick; st.keys[pick] = key; TR.engineCache.clear();
+        out.textContent = 'Checking the key…'; $('#aq-go', sh).disabled = true;
+        try {
+          await callAI({ maxTokens: 20, system: 'Reply with exactly: ready', user: 'Status check' });
+          saveSettings(); renderAiState(); closeSheet(); toast(`Connected to ${aiLabel()}`);
+          onReady && onReady();
+        } catch (e) {
+          st.provider = prevProv; if (prevKey === undefined) delete st.keys[pick]; else st.keys[pick] = prevKey;
+          out.textContent = e.message === 'NO_AI' ? 'That key didn’t work.' : e.message; $('#aq-go', sh).disabled = false;
+        }
+      };
+      const a = $('#aq-alt', sh); if (a) a.onclick = () => { closeSheet(); alt.run(); };
+    });
 }

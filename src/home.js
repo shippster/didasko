@@ -174,7 +174,7 @@ function openNewLectureSheet(startFrom) {
         await saveNow();
         const typed = $('#nl-title', sh).value.trim();
         const n = newLecture(typed || (mode === 'recording' ? file.name.replace(/\.[^.]+$/, '') : mode === 'paper' ? docs[0].name.replace(/\.[^.]+$/, '') : undefined));
-        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : (S.settings.lecturer || L.lecturer || ''); n.institution = S.settings.institution || L.institution || ''; n.author = L.sample ? '' : (L.author || '');
+        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : (S.settings.lecturer || (L.sample ? '' : L.lecturer) || ''); n.institution = S.settings.institution || (L.sample ? '' : L.institution) || ''; n.author = L.sample ? '' : (L.author || '');
         const lang = $('#nl-lang', sh).value;
         if (lang !== S.settings.srcLang) { S.settings.srcLang = lang; saveSettings(); TR.engineCache.clear(); $('#src-lang').value = lang; renderEngineNote(); }
         if (locked) await deleteLecture(L.id);

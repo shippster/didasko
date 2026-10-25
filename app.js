@@ -653,8 +653,12 @@ async function generateQuiz() {
   const n = +$('#quiz-count').value, level = $('#quiz-level').value, lv = $('#quiz-lang').value, qtype = $('#quiz-type').value;
   const lang = lv === 'src' ? srcName(S.settings.srcLang) : tgtName(lv);
   const useFiles = $('#quiz-use-files').checked, keyFocus = $('#quiz-key-focus').checked;
+  if (!aiReady() && !S.ui.localQuizOk) {
+    openAiSetupSheet('Scenario and misconception questions are written by an AI model. No AI model is connected on this device yet.', () => generateQuiz(), { label: 'Build simple checks without AI', run: () => { S.ui.localQuizOk = true; generateQuiz(); S.ui.localQuizOk = false; } });
+    return;
+  }
   if (!aiReady()) {
-    try { L.quiz = { questions: buildLocalQuiz(L, useFiles, n, qtype), reflection: DEFAULT_REFLECTION, local: true, at: Date.now() }; S.ui.practice = {}; saveSoon(); renderQuiz(); renderBadges(); toast('Concept checks built on this device'); }
+    try { L.quiz = { questions: buildLocalQuiz(L, useFiles, n, qtype), reflection: DEFAULT_REFLECTION, local: true, at: Date.now() }; S.ui.practice = {}; saveSoon(); renderQuiz(); renderBadges(); toast('Simple concept checks built on this device'); }
     catch (e) { toast(e.message, 4500); }
     return;
   }
@@ -985,18 +989,32 @@ function openTypeSheet() {
     });
 }
 function parseTimed(text) {
-  const lines = text.replace(/\r/g, '').split('\n'); const out = []; let t = null;
+  const lines = String(text || '').replace(/\r/g, '').split('\n'); const out = []; let t = null, pending = null;
   const toMs = s => { const p = s.replace(',', '.').split(':').map(Number); return Math.round(((p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1]) || 0) * 1000); };
   for (const l of lines) {
     const m = l.match(/^\s*(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})\s*-->/);
     if (m) { t = toMs(m[1]); continue; }
-    if (!l.trim() || /^WEBVTT|^NOTE\b|^\d+$/.test(l.trim())) continue;
-    const ts = l.match(/^\s*\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+(.*)$/);
-    if (ts) out.push({ t: toMs(ts[1] + '.0'), text: ts[2] });
-    else out.push({ t, text: l.replace(/<[^>]+>/g, '') });
+    const tl = l.trim();
+    if (!tl || /^WEBVTT|^NOTE\b|^\d+$/.test(tl)) continue;
+    if (/^\d+\s+(seconds?|minutes?|hours?)(,\s*\d+\s+(seconds?|minutes?))*$/i.test(tl)) continue; // YouTube's spoken-time labels
+    const only = tl.match(/^\[?\(?(\d{1,2}:\d{2}(?::\d{2})?)\)?\]?$/);           // YouTube copy: a timestamp on its own line
+    if (only) { pending = toMs(only[1] + '.0'); continue; }
+    const ts = tl.match(/^\[?\(?(\d{1,2}:\d{2}(?::\d{2})?)\)?\]?\s*[-–—:]?\s+(.*)$/);
+    if (ts) { out.push({ t: toMs(ts[1] + '.0'), text: ts[2] }); pending = null; }
+    else { out.push({ t: pending ?? t, text: tl.replace(/<[^>]+>/g, '') }); pending = null; }
   }
   let last = 0;
-  return out.map(x => { const tt = x.t ?? last + 5000; last = tt; return { t: tt, text: x.text }; }).filter(x => x.text.trim());
+  const rows = out.map(x => { const tt = x.t ?? last + 5000; last = tt; return { t: tt, text: x.text.trim() }; }).filter(x => x.text);
+  // Caption files and copied transcripts break speech into fragments: join them back into sentences (or ~35-word passages when unpunctuated).
+  const merged = []; let cur = null;
+  const ends = s => /[.?!…]["”’)\]]?$/.test(s);
+  for (const r of rows) {
+    if (!cur) cur = { ...r };
+    else cur.text += ' ' + r.text;
+    if (ends(cur.text) || words(cur.text) >= 35) { merged.push(cur); cur = null; }
+  }
+  if (cur) merged.push(cur);
+  return merged;
 }
 function openImportSheet() {
   openSheet('Import a transcript', `
@@ -1652,7 +1670,7 @@ async function aiImage(prompt, signal) {
 
 /* ================= APA 7 notes: citations, composition, export ================= */
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const ORG_RE = /\b(University|College|Association|Institute|Department|Agency|Organi[sz]ation|Society|Board|Council|Inc|LLC|Ltd|Press|Foundation|Cent(er|re)|School|District|Ministry|Office|Museum|Library|Committee|Commission|Group|Company)\b/i;
+const ORG_RE = /\b(University|College|Association|Institute|Department|Agency|Organi[sz]ation|Society|Board|Council|Inc|LLC|Ltd|Press|Foundation|Cent(er|re)|School|District|Ministry|Office|Museum|Library|Committee|Commission|Group|Company|Interview|Podcast|Webinar|Channel|News|Network|Radio|Television|TV|Media|Studios?|Productions?)\b/i;
 const splitNames = s => (Array.isArray(s) ? s : String(s || '').split(/\s*(?:;|\s&\s|\band\b)\s*/i)).map(x => String(x).trim()).filter(Boolean);
 const initials = s => s.split(/[\s.]+/).filter(Boolean).map(w => w.split('-').map(p => p[0].toUpperCase() + '.').join('-')).join(' ');
 function cleanName(n) {
@@ -2269,6 +2287,7 @@ const CLEANUP = 'The transcript comes from speech recognition: it may lack punct
 function journalPlanSystem({ aud, lang }) {
   return `You are the senior editor of an academic journal. You are planning an article that turns a lecture (its transcript and any course materials) into a well-organized journal article for ${AUDIENCE[aud]}, written in ${lang}.
 ${CLEANUP}
+The source may be a lecture, a talk, an interview or a panel discussion; when more than one person speaks, keep track of who said what and attribute ideas to the right speaker.
 Read the ENTIRE transcript and all materials before planning. Lectures wander: the speaker returns to ideas, gives examples out of order and mixes background with detail. Do NOT follow the order in which things were said. Instead:
 - Work out the lecture's central question and its main argument (thesis).
 - Group everything that belongs together, wherever in the transcript it was said, into 3 to 6 major themes.
@@ -2288,7 +2307,8 @@ ${CLEANUP}
 Write for ${AUDIENCE[aud]}, in ${lang}, in a formal, precise academic register: third person; ${mla ? 'present tense when discussing what the lecture argues ("Rivera explains that…")' : 'past tense for what the lecturer said ("Rivera explained that…")'} and present tense for established facts.
 
 How to write it:
-- Follow the plan's structure and order, not the order of the transcript.
+- Follow the plan's structure and order, not the order of the transcript. If the source is an interview or discussion, write about the ideas and attribute them to the person who expressed them; do not narrate the conversation.
+- Never copy transcript fragments verbatim; rewrite speech into clear, complete sentences. Quote directly only for a short, memorable phrase.
 - Unpack every idea. Define each key concept when it first appears, explain how and why it works, give the lecturer's examples and evidence, connect it to the materials, and say why it matters. Never just list what the lecturer said.
 - Each major section opens with a short framing paragraph that tells the reader what the section covers and how it connects to the article's argument. Each subsection has two to four developed paragraphs of four to seven sentences, with a clear topic sentence and transitions. End subsections with a sentence that links to the next idea.
 - Write in connected prose. Use a numbered list only where the lecture itself set out a defined set of items (for example stages, factors or criteria); introduce it with a full sentence, give each item a short explanation, and use at most two such lists in the whole article. Use a table only if it genuinely clarifies a comparison; put "**Table N**" on its own line and the table title in italic title case on the next line.
@@ -2363,10 +2383,10 @@ async function generateNotes() {
   if (live && (style === 'apa' || style === 'mla') && !lecturerOf(L)) { openLectureSheet(true); toast('Add the lecturer’s name so the article can cite the lecture.', 4000); return; }
   if (style === 'other' && !custom) { $('#notes-custom').focus(); toast('Describe the output you’re looking for.'); return; }
   if (!aiReady()) {
-    if (style === 'kids' || style === 'other') { toast(`${style === 'kids' ? 'Picture books' : 'Custom outputs'} need an AI model. Choose one in Settings.`, 4500); openSettings(); return; }
-    const src = live ? L : materialsAsLecture(L);
-    L.notes = { md: style === 'outline' ? buildLocalOutline(src, live && useFiles) : buildLocalNarrative(src, live && useFiles, style), style, local: true, at: Date.now() };
-    saveSoon(); S.ui.notesEdit = false; renderNotes(); toast('Notes organized on this device'); return;
+    const what = { apa: 'An APA journal article', mla: 'An MLA journal article', kids: 'A picture book', other: 'A custom output', outline: 'A well-organized outline' }[style];
+    const rough = () => { const src = live ? L : materialsAsLecture(L); L.notes = { md: buildLocalOutline(src, live && useFiles), style: 'outline', local: true, at: Date.now() }; $('#notes-style').value = 'outline'; renderNotesStyleUi(); saveSoon(); S.ui.notesEdit = false; renderNotes(); toast('Rough outline made on this device'); };
+    openAiSetupSheet(`${what} is written by an AI model, which reorganizes the lecture by theme and writes it up properly. No AI model is connected on this device yet.`, () => generateNotes(), { label: 'Make a rough outline without AI', run: rough });
+    return;
   }
   notesCtl = new AbortController();
   setNotesBusy(true, 'Checking sources…');
@@ -2542,7 +2562,7 @@ function buildLocalNarrative(L, useFiles, style) {
 function buildLocalOutline(L, useFiles) {
   const segs = speechSegs(L);
   const kws = keyTerms(segs.map(s => s.text).join('. '), 8);
-  let md = `# ${L.title}\n\n*Organized on this device without AI — key ideas in lecture order.*\n\n`;
+  let md = `# ${L.title}\n\n> Rough outline made on this device without AI, in the order things were said. Connect an AI model and tap Regenerate for a properly organized version.\n\n`;
   const keys = segs.filter(s => s.key);
   if (keys.length) md += `## Big Picture\n${keys.map(s => `- ★ ${cleanSpoken(s.text)}`).join('\n')}\n\n`;
   lectureSections(L).forEach((sec, i) => {
@@ -3111,7 +3131,7 @@ function openLectureSheet(focusLecturer) {
     <div class="grid-2 stack-sm">
       <label class="field"><span>Title</span><input id="lec-title" value="${esc(L.title)}" autocomplete="off"></label>
       <label class="field"><span>Course / section</span><input id="lec-course" value="${esc(L.course)}" placeholder="e.g. BIO 110: Introductory Biology" autocomplete="off"></label>
-      <label class="field"><span>Lecturer (cited as the source)</span><input id="lec-lecturer" value="${esc(L.lecturer || S.settings.lecturer || '')}" placeholder="e.g. Micah Shippee" autocomplete="name"></label>
+      <label class="field"><span>Lecturer or speaker — a person’s name (cited as the source)</span><input id="lec-lecturer" value="${esc(L.lecturer || S.settings.lecturer || '')}" placeholder="e.g. Micah Shippee" autocomplete="name"></label>
       <label class="field"><span>Institution</span><input id="lec-inst" value="${esc(L.institution || S.settings.institution || '')}" placeholder="e.g. State University" autocomplete="organization"></label>
       <label class="field"><span>Notes prepared by (optional)</span><input id="lec-author" value="${esc(L.author || S.settings.author || '')}" placeholder="e.g. a TA or note-taker" autocomplete="off"></label>
       <label class="field"><span>Lecture date</span><input id="lec-date" type="date" value="${new Date(L.createdAt - new Date(L.createdAt).getTimezoneOffset() * 60000).toISOString().slice(0, 10)}"></label>
@@ -3235,11 +3255,54 @@ function renderAiState() {
   const chip = $('#ai-chip');
   if (chip) { chip.textContent = ok ? `AI: ${aiLabel()}` : 'AI: not set up'; chip.className = 'chip ' + (ok ? 'ok' : 'warn'); }
   const nh = $('#notes-gen-hint'), qh = $('#quiz-hint');
-  if (nh) nh.textContent = ok ? '' : 'No AI model is set up, so Didasko organizes simple notes on this device. Choose an AI service in Settings for fully written articles, picture books and custom outputs.';
+  if (nh) nh.innerHTML = ok ? '' : `<b>No AI model is connected.</b> Articles, picture books and custom outputs need one. <button class="linklike" id="nh-ai">Connect one</button> (Gemini is free).`;
+  const nb = $('#nh-ai'); if (nb) nb.onclick = () => openAiSetupSheet('Connect an AI model to write articles, picture books, custom outputs and quizzes from your lectures.', null);
   if (qh) qh.textContent = ok ? '' : 'No AI model is set up, so Didasko builds simple concept checks on this device. Choose an AI service in Settings for scenario and misconception questions.';
   if ($('#notes-style-hint')) renderNotesStyleUi();
   if (S.view === 'home') renderHome();
   TR.engineCache.clear(); renderEngineNote();
+}
+/* Quick AI setup, shown when a feature needs an AI model and none is connected. On success it continues the task. */
+function openAiSetupSheet(why, onReady, alt) {
+  const st = S.settings.ai;
+  const QUICK = [['gemini', 'Gemini', 'Free tier — usually enough for a class. Can also transcribe recordings and YouTube videos and paint pictures.'], ['anthropic', 'Claude', 'Paid API, strong writing.'], ['openai', 'ChatGPT', 'Paid API. Can transcribe recordings and paint pictures.']];
+  let pick = QUICK.some(q => q[0] === st.provider) ? st.provider : 'gemini';
+  openSheet('Connect an AI model', `
+    <p style="margin:0">${esc(why)}</p>
+    <div class="seg start-from" role="group" aria-label="AI service" style="grid-template-columns:repeat(3,1fr)">${QUICK.map(([k, l]) => `<button type="button" data-ai="${k}" aria-pressed="${k === pick}">${esc(l)}</button>`).join('')}</div>
+    <p class="small muted" id="aq-note" style="margin:0"></p>
+    <ol class="small" id="aq-steps" style="margin:0;padding-left:1.3em;display:grid;gap:4px"></ol>
+    <label class="field"><span id="aq-label">API key</span><input id="aq-key" type="password" autocomplete="off" spellcheck="false"></label>
+    <p class="small muted" style="margin:0">The key is saved only on this device and goes straight to that service. You can change it any time in Settings → AI model.</p>
+    <div class="row"><button class="btn primary" id="aq-go">${icon('spark')}Connect and continue</button>${alt ? `<button class="btn ghost" id="aq-alt">${esc(alt.label)}</button>` : ''}<span class="small muted" id="aq-out"></span></div>`,
+    sh => {
+      const paint = () => {
+        const p = PROVIDERS[pick];
+        $$('[data-ai]', sh).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ai === pick)));
+        $('#aq-note', sh).textContent = QUICK.find(q => q[0] === pick)[2];
+        $('#aq-steps', sh).innerHTML = `<li>Open <a href="${p.keyUrl}" target="_blank" rel="noopener">${esc(p.keyUrl.replace(/^https:\/\//, ''))}</a> and sign in.</li><li>Create an API key and copy it.</li><li>Paste it below.</li>`;
+        $('#aq-label', sh).textContent = `${p.label.replace(/ \(.*\)$/, '')} API key`;
+        $('#aq-key', sh).placeholder = p.keyHint; $('#aq-key', sh).value = st.keys[pick] || '';
+      };
+      $$('[data-ai]', sh).forEach(b => b.onclick = () => { pick = b.dataset.ai; paint(); });
+      paint();
+      $('#aq-go', sh).onclick = async () => {
+        const key = $('#aq-key', sh).value.trim(), out = $('#aq-out', sh);
+        if (!key) { out.textContent = 'Paste the key first.'; return; }
+        const prevProv = st.provider, prevKey = st.keys[pick];
+        st.provider = pick; st.keys[pick] = key; TR.engineCache.clear();
+        out.textContent = 'Checking the key…'; $('#aq-go', sh).disabled = true;
+        try {
+          await callAI({ maxTokens: 20, system: 'Reply with exactly: ready', user: 'Status check' });
+          saveSettings(); renderAiState(); closeSheet(); toast(`Connected to ${aiLabel()}`);
+          onReady && onReady();
+        } catch (e) {
+          st.provider = prevProv; if (prevKey === undefined) delete st.keys[pick]; else st.keys[pick] = prevKey;
+          out.textContent = e.message === 'NO_AI' ? 'That key didn’t work.' : e.message; $('#aq-go', sh).disabled = false;
+        }
+      };
+      const a = $('#aq-alt', sh); if (a) a.onclick = () => { closeSheet(); alt.run(); };
+    });
 }
 
 /* ================= Home dashboard (shown when the app opens) ================= */
@@ -3418,7 +3481,7 @@ function openNewLectureSheet(startFrom) {
         await saveNow();
         const typed = $('#nl-title', sh).value.trim();
         const n = newLecture(typed || (mode === 'recording' ? file.name.replace(/\.[^.]+$/, '') : mode === 'paper' ? docs[0].name.replace(/\.[^.]+$/, '') : undefined));
-        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : (S.settings.lecturer || L.lecturer || ''); n.institution = S.settings.institution || L.institution || ''; n.author = L.sample ? '' : (L.author || '');
+        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : (S.settings.lecturer || (L.sample ? '' : L.lecturer) || ''); n.institution = S.settings.institution || (L.sample ? '' : L.institution) || ''; n.author = L.sample ? '' : (L.author || '');
         const lang = $('#nl-lang', sh).value;
         if (lang !== S.settings.srcLang) { S.settings.srcLang = lang; saveSettings(); TR.engineCache.clear(); $('#src-lang').value = lang; renderEngineNote(); }
         if (locked) await deleteLecture(L.id);

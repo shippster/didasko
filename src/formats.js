@@ -150,6 +150,7 @@ const CLEANUP = 'The transcript comes from speech recognition: it may lack punct
 function journalPlanSystem({ aud, lang }) {
   return `You are the senior editor of an academic journal. You are planning an article that turns a lecture (its transcript and any course materials) into a well-organized journal article for ${AUDIENCE[aud]}, written in ${lang}.
 ${CLEANUP}
+The source may be a lecture, a talk, an interview or a panel discussion; when more than one person speaks, keep track of who said what and attribute ideas to the right speaker.
 Read the ENTIRE transcript and all materials before planning. Lectures wander: the speaker returns to ideas, gives examples out of order and mixes background with detail. Do NOT follow the order in which things were said. Instead:
 - Work out the lecture's central question and its main argument (thesis).
 - Group everything that belongs together, wherever in the transcript it was said, into 3 to 6 major themes.
@@ -169,7 +170,8 @@ ${CLEANUP}
 Write for ${AUDIENCE[aud]}, in ${lang}, in a formal, precise academic register: third person; ${mla ? 'present tense when discussing what the lecture argues ("Rivera explains that…")' : 'past tense for what the lecturer said ("Rivera explained that…")'} and present tense for established facts.
 
 How to write it:
-- Follow the plan's structure and order, not the order of the transcript.
+- Follow the plan's structure and order, not the order of the transcript. If the source is an interview or discussion, write about the ideas and attribute them to the person who expressed them; do not narrate the conversation.
+- Never copy transcript fragments verbatim; rewrite speech into clear, complete sentences. Quote directly only for a short, memorable phrase.
 - Unpack every idea. Define each key concept when it first appears, explain how and why it works, give the lecturer's examples and evidence, connect it to the materials, and say why it matters. Never just list what the lecturer said.
 - Each major section opens with a short framing paragraph that tells the reader what the section covers and how it connects to the article's argument. Each subsection has two to four developed paragraphs of four to seven sentences, with a clear topic sentence and transitions. End subsections with a sentence that links to the next idea.
 - Write in connected prose. Use a numbered list only where the lecture itself set out a defined set of items (for example stages, factors or criteria); introduce it with a full sentence, give each item a short explanation, and use at most two such lists in the whole article. Use a table only if it genuinely clarifies a comparison; put "**Table N**" on its own line and the table title in italic title case on the next line.
@@ -244,10 +246,10 @@ async function generateNotes() {
   if (live && (style === 'apa' || style === 'mla') && !lecturerOf(L)) { openLectureSheet(true); toast('Add the lecturer’s name so the article can cite the lecture.', 4000); return; }
   if (style === 'other' && !custom) { $('#notes-custom').focus(); toast('Describe the output you’re looking for.'); return; }
   if (!aiReady()) {
-    if (style === 'kids' || style === 'other') { toast(`${style === 'kids' ? 'Picture books' : 'Custom outputs'} need an AI model. Choose one in Settings.`, 4500); openSettings(); return; }
-    const src = live ? L : materialsAsLecture(L);
-    L.notes = { md: style === 'outline' ? buildLocalOutline(src, live && useFiles) : buildLocalNarrative(src, live && useFiles, style), style, local: true, at: Date.now() };
-    saveSoon(); S.ui.notesEdit = false; renderNotes(); toast('Notes organized on this device'); return;
+    const what = { apa: 'An APA journal article', mla: 'An MLA journal article', kids: 'A picture book', other: 'A custom output', outline: 'A well-organized outline' }[style];
+    const rough = () => { const src = live ? L : materialsAsLecture(L); L.notes = { md: buildLocalOutline(src, live && useFiles), style: 'outline', local: true, at: Date.now() }; $('#notes-style').value = 'outline'; renderNotesStyleUi(); saveSoon(); S.ui.notesEdit = false; renderNotes(); toast('Rough outline made on this device'); };
+    openAiSetupSheet(`${what} is written by an AI model, which reorganizes the lecture by theme and writes it up properly. No AI model is connected on this device yet.`, () => generateNotes(), { label: 'Make a rough outline without AI', run: rough });
+    return;
   }
   notesCtl = new AbortController();
   setNotesBusy(true, 'Checking sources…');
@@ -423,7 +425,7 @@ function buildLocalNarrative(L, useFiles, style) {
 function buildLocalOutline(L, useFiles) {
   const segs = speechSegs(L);
   const kws = keyTerms(segs.map(s => s.text).join('. '), 8);
-  let md = `# ${L.title}\n\n*Organized on this device without AI — key ideas in lecture order.*\n\n`;
+  let md = `# ${L.title}\n\n> Rough outline made on this device without AI, in the order things were said. Connect an AI model and tap Regenerate for a properly organized version.\n\n`;
   const keys = segs.filter(s => s.key);
   if (keys.length) md += `## Big Picture\n${keys.map(s => `- ★ ${cleanSpoken(s.text)}`).join('\n')}\n\n`;
   lectureSections(L).forEach((sec, i) => {
