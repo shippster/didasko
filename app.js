@@ -75,7 +75,7 @@ const store = (() => {
 const guessSrc = () => { const n = navigator.language || 'en-US'; return (SRC_LANGS.find(l => l[0] === n) || SRC_LANGS.find(l => l[0].startsWith(n.split('-')[0])) || SRC_LANGS[0])[0]; };
 const DEFAULT_SETTINGS = { srcLang: guessSrc(), tgtLang: 'off', engine: 'auto', capStep: 3, capMode: 'both', theme: 'system', lastLecture: null, lecturer: '', institution: '', ai: null };
 const S = {
-  settings: { ...DEFAULT_SETTINGS }, index: [], lecture: null, view: 'live',
+  settings: { ...DEFAULT_SETTINGS }, index: [], lecture: null, view: 'home',
   rec: { running: false, interim: '', interimTr: '', startedAt: 0, pendingKey: false },
   ai: { sample: null, downloads: null },
   ui: { notesTab: 'notes', notesEdit: false, quizMode: 'teacher', present: 0, revealed: false, practice: {} },
@@ -92,12 +92,19 @@ async function saveNow() {
   const L = S.lecture; if (!L) return;
   L.updatedAt = Date.now();
   await store.set(K('lec:' + L.id), L);
-  const meta = { id: L.id, title: L.title, course: L.course || '', createdAt: L.createdAt, updatedAt: L.updatedAt, ms: L.ms, words: speechWords(L) };
+  const meta = lectureMeta(L);
   const i = S.index.findIndex(x => x.id === L.id);
   if (i >= 0) S.index[i] = meta; else S.index.unshift(meta);
   await store.set(K('index'), S.index);
   cloudSaveSoon(L);
   if (LIVE.code) liveMeta();
+}
+function lectureMeta(L) {
+  return {
+    id: L.id, title: L.title, course: L.course || '', createdAt: L.createdAt, updatedAt: L.updatedAt, ms: L.ms, words: speechWords(L),
+    notes: L.notes?.md || L.notes?.book ? (L.notes.style || 'apa') : '', quiz: L.quiz?.questions?.length || 0, runs: L.quiz?.runs?.length || 0,
+    files: L.files.length, keys: speechSegs(L).filter(s => s.key).length, sample: !!L.sample
+  };
 }
 function saveSettings() { store.set('settings', S.settings); }
 const speechSegs = L => L.segments.filter(s => s.kind === 'speech');
@@ -485,42 +492,38 @@ function renderBadges() {
 }
 function showView(v) {
   S.view = v;
-  ['live', 'notes', 'quiz', 'files'].forEach(x => { $('#view-' + x).hidden = x !== v; $('#tab-' + x).setAttribute('aria-selected', String(x === v)); });
+  ['home', 'live', 'notes', 'quiz', 'files'].forEach(x => { $('#view-' + x).hidden = x !== v; $('#tab-' + x).setAttribute('aria-selected', String(x === v)); });
+  document.body.dataset.view = v;
+  if (v === 'home') renderHome();
   if (v === 'notes') renderNotesArea();
   if (v === 'quiz') renderQuiz();
   if (v === 'files') renderFiles();
   window.scrollTo({ top: 0 });
 }
 
-/* ================= Rendering: captions ================= */
-function capHtml(s, tgt) {
-  if (s.kind === 'topic') return `<div class="cap-topic">${esc(s.text)}</div>`;
-  const tr = tgt ? (s.tr?.[tgt] ? `<div class="cap-t" dir="${RTL.has(tgt) ? 'rtl' : 'auto'}">${esc(s.tr[tgt])}</div>` : `<div class="cap-t pending" dir="auto">…</div>`) : '';
-  return `<div class="cap${s.key ? ' key' : ''}" data-id="${s.id}"><div class="cap-o">${esc(s.text)}</div>${tr}</div>`;
+/* ================= Rendering: captions =================
+   The stage shows a rolling window of exactly two lines, like broadcast captions. Everything is still kept in the transcript. */
+const CAP_TAIL = 4; // recent sentences fed into the window; only the last two visual lines are visible
+function capStream(tgt) {
+  const segs = speechSegs(S.lecture).slice(-CAP_TAIL);
+  const orig = segs.map(s => s.text).concat(S.rec.interim ? [S.rec.interim] : []).join(' ');
+  const tr = tgt ? segs.map(s => s.tr?.[tgt] || '').filter(Boolean).concat(S.rec.interimTr ? [S.rec.interimTr] : []).join(' ') : '';
+  const pendingTr = !!tgt && segs.length > 0 && !segs[segs.length - 1].tr?.[tgt];
+  return { orig, tr, pendingTr };
 }
 function renderCaptions() {
   const box = $('#captions'), tgt = target();
-  const segs = S.lecture.segments.slice(-8);
-  box.innerHTML = segs.map(s => capHtml(s, tgt)).join('') + `<div class="cap interim" id="cap-interim" hidden><div class="cap-o"></div><div class="cap-t" dir="${tgt && RTL.has(tgt) ? 'rtl' : 'auto'}"></div></div>`;
-  box.className = 'captions mode-' + (tgt ? S.settings.capMode : 'original');
-  $('#stage-empty').hidden = S.lecture.segments.length > 0 || S.rec.running;
-  renderInterim();
-  box.scrollTop = box.scrollHeight;
+  const mode = tgt ? S.settings.capMode : 'original';
+  const { orig, tr, pendingTr } = capStream(tgt);
+  let html = '';
+  if (mode !== 'translation') html += `<div class="cap-win cap-o-win" aria-label="Captions"><p>${esc(orig)}</p></div>`;
+  if (tgt && mode !== 'original') html += `<div class="cap-win cap-t-win ${!tr && pendingTr ? 'pending' : ''}" dir="${RTL.has(tgt) ? 'rtl' : 'auto'}" lang="${esc(tgt)}"><p>${esc(tr || (pendingTr ? '…' : ''))}</p></div>`;
+  if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
+  box.className = 'captions two-line mode-' + mode;
+  $('#stage-empty').hidden = !!orig || S.rec.running;
 }
-function renderInterim() {
-  const el = $('#cap-interim'); if (!el) return;
-  const has = !!S.rec.interim;
-  el.hidden = !has;
-  el.querySelector('.cap-o').textContent = S.rec.interim;
-  el.querySelector('.cap-t').textContent = S.rec.interimTr || '';
-  $('#stage-empty').hidden = S.lecture.segments.length > 0 || S.rec.running;
-  const box = $('#captions'); box.scrollTop = box.scrollHeight;
-}
-function updateCapTr(seg, tgt) {
-  if (tgt !== target()) return;
-  const el = $(`#captions .cap[data-id="${seg.id}"] .cap-t`);
-  if (el) { el.textContent = seg.tr[tgt]; el.classList.remove('pending'); const box = $('#captions'); box.scrollTop = box.scrollHeight; }
-}
+function renderInterim() { renderCaptions(); }
+function updateCapTr(seg, tgt) { if (tgt === target()) renderCaptions(); }
 function renderStageMeta() {
   const tgt = target();
   const src = srcBase(S.settings.srcLang).toUpperCase();
@@ -630,8 +633,19 @@ function sentencesOf(text) {
   return out;
 }
 
-/* ================= Quiz ================= */
-const LEVELS = { recall: 'mostly Remember and Understand questions that check the key facts and definitions', mixed: 'a mix: about a third Remember, a third Understand and a third Apply/Analyze', higher: 'mostly Apply and Analyze questions using new scenarios, examples or data, with a few Understand questions' };
+/* ================= Quiz (formative assessment) =================
+   Design principles (Black & Wiliam; Wiliam's hinge questions; Hattie & Timperley on feedback):
+   - questions ask students to explain, apply and analyze, not to recall a word from a sentence;
+   - every distractor is a known misconception, so a wrong answer tells the teacher *what* to reteach;
+   - feedback is specific to the option chosen and says how to close the gap;
+   - students rate their confidence, and the class reflects at the end (exit ticket). */
+const LEVELS = {
+  mixed: 'mostly Understand, Apply and Analyze: about a quarter explain-why or compare questions, half applying an idea to a new example or scenario, and a quarter analyzing data, a claim or a prediction. At most one question may check a single essential definition',
+  hinge: 'hinge questions: each targets one important idea where students commonly go wrong, and every distractor is a specific, well-documented misconception, so the class\'s answer pattern shows the teacher exactly what to reteach',
+  transfer: 'mostly Apply and Analyze: put the lecture\'s ideas to work in situations the lecture did not mention — new scenarios, cases, data, or "what would happen if…" predictions',
+  understand: 'mostly Understand: ask students to recognize the best paraphrase, the best explanation of why something happens, the best example or non-example, or how two ideas relate — never to recall an exact word or phrase'
+};
+const DEFAULT_REFLECTION = 'What is one idea from today you could now explain to a classmate, and one thing you are still unsure about?';
 let quizBusy = false;
 async function generateQuiz() {
   const L = S.lecture;
@@ -640,37 +654,46 @@ async function generateQuiz() {
   const lang = lv === 'src' ? srcName(S.settings.srcLang) : tgtName(lv);
   const useFiles = $('#quiz-use-files').checked, keyFocus = $('#quiz-key-focus').checked;
   if (!aiReady()) {
-    try { L.quiz = { questions: buildLocalQuiz(L, useFiles, n, qtype), local: true, at: Date.now() }; saveSoon(); renderQuiz(); renderBadges(); toast('Practice questions built on this device'); }
+    try { L.quiz = { questions: buildLocalQuiz(L, useFiles, n, qtype), reflection: DEFAULT_REFLECTION, local: true, at: Date.now() }; S.ui.practice = {}; saveSoon(); renderQuiz(); renderBadges(); toast('Concept checks built on this device'); }
     catch (e) { toast(e.message, 4500); }
     return;
   }
   const mat = useFiles ? materials('useQuiz') : { text: '', images: [], names: [] };
   const TYPE_RULES = {
     mc: '- Every question is multiple choice with exactly 4 options and exactly one correct answer ("type":"mc").\n- Spread the correct answer across positions A–D.',
-    tf: '- Every question is a true/false statement ("type":"tf") whose options are exactly ["True","False"]; "answer" is 0 when the statement is true and 1 when it is false.\n- Make roughly half the statements true and half false. False statements should reflect a real misconception, not a trivial word swap. Avoid double negatives and absolute words that give the answer away.',
-    mix: '- About two-thirds of the questions are multiple choice with exactly 4 options ("type":"mc"); the rest are true/false statements ("type":"tf") whose options are exactly ["True","False"], with "answer" 0 for true and 1 for false.\n- Spread multiple-choice answers across positions A–D.'
+    tf: '- Every question is a true/false statement ("type":"tf") whose options are exactly ["True","False"]; "answer" is 0 when the statement is true and 1 when it is false.\n- Each statement is a claim a student might plausibly make; false ones express a real misconception, never a trivial word swap. Avoid double negatives and give-away absolutes ("always", "never").',
+    mix: '- About two-thirds of the questions are multiple choice with exactly 4 options ("type":"mc"); the rest are true/false claims ("type":"tf") whose options are exactly ["True","False"], with "answer" 0 for true and 1 for false. False claims express real misconceptions.\n- Spread multiple-choice answers across positions A–D.'
   };
-  const system = `You write formative assessment questions that a teacher uses to check understanding right after a lecture.
+  const system = `You are an expert in formative assessment. You write short concept checks that a teacher uses during or right after a lecture to find out what students understand and what to reteach, following research-based practice (Black & Wiliam's assessment for learning, Wiliam's hinge questions, Hattie & Timperley's feedback model).
 Rules:
 - Write exactly ${n} questions, in ${lang}, for ${AUDIENCE[$('#notes-audience').value] || 'students'}.
-- Thinking level: ${LEVELS[level]}.
+- Focus: ${LEVELS[level] || LEVELS.mixed}.
 ${TYPE_RULES[qtype] || TYPE_RULES.mc}
-- Distractors are plausible and based on likely misconceptions; never "all of the above" or "none of the above"; keep options similar in length and grammar.
-- Stems are self-contained and clear; no trick wording.
+- Never write fill-in-the-blank, cloze or "which word completes the sentence" items, and never ask for a word, name, number or date quoted from the lecture. Ask students to explain, predict, compare, classify, apply, or evaluate a claim.
+- Prefer stems that present a short scenario, example, data point, or a classmate's claim ("A student says… What is the best response?").
+- Each wrong option is a plausible misconception or partial understanding a real student would hold — not a joke or an obviously wrong choice. Never "all of the above" or "none of the above". Keep options similar in length and grammar so the answer can't be guessed from form.
+- Stems are self-contained, clear and fair; no trick wording or double negatives.
 - Base every question only on the transcript and the materials. The transcript comes from speech recognition, so ignore obvious recognition errors.
-- Cover the lecture broadly${mat.text ? ', and include some questions that draw on the materials' : ''}.${keyFocus ? '\n- Every line marked ★KEY POINT must be assessed by at least one question.' : ''}
-For each question return: "type"; "stem"; "options" (array of strings, no letter prefixes); "answer" (index of the correct option); "explanation" (1–2 sentences on why it is right and what misconception the strongest distractor reflects); "source" (a transcript timestamp like "Lecture 12:40", or the material's file name); "level" (Remember, Understand, Apply or Analyze).
-Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"explanation":"","source":"","level":""}]}`;
+- Cover the lecture's most important ideas${mat.text ? ', and include some questions that draw on the materials' : ''}.${keyFocus ? '\n- Every line marked ★KEY POINT must be assessed by at least one question.' : ''}
+For each question return:
+"type"; "stem"; "options" (array of strings, no letter prefixes); "answer" (index of the correct option);
+"feedback" (array, one string per option, same order, 1–2 sentences each: for the correct option say why it is right; for each wrong option name the misconception it reveals and give a hint that moves the student toward the right idea — specific, kind, and without simply restating the answer);
+"explanation" (1–2 sentences the teacher can say after revealing the answer);
+"reflect" (one short open reflection or turn-and-talk prompt that asks students to explain their reasoning or connect the idea to something new);
+"source" (a transcript timestamp like "Lecture 12:40", or the material's file name); "level" (Understand, Apply, Analyze or Evaluate).
+Also return "reflection": one exit-ticket question for the end of the quiz that asks students to reflect on their own learning about today's topic.
+Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"feedback":["","","",""],"explanation":"","reflect":"","source":"","level":""}],"reflection":""}`;
   const user = `${lectureHeader(L)}\n\n<transcript>\n${transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`;
   quizBusy = true; setQuizBusy(true);
   try {
     const text = await callAI({
-      system, user, images: mat.images, maxTokens: 8000, json: true,
+      system, user, images: mat.images, maxTokens: 12000, json: true,
       onText: t => { const k = (t.match(/"stem"\s*:/g) || []).length; $('#quiz-status-text').textContent = k ? `Writing question ${Math.min(k, n)} of ${n}…` : 'Reading the lecture…'; }
     });
-    const qs = normalizeQuestions(parseJson(text).questions);
+    const j = parseJson(text);
+    const qs = normalizeQuestions(j.questions);
     if (!qs.length) throw new Error('The AI didn’t return any usable questions. Try again.');
-    L.quiz = { questions: qs, at: Date.now(), lang, type: qtype };
+    L.quiz = { questions: qs, at: Date.now(), lang, type: qtype, level, reflection: String(j.reflection || '').trim() || DEFAULT_REFLECTION };
     S.ui.practice = {};
     toast(`${qs.length} questions ready`);
   } catch (e) { toast(e.message, 5000); }
@@ -682,7 +705,9 @@ function normalizeQuestions(arr) {
     const tf = q.type === 'tf' || (options.length === 2 && /^(true|verdadero|vrai|wahr|vero|verdadeiro)$/i.test(options[0]));
     if (tf && options.length !== 2) options = ['True', 'False'];
     let answer = Number.isInteger(q.answer) ? q.answer : typeof q.answer === 'boolean' ? (q.answer ? 0 : 1) : /^(true|t)$/i.test(String(q.answer)) ? 0 : /^(false|f)$/i.test(String(q.answer)) ? 1 : 'ABCD'.indexOf(String(q.answer || '').trim().toUpperCase()[0]);
-    return { id: uid(), type: tf ? 'tf' : 'mc', stem: String(q.stem || '').trim(), options, answer, explanation: String(q.explanation || '').trim(), source: String(q.source || '').trim(), level: String(q.level || '').trim() };
+    const fb = Array.isArray(q.feedback) ? q.feedback.map(x => String(x || '').trim()) : [];
+    const feedback = options.map((_, k) => fb[k] || '');
+    return { id: q.id || uid(), type: tf ? 'tf' : 'mc', stem: String(q.stem || '').trim(), options, answer, feedback, explanation: String(q.explanation || '').trim(), reflect: String(q.reflect || '').trim(), source: String(q.source || '').trim(), level: String(q.level || '').trim() };
   }).filter(q => q.stem && q.options.length === (q.type === 'tf' ? 2 : 4) && q.answer >= 0 && q.answer < q.options.length);
 }
 const optLetter = (q, k) => q.type === 'tf' ? (k ? 'F' : 'T') : 'ABCD'[k];
@@ -690,31 +715,59 @@ function setQuizBusy(on) {
   $('#quiz-status').hidden = !on; $('#quiz-generate').disabled = on;
   if (on) { $('#quiz-status-text').textContent = 'Reading the lecture…'; $('#quiz-list').innerHTML = ''; $('#quiz-bar').hidden = true; }
 }
+/* ---- On-device concept checks (no AI) ----
+   No fill-in-the-blank: each item asks which claim about a key idea is accurate. The distractors are real statements from
+   the lecture about *other* ideas, re-attached to this one — the classic "confusing two related concepts" error — and the
+   feedback for each says which idea the statement actually describes. */
+const FILLER = /^(?:(?:okay|ok|so|and|but|um+|uh+|well|now|right|alright|all right|yeah|like|you know|basically|actually|remember|everyone|everybody|guys|folks|let'?s|let’s)[\s,]+)+/i;
+function cleanSpoken(t) {
+  let x = String(t || '').replace(/\b(um+|uh+|you know|kind of|sort of)\b,?\s*/gi, '').replace(/\s{2,}/g, ' ').trim();
+  x = x.replace(FILLER, '').replace(/^(?:get started,?\s*)/i, '');
+  return endDot(tidy(x));
+}
 function buildLocalQuiz(L, useFiles, n, qtype = 'mc') {
   const segs = speechSegs(L);
   const corpus = segs.map(s => s.text).concat(useFiles ? L.files.filter(f => f.useQuiz && f.text).map(f => f.text) : []).join('. ');
-  const terms = keyTerms(corpus, 40).filter(t => t.length > 4);
+  const terms = keyTerms(corpus, 40).filter(t => t.length > 5 || t.includes(' '));
   if (terms.length < 4) throw new Error('There isn’t enough lecture content yet to build questions. Record more, or choose an AI model in Settings.');
-  const pool = [...segs.filter(s => s.key), ...segs.filter(s => !s.key)].flatMap(s => sentencesOf(s.text).map(t => ({ t, src: `Lecture ${fmtClock(s.t)}` })));
-  if (useFiles) L.files.filter(f => f.useQuiz && f.text).forEach(f => sentencesOf(f.text.replace(/\n+/g, '. ')).forEach(t => pool.push({ t, src: f.name })));
+  const pool = [...segs.filter(s => s.key), ...segs.filter(s => !s.key)].flatMap(s => sentencesOf(s.text).map(t => ({ t: cleanSpoken(t), src: `Lecture ${fmtClock(s.t)}` })));
+  if (useFiles) L.files.filter(f => f.useQuiz && f.text).forEach(f => sentencesOf(f.text.replace(/\n+/g, '. ')).forEach(t => pool.push({ t: cleanSpoken(t), src: f.name })));
+  const reTerm = k => new RegExp(`(?<![\\p{L}\\p{N}-])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}-])`, 'iu');
+  const swap = (t, from, to) => t.replace(reTerm(from), (m, off) => off === 0 ? to.charAt(0).toUpperCase() + to.slice(1) : to);
+  const ok = p => { const w = words(p.t); return w >= 7 && w <= 38; };
+  const facts = pool.filter(ok).map(p => ({ ...p, term: terms.find(k => reTerm(k).test(p.t)) })).filter(p => p.term);
+  const REFLECT = [
+    k => `In one or two sentences, explain “${k}” to a classmate who missed class.`,
+    k => `What is an example of “${k}” that the lecture didn’t mention? Why does it fit?`,
+    (k, k2) => `How is “${k}” connected to “${k2}”? Explain your reasoning to a partner.`,
+    k => `What would change if “${k}” didn’t happen or didn’t exist?`
+  ];
+  const STEMS = [k => `Which statement about “${k}” is accurate, according to the lecture?`, k => `A classmate is studying “${k}”. Which of their notes is correct?`, k => `Which claim about “${k}” would your teacher agree with?`];
   const used = new Set(), qs = [];
-  for (const { t, src } of pool) {
+  for (const f of facts) {
     if (qs.length >= n) break;
-    const w = words(t); if (w < 7 || w > 40) continue;
-    const term = terms.find(k => !used.has(k) && new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(t));
-    if (!term) continue;
-    used.add(term);
+    if (used.has(f.term)) continue;
+    const others = facts.filter(o => o.term !== f.term && !reTerm(f.term).test(o.t));
+    const k2 = others[0]?.term || terms.find(t => t !== f.term);
+    const reflect = REFLECT[qs.length % REFLECT.length](f.term, k2);
     const asTF = qtype === 'tf' || (qtype === 'mix' && qs.length % 3 === 2);
     if (asTF) {
-      const swap = Math.random() < .5 && terms.length > 1 ? terms.find(k => k !== term && !t.toLowerCase().includes(k)) : null;
-      const re = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      qs.push({ id: uid(), type: 'tf', stem: 'True or false: ' + (swap ? t.replace(re, swap) : t), options: ['True', 'False'], answer: swap ? 1 : 0, explanation: `From the lecture: “${t}”`, source: src, level: 'Remember' });
-      continue;
+      const o = Math.random() < .5 ? others[Math.floor(Math.random() * others.length)] : null;
+      const stmt = o ? swap(o.t, o.term, f.term) : f.t;
+      qs.push({ id: uid(), type: 'tf', stem: `True or false: ${stmt}`, options: ['True', 'False'], answer: o ? 1 : 0,
+        feedback: o ? [`Look again: this describes “${o.term}”, not “${f.term}” (${o.src}). Mixing up related ideas is a common slip — what makes them different?`, `Right — the lecture said this about “${o.term}”, not “${f.term}” (${o.src}).`]
+          : [`Right — the lecture made this point about “${f.term}” (${f.src}).`, `This one is true: the lecture said it about “${f.term}” (${f.src}). Which part made you doubt it?`],
+        explanation: o ? `The lecture said: “${o.t}” That is about ${o.term}.` : `From the lecture: “${f.t}”`, reflect, source: f.src, level: 'Understand' });
+      used.add(f.term); continue;
     }
-    const stem = 'Fill in the blank: ' + t.replace(new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'), '_____');
-    const others = terms.filter(k => k !== term).sort(() => Math.random() - .5).slice(0, 3);
-    const options = [term, ...others].sort(() => Math.random() - .5);
-    qs.push({ id: uid(), type: 'mc', stem, options, answer: options.indexOf(term), explanation: `From the lecture: “${t}”`, source: src, level: 'Remember' });
+    const picks = []; const seenT = new Set([f.term]);
+    for (const o of others.sort(() => Math.random() - .5)) { if (picks.length >= 3) break; if (seenT.has(o.term)) continue; seenT.add(o.term); picks.push(o); }
+    if (picks.length < 3) continue;
+    const opts = [{ text: f.t, ok: true, src: f.src }, ...picks.map(o => ({ text: swap(o.t, o.term, f.term), ok: false, about: o.term, src: o.src }))].sort(() => Math.random() - .5);
+    qs.push({ id: uid(), type: 'mc', stem: STEMS[qs.length % STEMS.length](f.term), options: opts.map(o => o.text), answer: opts.findIndex(o => o.ok),
+      feedback: opts.map(o => o.ok ? `Yes — this is what the lecture said about “${f.term}” (${o.src}).` : `This is really a statement about “${o.about}” (${o.src}). How are “${o.about}” and “${f.term}” different?`),
+      explanation: `From the lecture: “${f.t}” The other options describe ${picks.map(p => p.term).join(', ')}.`, reflect, source: f.src, level: 'Understand' });
+    used.add(f.term);
   }
   if (qs.length < 2) throw new Error('There isn’t enough lecture content yet to build questions. Record more, or choose an AI model in Settings.');
   return qs;
@@ -727,54 +780,71 @@ function renderQuiz() {
   const mat = S.lecture.files.filter(f => f.useQuiz).length;
   $('#quiz-chip').textContent = mat ? `${mat} file${mat > 1 ? 's' : ''} included` : 'Lecture only';
   if (quizBusy) return;
-  if (!n) { list.innerHTML = `<div class="panel empty"><h3>No quiz yet</h3><p>Generate a short multiple-choice check from today’s lecture${mat ? ' and your files' : ''}. Present it on the board or export it to your LMS.</p></div>`; return; }
+  if (!n) { list.innerHTML = `<div class="panel empty"><h3>No quiz yet</h3><p>Generate a short formative check from today’s lecture${mat ? ' and your files' : ''}. Run it live with a leaderboard, present it on the board, or export it to your LMS.</p></div>`; return; }
   const teacher = S.ui.quizMode === 'teacher';
   $('#qv-teacher').setAttribute('aria-pressed', String(teacher)); $('#qv-practice').setAttribute('aria-pressed', String(!teacher));
   list.innerHTML = Q.questions.map((q, i) => {
     const pick = S.ui.practice[q.id];
     const showAns = teacher || pick !== undefined;
+    const fb = k => q.feedback?.[k] || '';
     return `<div class="q-card" data-qid="${q.id}">
       <div class="q-head"><span class="q-num">${pad(i + 1)}</span><div class="q-stem" ${teacher ? 'contenteditable="true"' : ''} data-f="stem">${esc(q.stem)}</div></div>
       <div class="q-opts">${q.options.map((o, k) => {
         const cls = showAns && k === q.answer ? 'correct' : (!teacher && pick === k && k !== q.answer ? 'wrong' : '');
         return teacher
-          ? `<div class="q-opt ${cls}"><button class="L" data-set="${k}" title="Make this the correct answer" aria-label="Make ${optLetter(q, k)} the correct answer">${optLetter(q, k)}</button><span class="grow" contenteditable="true" data-f="opt" data-k="${k}">${esc(o)}</span></div>`
-          : `<button class="q-opt ${cls}" data-pick="${k}"><span class="L">${optLetter(q, k)}</span><span>${esc(o)}</span></button>`;
+          ? `<div class="q-opt ${cls}"><button class="L" data-set="${k}" title="Make this the correct answer" aria-label="Make ${optLetter(q, k)} the correct answer">${optLetter(q, k)}</button><div class="grow"><span contenteditable="true" data-f="opt" data-k="${k}">${esc(o)}</span>${fb(k) ? `<span class="q-fb" contenteditable="true" data-f="fb" data-k="${k}" title="Feedback a student sees after choosing this option">${esc(fb(k))}</span>` : ''}</div></div>`
+          : `<button class="q-opt ${cls}" data-pick="${k}"><span class="L">${optLetter(q, k)}</span><span class="grow">${esc(o)}${pick === k && fb(k) ? `<span class="q-fb">${esc(fb(k))}</span>` : ''}</span></button>`;
       }).join('')}</div>
       ${showAns && q.explanation ? `<div class="q-explain">${esc(q.explanation)}</div>` : ''}
+      ${showAns && q.reflect ? `<div class="q-reflect"><span class="eyebrow">Reflect</span><span ${teacher ? 'contenteditable="true" data-f="reflect"' : ''}>${esc(q.reflect)}</span></div>` : ''}
       ${teacher ? `<div class="q-foot">${q.level ? `<span class="chip accent">${esc(q.level)}</span>` : ''}${q.source ? `<span class="chip">${esc(q.source)}</span>` : ''}<span class="grow"></span><button class="btn sm ghost danger" data-del>${icon('trash')}Remove</button></div>` : ''}
     </div>`;
-  }).join('');
+  }).join('') + `<div class="q-card q-exit"><div class="q-head"><span class="q-num">${icon('spark')}</span><div class="grow"><span class="eyebrow">Exit ticket · asked at the end of a live quiz</span><div class="q-stem" ${teacher ? 'contenteditable="true"' : ''} data-f="reflection">${esc(Q.reflection || DEFAULT_REFLECTION)}</div></div></div></div>`;
 }
 function quizStudentBlocks(L, qs, key) {
   const b = [{ type: 'h', level: 1, text: `${key ? 'Answer key — ' : ''}${L.title}` }];
   b.push({ type: 'p', runs: [{ text: [L.course, fmtDate(L.createdAt)].filter(Boolean).join(' · '), i: true }] });
   if (!key) b.push({ type: 'p', runs: [{ text: 'Name: ______________________________      Date: ______________' }] });
-  if (!key) qs.forEach((q, i) => {
-    b.push({ type: 'p', runs: [{ text: `${i + 1}. ${q.stem}`, b: true }] });
-    q.options.forEach((o, k) => b.push({ type: 'p', indent: true, runs: [{ text: `${q.type === 'tf' ? '☐' : 'ABCD'[k] + '.'}  ${o}` }] }));
-  });
-  else b.push({ type: 'table', head: ['#', 'Answer', 'Why', 'Source'], rows: qs.map((q, i) => [String(i + 1), q.type === 'tf' ? q.options[q.answer] : `${'ABCD'[q.answer]} — ${q.options[q.answer]}`, q.explanation, q.source || '']) });
+  if (!key) {
+    qs.forEach((q, i) => {
+      b.push({ type: 'p', runs: [{ text: `${i + 1}. ${q.stem}`, b: true }] });
+      q.options.forEach((o, k) => b.push({ type: 'p', indent: true, runs: [{ text: `${q.type === 'tf' ? '☐' : 'ABCD'[k] + '.'}  ${o}` }] }));
+      b.push({ type: 'p', indent: true, runs: [{ text: 'How sure are you?   ☐ Guessing   ☐ Fairly sure   ☐ Certain', i: true }] });
+      if (q.reflect) b.push({ type: 'p', indent: true, runs: [{ text: `Reflect: ${q.reflect}`, i: true }, { text: '\n______________________________________________________________' }] });
+    });
+    const ex = L.quiz?.reflection || DEFAULT_REFLECTION;
+    b.push({ type: 'h', level: 2, text: 'Exit ticket' }, { type: 'p', runs: [{ text: ex }] }, { type: 'p', runs: [{ text: '______________________________________________________________\n______________________________________________________________' }] });
+  } else {
+    b.push({ type: 'table', head: ['#', 'Answer', 'Why', 'Source'], rows: qs.map((q, i) => [String(i + 1), q.type === 'tf' ? q.options[q.answer] : `${'ABCD'[q.answer]} — ${q.options[q.answer]}`, q.explanation, q.source || '']) });
+    b.push({ type: 'h', level: 2, text: 'What each wrong answer tells you' });
+    qs.forEach((q, i) => {
+      const wrong = q.options.map((o, k) => k !== q.answer && q.feedback?.[k] ? `${optLetter(q, k)}: ${q.feedback[k]}` : '').filter(Boolean);
+      if (wrong.length) b.push({ type: 'p', runs: [{ text: `${i + 1}. `, b: true }, { text: wrong.join('   ') }] });
+    });
+  }
   return b;
 }
-function quizText(qs) { return qs.map((q, i) => `${i + 1}. ${q.stem}\n${q.options.map((o, k) => `   ${optLetter(q, k)}. ${o}`).join('\n')}\n   Answer: ${q.type === 'tf' ? q.options[q.answer] : 'ABCD'[q.answer]}${q.explanation ? ` — ${q.explanation}` : ''}`).join('\n\n'); }
+function quizText(qs) { return qs.map((q, i) => `${i + 1}. ${q.stem}\n${q.options.map((o, k) => `   ${optLetter(q, k)}. ${o}${q.feedback?.[k] ? `\n      → ${q.feedback[k]}` : ''}`).join('\n')}\n   Answer: ${q.type === 'tf' ? q.options[q.answer] : 'ABCD'[q.answer]}${q.explanation ? ` — ${q.explanation}` : ''}${q.reflect ? `\n   Reflect: ${q.reflect}` : ''}`).join('\n\n') + `\n\nExit ticket: ${S.lecture.quiz?.reflection || DEFAULT_REFLECTION}`; }
 function giftEsc(s) { return String(s).replace(/([~=#{}:\\])/g, '\\$1'); }
 function quizGift(L, qs) {
   return `// ${L.title} — formative check generated by Didasko\n// ${fmtDate(L.createdAt)}\n\n` + qs.map((q, i) =>
-    `// ${q.level || 'Question'}${q.source ? ' · ' + q.source : ''}\n::Q${i + 1}:: ${giftEsc(q.stem)} ` + (q.type === 'tf'
-      ? `{${q.answer === 0 ? 'TRUE' : 'FALSE'}${q.explanation ? '#' + giftEsc(q.explanation) + '#' + giftEsc(q.explanation) : ''}}`
-      : `{\n${q.options.map((o, k) => `${k === q.answer ? '=' : '~'}${giftEsc(o)}${k === q.answer && q.explanation ? '#' + giftEsc(q.explanation) : ''}`).join('\n')}\n}`)).join('\n\n') + '\n';
+    `// ${q.level || 'Question'}${q.source ? ' · ' + q.source : ''}${q.reflect ? `\n// Reflect: ${q.reflect}` : ''}\n::Q${i + 1}:: ${giftEsc(q.stem)} ` + (q.type === 'tf'
+      ? `{${q.answer === 0 ? 'TRUE' : 'FALSE'}${q.feedback?.[1 - q.answer] ? '#' + giftEsc(q.feedback[1 - q.answer]) : q.explanation ? '#' + giftEsc(q.explanation) : ''}${q.feedback?.[q.answer] ? '#' + giftEsc(q.feedback[q.answer]) : q.explanation ? '#' + giftEsc(q.explanation) : ''}}`
+      : `{\n${q.options.map((o, k) => `${k === q.answer ? '=' : '~'}${giftEsc(o)}${q.feedback?.[k] ? '#' + giftEsc(q.feedback[k]) : k === q.answer && q.explanation ? '#' + giftEsc(q.explanation) : ''}`).join('\n')}\n}`)).join('\n\n')
+    + `\n\n// Exit ticket\n::Exit ticket:: ${giftEsc(L.quiz?.reflection || DEFAULT_REFLECTION)} {}\n`;
 }
 function csvCell(s) { s = String(s ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 function quizCsv(qs) {
-  const rows = [['Type', 'Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct', 'Explanation', 'Level', 'Source']];
-  qs.forEach(q => rows.push([q.type === 'tf' ? 'True/False' : 'Multiple choice', q.stem, ...q.options, ...Array(4 - q.options.length).fill(''), q.type === 'tf' ? q.options[q.answer] : 'ABCD'[q.answer], q.explanation, q.level, q.source]));
+  const rows = [['Type', 'Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct', 'Feedback A', 'Feedback B', 'Feedback C', 'Feedback D', 'Explanation', 'Reflection prompt', 'Level', 'Source']];
+  const pad4 = a => [...a, ...Array(4 - a.length).fill('')];
+  qs.forEach(q => rows.push([q.type === 'tf' ? 'True/False' : 'Multiple choice', q.stem, ...pad4(q.options), q.type === 'tf' ? q.options[q.answer] : 'ABCD'[q.answer], ...pad4(q.feedback || []), q.explanation, q.reflect || '', q.level, q.source]));
   return '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
 }
 function quizPrintHtml(L, qs, key) {
   const head = `<h1>${key ? 'Answer key — ' : ''}${esc(L.title)}</h1><p><em>${esc([L.course, fmtDate(L.createdAt)].filter(Boolean).join(' · '))}</em></p>`;
-  if (key) return head + `<table><thead><tr><th>#</th><th>Answer</th><th>Why</th></tr></thead><tbody>${qs.map((q, i) => `<tr><td>${i + 1}</td><td>${q.type === 'tf' ? esc(q.options[q.answer]) : `${'ABCD'[q.answer]} — ${esc(q.options[q.answer])}`}</td><td>${esc(q.explanation)}</td></tr>`).join('')}</tbody></table>`;
-  return head + `<div class="pname"><span>Name: ____________________________</span><span>Date: ____________</span></div>` + qs.map((q, i) => `<div class="pq"><strong>${i + 1}. ${esc(q.stem)}</strong>${q.type === 'tf' ? `<p>☐ True &nbsp;&nbsp; ☐ False</p>` : `<ol>${q.options.map(o => `<li>${esc(o)}</li>`).join('')}</ol>`}</div>`).join('');
+  if (key) return head + `<table><thead><tr><th>#</th><th>Answer</th><th>Why</th><th>What wrong answers tell you</th></tr></thead><tbody>${qs.map((q, i) => `<tr><td>${i + 1}</td><td>${q.type === 'tf' ? esc(q.options[q.answer]) : `${'ABCD'[q.answer]} — ${esc(q.options[q.answer])}`}</td><td>${esc(q.explanation)}</td><td>${q.options.map((o, k) => k !== q.answer && q.feedback?.[k] ? `<b>${optLetter(q, k)}</b> ${esc(q.feedback[k])}` : '').filter(Boolean).join('<br>')}</td></tr>`).join('')}</tbody></table>`;
+  return head + `<div class="pname"><span>Name: ____________________________</span><span>Date: ____________</span></div>` + qs.map((q, i) => `<div class="pq"><strong>${i + 1}. ${esc(q.stem)}</strong>${q.type === 'tf' ? `<p>☐ True &nbsp;&nbsp; ☐ False</p>` : `<ol>${q.options.map(o => `<li>${esc(o)}</li>`).join('')}</ol>`}<p class="pconf">How sure are you? ☐ Guessing ☐ Fairly sure ☐ Certain</p>${q.reflect ? `<p class="preflect"><em>Reflect:</em> ${esc(q.reflect)}<br>_______________________________________________________</p>` : ''}</div>`).join('')
+    + `<div class="pq"><strong>Exit ticket</strong><p>${esc(L.quiz?.reflection || DEFAULT_REFLECTION)}</p><p>_______________________________________________________<br>_______________________________________________________</p></div>`;
 }
 
 /* ---- Present mode ---- */
@@ -792,6 +862,7 @@ function renderPresent() {
   $('#p-stem').textContent = q.stem;
   $('#p-opts').innerHTML = q.options.map((o, k) => `<div class="p-opt ${r ? (k === q.answer ? 'correct' : 'dim') : ''}"><span class="L">${optLetter(q, k)}</span><span>${esc(o)}</span></div>`).join('');
   $('#p-explain').hidden = !r || !q.explanation; $('#p-explain').textContent = q.explanation;
+  $('#p-reflect').hidden = !r || !q.reflect; $('#p-reflect').innerHTML = q.reflect ? `<span class="eyebrow">Turn and talk</span> ${esc(q.reflect)}` : '';
   $('#p-reveal').textContent = r ? 'Hide answer' : 'Reveal answer';
   $('#p-prev').disabled = S.ui.present === 0; $('#p-next').disabled = S.ui.present === qs.length - 1;
 }
@@ -965,12 +1036,14 @@ function fillLangSelects() {
 }
 function renderAll() {
   renderHeader(); renderStageMeta(); renderCaptions(); renderRecState(); renderStats(); renderBadges(); renderAiState(); renderShare();
-  if (S.view === 'notes') renderNotesArea(); if (S.view === 'quiz') renderQuiz(); if (S.view === 'files') renderFiles();
+  if (S.view === 'home') renderHome(); if (S.view === 'notes') renderNotesArea(); if (S.view === 'quiz') renderQuiz(); if (S.view === 'files') renderFiles();
 }
 
 /* ================= Events ================= */
 function bind() {
   $$('.tab').forEach(t => t.onclick = () => showView(t.dataset.view));
+  const goHome = () => showView('home');
+  $('#brand-home').onclick = goHome; $('#brand-home').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goHome(); } };
   $('#btn-rec').onclick = toggleCaptions; $('#fs-rec').onclick = toggleCaptions;
   $('#btn-key').onclick = markKey; $('#fs-key').onclick = markKey;
   $('#btn-topic').onclick = openTopicSheet; $('#btn-type').onclick = openTypeSheet;
@@ -979,8 +1052,10 @@ function bind() {
   $('#btn-share').onclick = openShareSheet;
   $('#btn-qr-stage').onclick = () => { LIVE.showQR = !LIVE.showQR; renderShare(); };
   $('#quiz-live').onclick = openLiveQuiz;
-  ['#quiz-type', '#quiz-timer', '#quiz-names'].forEach(id => { $(id).value = S.settings[id.slice(1)] ?? $(id).value; $(id).onchange = e => { S.settings[id.slice(1)] = e.target.value; saveSettings(); }; });
-  $('#quiz-board').checked = !!S.settings['quiz-board']; $('#quiz-board').onchange = e => { S.settings['quiz-board'] = e.target.checked; saveSettings(); };
+  ['#quiz-type', '#quiz-timer', '#quiz-names', '#quiz-level'].forEach(id => { const v = S.settings[id.slice(1)]; if (v != null && $(id).querySelector(`option[value="${v}"]`)) $(id).value = v; $(id).onchange = e => { S.settings[id.slice(1)] = e.target.value; saveSettings(); }; });
+  [['#quiz-board', 'quizBoard'], ['#quiz-conf', 'quizConf'], ['#quiz-reflect', 'quizReflect']].forEach(([id, k]) => { if (S.settings[k] != null) $(id).checked = !!S.settings[k]; $(id).onchange = e => { S.settings[k] = e.target.checked; saveSettings(); }; });
+  $('#notes-style').onchange = () => { S.settings.notesStyle = $('#notes-style').value; saveSettings(); renderNotesStyleUi(); };
+  $('#notes-custom').oninput = e => { S.settings.notesCustom = e.target.value; saveSettings(); };
   $('#font-up').onclick = () => { S.settings.capStep = Math.min(CAP_SIZES.length - 1, S.settings.capStep + 1); saveSettings(); renderStageMeta(); };
   $('#font-down').onclick = () => { S.settings.capStep = Math.max(0, S.settings.capStep - 1); saveSettings(); renderStageMeta(); };
   $('#mode-btn').onclick = () => { const o = ['both', 'translation', 'original']; S.settings.capMode = o[(o.indexOf(S.settings.capMode) + 1) % 3]; saveSettings(); renderStageMeta(); renderCaptions(); };
@@ -1029,6 +1104,12 @@ function bind() {
     S.ui.notesEdit = !S.ui.notesEdit; renderNotes();
   };
   $('#notes-editor').oninput = () => { S.lecture.notes.md = $('#notes-editor').value; saveSoon(); };
+  $('#notes-doc').addEventListener('focusout', e => {
+    const t = e.target.closest('[data-page-text]'); const b = S.lecture.notes?.book; if (!t || !b) return;
+    const p = b.pages[+t.dataset.pageText], v = t.textContent.replace(/\s+/g, ' ').trim();
+    if (p && v && v !== p.text) { p.text = v; S.lecture.notes.md = bookMarkdown(S.lecture, b); saveSoon(); }
+  });
+  $('#notes-doc').addEventListener('click', e => { const r = e.target.closest('[data-redraw]'); if (r) redrawPicture(+r.dataset.redraw); });
   $('#notes-export').onclick = async e => {
     const b = e.target.closest('[data-exp]'); if (!b) return; $('#notes-export').hidden = true;
     try { await exportNotes(b.dataset.exp); } catch (err) { toast(err.message || 'Export failed', 4500); }
@@ -1071,9 +1152,11 @@ function bind() {
   });
   $('#quiz-list').addEventListener('focusout', e => {
     const f = e.target.closest('[data-f]'); if (!f) return;
-    const q = S.lecture.quiz.questions.find(x => x.id === f.closest('.q-card').dataset.qid); if (!q) return;
-    const v = f.textContent.replace(/\s+/g, ' ').trim(); if (!v) { renderQuiz(); return; }
-    if (f.dataset.f === 'stem') q.stem = v; else q.options[+f.dataset.k] = v;
+    const q = S.lecture.quiz.questions.find(x => x.id === f.closest('.q-card').dataset.qid); if (!q && f.dataset.f !== 'reflection') return;
+    const v = f.textContent.replace(/\s+/g, ' ').trim();
+    if (f.dataset.f === 'reflection') { S.lecture.quiz.reflection = v || DEFAULT_REFLECTION; saveSoon(); return; }
+    if (!v && f.dataset.f !== 'fb' && f.dataset.f !== 'reflect') { renderQuiz(); return; }
+    if (f.dataset.f === 'stem') q.stem = v; else if (f.dataset.f === 'fb') { q.feedback = q.feedback || q.options.map(() => ''); q.feedback[+f.dataset.k] = v; } else if (f.dataset.f === 'reflect') q.reflect = v; else q.options[+f.dataset.k] = v;
     saveSoon();
   });
   $('#quiz-export').onclick = async e => {
@@ -1174,7 +1257,7 @@ Common misconception: the O2 released by plants comes from water, not from CO2. 
   L.lecturer = 'Alex Rivera'; L.institution = 'Sample State University'; L.author = 'Alex Rivera';
   L.files.push({ id: fid, name: 'Ch8.2 reading – light reactions.txt', size: reading.length, kind: 'txt', addedAt: Date.now(), useNotes: true, useQuiz: true, text: reading, meta: `${words(reading)} words`,
     cite: { authors: 'Sample State University Biology Department', year: '2025', title: 'Chapter 8.2: The light-dependent reactions', source: 'BIO 110 course reader', kind: 'chapter', checked: true } });
-  L.notes = { style: 'study', at: Date.now(), lectureTitle: 'Photosynthesis: The light-dependent reactions', titles: { [fid]: 'Chapter 8.2: The light-dependent reactions' },
+  L.notes = { style: 'apa', at: Date.now(), lectureTitle: 'Photosynthesis: The light-dependent reactions', titles: { [fid]: 'Chapter 8.2: The light-dependent reactions' },
     keywords: ['photosynthesis', 'light-dependent reactions', 'photosystem II', 'photolysis', 'electron transport chain', 'chemiosmosis', 'NADPH'],
     md: `# Photosynthesis: The Light-Dependent Reactions
 
@@ -1184,66 +1267,44 @@ This lecture introduced the first stage of photosynthesis, the light-dependent r
 *Keywords:* photosynthesis, light-dependent reactions, photosystem II, photolysis, electron transport chain, chemiosmosis, NADPH
 
 ## Introduction
-Photosynthesis is the process by which plants, algae and some bacteria capture light energy and store it in chemical bonds. This lecture continued the unit on photosynthesis by focusing on its first stage, the light-dependent reactions, and on how the chloroplast converts light into the chemical energy carriers ATP and NADPH (Rivera, 2026).
+Photosynthesis is the process by which plants, algae and some bacteria capture light energy and store it in chemical bonds. This lecture continued the course’s unit on photosynthesis by turning from the process as a whole to its first stage, the light-dependent reactions. Rivera’s aim was to show how the chloroplast converts the energy of light into two chemical energy carriers, ATP and NADPH, and why that conversion also explains the origin of the oxygen that animals breathe (Rivera, 2026).
 
 ## Why Light Matters
-The overall equation for photosynthesis is 6 CO₂ + 6 H₂O + light energy → C₆H₁₂O₆ + 6 O₂. Rivera emphasized that this single equation hides two stages: the **light-dependent reactions**, covered in this lecture, and the **Calvin cycle**, covered next (Rivera, 2026).
+Rivera began by recalling the overall equation for photosynthesis, 6 CO₂ + 6 H₂O + light energy → C₆H₁₂O₆ + 6 O₂, and cautioned that the single equation conceals two distinct stages (Rivera, 2026). The first, the **light-dependent reactions**, captures energy from light; the second, the **Calvin cycle**, uses that energy to build sugar and was reserved for the next class.
 
-- The light-dependent reactions occur in the **thylakoid membranes** of the chloroplast.
-- Thylakoids are stacked into **grana**.
+The light-dependent reactions are anchored in a particular place within the cell. They occur in the **thylakoid membranes** of the chloroplast, flattened discs that are stacked into columns called **grana**. Locating the reactions in a membrane is not incidental: as the later sections showed, the membrane is what allows the chloroplast to build and use a proton gradient (Rivera, 2026; Sample State University Biology Department, 2025).
 
 ## Photosystem II and the Splitting of Water
-Light strikes **Photosystem II** first; its name reflects the order in which it was discovered, not its position in the pathway (Rivera, 2026). The reaction-center chlorophyll *a*, **P680**, absorbs light energy, and an electron is excited to a higher energy level.
+Light strikes **Photosystem II** first. Rivera noted that the numbering is a frequent source of confusion, because it reflects the order in which the two photosystems were discovered rather than the order in which they act (Rivera, 2026). Within Photosystem II, the reaction-center chlorophyll *a*, known as **P680**, absorbs light energy, and one of its electrons is raised to a higher energy level and passed on.
 
-To replace that electron, the plant splits water in a process called **photolysis**, which releases oxygen and hydrogen ions (Rivera, 2026; Sample State University Biology Department, 2025).
-
-> A common misconception is that atmospheric oxygen comes from carbon dioxide. It comes from water (Rivera, 2026).
+The electron that leaves P680 must be replaced, and the plant obtains it by splitting water in a process called **photolysis**. Photolysis releases hydrogen ions into the thylakoid space and gives off oxygen as a by-product (Sample State University Biology Department, 2025). Rivera stressed the significance of this step: the oxygen in Earth’s atmosphere comes from water rather than from carbon dioxide, which corrects one of the most common misconceptions about photosynthesis (Rivera, 2026). Isotope-labelling experiments with ¹⁸O confirmed this origin in 1941 (Sample State University Biology Department, 2025).
 
 ## The Electron Transport Chain
-### Carriers Between the Photosystems
-**Table 1**
-*Electron Carriers Between Photosystem II and Photosystem I*
+From Photosystem II, the excited electron travels along an electron transport chain. It passes first to plastoquinone, then through the cytochrome b6f complex, and finally to plastocyanin, which delivers it to Photosystem I (Rivera, 2026). Each carrier accepts the electron at a slightly lower energy than the one before, so energy is released at every step.
 
-| Carrier | Role |
-|---|---|
-| Plastoquinone (PQ) | Carries electrons away from Photosystem II |
-| Cytochrome b6f complex | Uses electron energy to pump H⁺ into the thylakoid space |
-| Plastocyanin (PC) | Delivers electrons to Photosystem I |
-
-### Making ATP by Chemiosmosis
-As electrons move along the chain, protons build up in the thylakoid space and form a concentration gradient. **ATP synthase** lets the protons flow back out and uses that flow to make ATP, a process called **chemiosmosis** (Rivera, 2026). The course reader also calls this *photophosphorylation* (Sample State University Biology Department, 2025). Mitochondria rely on the same principle, which the class will compare next week.
+The chloroplast puts that released energy to work. As the electron moves through the cytochrome complex, protons are pumped into the thylakoid space, building a concentration gradient across the membrane. **ATP synthase** then allows the protons to flow back out into the stroma and couples that flow to the synthesis of ATP, a mechanism known as **chemiosmosis** or photophosphorylation (Rivera, 2026; Sample State University Biology Department, 2025). Rivera pointed out that mitochondria rely on the same principle and announced that the two organelles would be compared the following week.
 
 ## Photosystem I and NADPH
-At **Photosystem I (P700)**, light re-energizes the electron, which passes to **ferredoxin**. The enzyme **NADP⁺ reductase** then uses it to form **NADPH** (Rivera, 2026). The products of the light-dependent reactions are ATP, NADPH and oxygen; ATP and NADPH go on to power the Calvin cycle.
+When the electron reaches **Photosystem I**, its reaction center, **P700**, absorbs light and re-energizes it. The electron is passed to ferredoxin, and the enzyme **NADP⁺ reductase** uses it to reduce NADP⁺ to **NADPH** in the stroma (Rivera, 2026). By the end of this sequence, the light-dependent reactions have produced three things: ATP, NADPH and oxygen. The first two remain in the chloroplast to drive the Calvin cycle, while oxygen is released from the leaf.
 
 ## Conclusion
-The light-dependent reactions transform light energy into chemical energy through a coordinated sequence: water splitting at Photosystem II, proton pumping along the electron transport chain, ATP synthesis by chemiosmosis and NADPH formation at Photosystem I (Rivera, 2026; Sample State University Biology Department, 2025). Understanding this sequence explains where atmospheric oxygen comes from and prepares students for the Calvin cycle, which uses these products to fix carbon in the next class.
-
-## Key Terms
-**Table 2**
-*Key Terms From the Lecture*
-
-| Term | Meaning |
-|---|---|
-| Thylakoid | Membrane disc inside the chloroplast where the light reactions occur |
-| Grana | Stacks of thylakoids |
-| P680 / P700 | Reaction-center chlorophylls of Photosystem II / I |
-| Photolysis | Splitting water with light energy, which releases O₂ |
-| Chemiosmosis | Making ATP from the flow of protons through ATP synthase |
-| NADPH | Electron carrier produced at the end of the light reactions |
-
-## Review Questions
-1. Why is Photosystem II numbered “II” if it acts first?
-2. Trace one electron from water to NADPH.
-3. What would happen to ATP production if the thylakoid membrane became leaky to protons?
-4. Which products of the light reactions are used by the Calvin cycle, and which is released?` };
-  L.quiz = { at: Date.now(), questions: normalizeQuestions([
-    { stem: 'Where in the chloroplast do the light-dependent reactions take place?', options: ['In the stroma', 'In the thylakoid membranes', 'In the outer chloroplast membrane', 'In the cytoplasm next to the chloroplast'], answer: 1, explanation: 'Both photosystems and the electron transport chain sit in the thylakoid membranes. The stroma is where the Calvin cycle happens, the most common mix-up.', source: 'Lecture 0:52', level: 'Remember' },
-    { stem: 'The oxygen released during photosynthesis comes from which molecule?', options: ['Carbon dioxide', 'Glucose', 'Water', 'NADPH'], answer: 2, explanation: 'Photolysis splits water to replace electrons lost from Photosystem II, releasing O₂. Believing it comes from CO₂ is a well-known misconception.', source: 'Lecture 1:51', level: 'Remember' },
-    { stem: 'Why is Photosystem II the first photosystem in the electron pathway even though it is numbered "II"?', options: ['It absorbs longer wavelengths of light', 'It was discovered after Photosystem I', 'It only works when Photosystem I is inactive', 'It is located closer to the stroma'], answer: 1, explanation: 'The numbering reflects the order of discovery, not the order in the pathway.', source: 'Lecture 1:15', level: 'Understand' },
-    { stem: 'A herbicide makes the thylakoid membrane leaky to H⁺ ions. Which process is affected most directly?', options: ['Splitting of water at Photosystem II', 'Absorption of light by P700', 'ATP production by ATP synthase', 'Transfer of electrons to ferredoxin'], answer: 2, explanation: 'ATP synthase depends on the proton gradient across the membrane (chemiosmosis). A leak dissipates the gradient, so ATP output falls even if electrons still flow.', source: 'Lecture 3:08', level: 'Apply' },
-    { stem: 'Which set lists the products of the light-dependent reactions?', options: ['Glucose, ATP and O₂', 'ATP, NADPH and O₂', 'CO₂, NADP⁺ and H₂O', 'ADP, NADPH and CO₂'], answer: 1, explanation: 'The light reactions make ATP and NADPH (used by the Calvin cycle) and release O₂. Glucose is made later, in the Calvin cycle.', source: 'Lecture 4:15', level: 'Remember' },
-    { stem: 'What is the correct order of electron carriers from Photosystem II to Photosystem I?', options: ['Plastocyanin → cytochrome b6f → plastoquinone', 'Ferredoxin → plastoquinone → plastocyanin', 'Plastoquinone → cytochrome b6f → plastocyanin', 'Cytochrome b6f → ferredoxin → plastoquinone'], answer: 2, explanation: 'Electrons flow PSII → plastoquinone → cytochrome b6f → plastocyanin → PSI. Ferredoxin receives electrons after PSI.', source: 'Ch8.2 reading – light reactions.txt', level: 'Understand' }
+The light-dependent reactions transform light energy into chemical energy through a coordinated sequence: water is split at Photosystem II, protons are pumped as electrons move along the transport chain, ATP is made by chemiosmosis, and NADPH is formed at Photosystem I (Rivera, 2026; Sample State University Biology Department, 2025). Understanding this sequence explains where atmospheric oxygen comes from and prepares students for the Calvin cycle, which will use these products to fix carbon in the next class. Students were asked to read Section 8.3 and complete its practice problems before then.` };
+  L.quiz = { at: Date.now(), reflection: 'Which step of the light reactions could you now teach to a classmate, and which step still feels fuzzy? What question would you ask to clear it up?', questions: normalizeQuestions([
+    { stem: 'A classmate says, “Plants release oxygen because they break apart the CO₂ they take in.” Based on the lecture, what is the best response?', options: ['That’s right — the oxygen atoms in O₂ come from CO₂.', 'Not quite — the O₂ comes from water that is split to replace electrons lost from Photosystem II.', 'Not quite — the O₂ comes from glucose broken down during the Calvin cycle.', 'Not quite — the O₂ is made by ATP synthase as protons cross the membrane.'], answer: 1,
+      feedback: ['This is the misconception the lecture warned about. Think about which molecule is split in Photosystem II and what it gives off.', 'Yes. Photolysis splits water to replace P680’s electrons, and the oxygen is a by-product — confirmed with ¹⁸O labelling.', 'Glucose is built in the Calvin cycle, not broken down there. Trace where the oxygen appears in the light reactions.', 'ATP synthase makes ATP from a proton flow; it doesn’t produce any gas. Where does water enter the process?'],
+      explanation: 'Photolysis at Photosystem II splits water; the O₂ released comes from H₂O, not CO₂.', reflect: 'How would you convince someone who still believes the oxygen comes from CO₂? What evidence would you use?', source: 'Lecture 1:51', level: 'Evaluate' },
+    { stem: 'A herbicide makes the thylakoid membrane leaky to H⁺ ions, but electrons still flow normally. What happens first?', options: ['Water stops being split at Photosystem II', 'ATP production falls because the proton gradient can’t build up', 'NADPH production stops because ferredoxin can’t accept electrons', 'Light absorption by P680 and P700 stops'], answer: 1,
+      feedback: ['Water splitting depends on electrons leaving P680, which still happens here. What depends on the gradient instead?', 'Exactly. ATP synthase is driven by the proton gradient; a leak dissipates it, so ATP output drops even though electrons still flow.', 'Electron flow to ferredoxin is unaffected in this scenario. Which product depends on protons, not electrons?', 'Pigments still absorb light; the leak affects the membrane, not the chlorophyll.'],
+      explanation: 'Chemiosmosis needs a proton gradient across the thylakoid membrane. Without it, ATP synthase has nothing to drive it.', reflect: 'Why does it matter that the light reactions happen in a membrane rather than floating in the stroma?', source: 'Lecture 3:08', level: 'Apply' },
+    { stem: 'Why is the first photosystem in the pathway called Photosystem “II”?', options: ['It absorbs longer wavelengths of light than Photosystem I', 'It was discovered after Photosystem I', 'It only works after Photosystem I has run once', 'It contains twice as much chlorophyll'], answer: 1,
+      feedback: ['Wavelength isn’t the reason for the name. The lecture gave a historical reason.', 'Right — the names reflect the order of discovery, not the order in the pathway.', 'In the pathway, PSII acts before PSI, so this reverses the order.', 'The “II” is a sequence number, not a quantity.'],
+      explanation: 'The numbering reflects the order of discovery, not the order in which they act.', reflect: 'Can you think of another scientific name that misleads people about how something works?', source: 'Lecture 1:15', level: 'Understand' },
+    { stem: 'Which comparison between the light reactions and the Calvin cycle is accurate?', options: ['The light reactions make ATP, NADPH and O₂; the Calvin cycle uses ATP and NADPH to build sugar', 'The light reactions make glucose; the Calvin cycle releases oxygen', 'Both stages happen in the thylakoid membrane', 'The Calvin cycle produces the ATP that the light reactions need'], answer: 0,
+      feedback: ['Yes — the light reactions supply the energy carriers, and the Calvin cycle spends them to fix carbon.', 'This swaps the two stages. Which stage did the lecture say releases O₂?', 'The light reactions are in the thylakoids, but the Calvin cycle is in the stroma.', 'The flow of energy runs the other way: light reactions → ATP → Calvin cycle.'],
+      explanation: 'The light reactions convert light to ATP and NADPH (and release O₂); the Calvin cycle uses them to make sugar.', reflect: 'Draw a quick arrow diagram linking the two stages. What crosses between them?', source: 'Lecture 4:15', level: 'Analyze' },
+    { stem: 'Trace one electron from water to NADPH. Which sequence is correct?', options: ['Water → PSII (P680) → plastoquinone → cytochrome b6f → plastocyanin → PSI (P700) → ferredoxin → NADPH', 'Water → PSI (P700) → ferredoxin → plastoquinone → PSII (P680) → NADPH', 'Water → PSII → ferredoxin → plastocyanin → cytochrome b6f → NADPH', 'CO₂ → PSII → ATP synthase → PSI → NADPH'], answer: 0,
+      feedback: ['Correct. The electron passes PSII, the transport chain, PSI, then ferredoxin and NADP⁺ reductase.', 'This starts at the wrong photosystem. Which photosystem gets its electrons from water?', 'Ferredoxin comes after PSI, not right after PSII.', 'Electrons come from water, not CO₂, and ATP synthase moves protons, not electrons.'],
+      explanation: 'PSII → PQ → cytochrome b6f → PC → PSI → ferredoxin → NADP⁺ reductase → NADPH.', reflect: 'At which step is energy used to pump protons, and why does that matter for ATP?', source: 'Ch8.2 reading – light reactions.txt', level: 'Understand' }
   ]) };
   return L;
 }
@@ -1267,7 +1328,10 @@ async function boot() {
   S.lecture = normalizeLecture(L); S.settings.lastLecture = L.id;
   await saveNow(); saveSettings();
   fillLangSelects(); bind(); renderAll(); renderAccount();
-  $('#notes-style').value = L.notes?.style || 'study';
+  $('#notes-style').value = styleKey(L.notes?.style || S.settings.notesStyle || 'apa');
+  $('#notes-custom').value = L.notes?.custom || S.settings.notesCustom || '';
+  renderNotesStyleUi();
+  showView('home');
 
   if (window.claude?.use) {
     window.claude.use('sample').then(s => { if (s) { S.ai.sample = s; renderAiState(); } }).catch(() => {});
@@ -1345,7 +1409,7 @@ const PROVIDERS = {
     note: 'Uses your Claude.ai account inside this preview.'
   }
 };
-const DEFAULT_AI = { provider: 'gemini', keys: {}, models: {}, lists: {}, bases: {}, azure: { endpoint: '', deployment: '', fastDeployment: '', apiVersion: '2024-10-21' } };
+const DEFAULT_AI = { provider: 'gemini', keys: {}, models: {}, imageModels: {}, lists: {}, bases: {}, azure: { endpoint: '', deployment: '', fastDeployment: '', apiVersion: '2024-10-21' } };
 
 const prov = () => PROVIDERS[S.settings.ai.provider] || PROVIDERS.gemini;
 const aiKey = () => S.settings.ai.keys[S.settings.ai.provider] || '';
@@ -1521,6 +1585,41 @@ async function listModels() {
   ids = [...new Set(ids)].sort();
   S.settings.ai.lists[id] = ids; saveSettings();
   return ids;
+}
+
+/* ---- Pictures (children's books). Gemini and OpenAI can paint images; other services fall back to AI-drawn SVG illustrations. ---- */
+const IMAGE_MODELS = { gemini: 'gemini-2.5-flash-image', openai: 'gpt-image-1' };
+function imageProvider() {
+  if (!aiReady()) return null;
+  const id = S.settings.ai.provider, p = prov();
+  if (p.kind === 'gemini') return 'gemini';
+  if (id === 'openai') return 'openai';
+  return null;
+}
+const imageModel = () => (S.settings.ai.imageModels || {})[S.settings.ai.provider] || IMAGE_MODELS[imageProvider()] || '';
+async function aiImage(prompt, signal) {
+  const kind = imageProvider(), model = imageModel(), key = aiKey();
+  if (!kind) throw new Error('This AI service can’t paint pictures.');
+  if (kind === 'gemini') {
+    const res = await aiFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } })
+    }, signal);
+    await failIfBad(res);
+    const j = await res.json();
+    const part = (j.candidates?.[0]?.content?.parts || []).find(x => x.inlineData?.data || x.inline_data?.data);
+    const d = part?.inlineData || part?.inline_data;
+    if (!d) throw new Error(j.promptFeedback?.blockReason ? `Gemini declined this picture (${j.promptFeedback.blockReason}).` : 'Gemini didn’t return a picture.');
+    return `data:${d.mimeType || d.mime_type || 'image/png'};base64,${d.data}`;
+  }
+  const body = { model, prompt, n: 1, size: '1024x1024' };
+  if (/^dall-e/.test(model)) body.response_format = 'b64_json'; else body.quality = 'medium';
+  const res = await aiFetch(`${aiBase()}/images/generations`, { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${key}` }, body: JSON.stringify(body) }, signal);
+  await failIfBad(res);
+  const j = await res.json(), d = j.data?.[0];
+  if (d?.b64_json) return `data:image/png;base64,${d.b64_json}`;
+  if (d?.url) return d.url;
+  throw new Error('OpenAI didn’t return a picture.');
 }
 
 /* ================= APA 7 notes: citations, composition, export ================= */
@@ -1718,13 +1817,6 @@ const JOURNAL_CSS = `
 .jr a{color:inherit}
 @media print{.jr{box-shadow:none;max-width:none;padding:0;font-size:10pt}.jr-body{column-count:2;column-gap:.3in}}`;
 
-/* ---- Prompting ---- */
-const NOTE_FORMATS = {
-  study: `Organize the notes as study notes: one ## Level 1 heading per major topic in lecture order (### for subtopics, #### only if needed). Under each heading write short indented paragraphs and bulleted lists; **bold** key terms the first time they appear; use a small table where it helps to compare things. After the Conclusion, add a ## Key Terms section (table: Term | Meaning) and a ## Review Questions section (4–6 open questions, no answers).`,
-  cornell: `Organize the notes in Cornell format: one ## Level 1 heading per major topic; under each, a table with columns Cue / Question | Notes, pairing a short cue question with concise notes that answer it. After the Conclusion, add a ## Key Terms section (table: Term | Meaning).`,
-  outline: `Organize the notes as an outline: one ## Level 1 heading per major topic, each opening with one sentence of context and then a nested numbered list (main points → sub-points → details/examples). After the Conclusion, add a ## Key Terms section (table: Term | Meaning).`,
-  handout: `Write a short communication: the whole body is at most 900 words. Keep the Introduction to one paragraph, use two to four concise ## Level 1 sections, then the Conclusion, then ## Key Terms (table, at most 8 rows).`
-};
 let notesCtl = null, notesRAF = 0;
 async function detectCitation(f, { quiet } = {}) {
   if (!aiReady() || !f.text) return false;
@@ -1745,96 +1837,6 @@ async function detectCitation(f, { quiet } = {}) {
     return true;
   } catch (e) { if (!quiet) toast(e.message === 'NO_AI' ? 'Choose an AI model in Settings first.' : e.message, 4000); f.cite = { ...(f.cite || {}), checked: true }; return false; }
 }
-async function generateNotes() {
-  const L = S.lecture;
-  if (!speechSegs(L).length) { toast('Record, type or import a transcript first.'); return; }
-  if (!lecturerOf(L)) { openLectureSheet(true); toast('Add the lecturer’s name so the notes can cite the lecture.', 4000); return; }
-  const style = $('#notes-style').value, aud = $('#notes-audience').value, lv = $('#notes-lang').value;
-  const lang = lv === 'src' ? srcName(S.settings.srcLang) : tgtName(lv);
-  const useFiles = $('#notes-use-files').checked;
-  if (!aiReady()) {
-    L.notes = { md: buildLocalNotes(L, useFiles), style, local: true, at: Date.now() };
-    saveSoon(); S.ui.notesEdit = false; renderNotes(); toast('Notes organized on this device'); return;
-  }
-  notesCtl = new AbortController();
-  setNotesBusy(true, 'Checking sources…');
-  const files = useFiles ? citedFiles(L) : [];
-  for (const f of files) if (f.text && !f.cite?.checked && !(f.cite?.authors)) await detectCitation(f, { quiet: true });
-  const mat = useFiles ? materials('useNotes') : { text: '', images: [], names: [] };
-  const sources = [`- LECTURE — the transcript itself. Cite as ${lectureInText(L)}. For a direct quotation add the timestamp, e.g. (${inTextAuthors([lecturerOf(L)])}, ${yearOf(L.createdAt)}, 12:40).`,
-    ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${fileInText(f)}.`)].join('\n');
-  const system = `You are an expert instructional designer and science editor who turns raw lecture transcripts into notes written and structured like a scientific journal article, using APA 7th edition citation style.
-The transcript comes from live speech recognition: it may lack punctuation and contain misheard words, filler words and false starts. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Do not add facts that are not supported by the transcript or the materials; where the recording is unclear, write "(unclear in recording)".
-Lines marked ★KEY POINT were flagged by the instructor as important: every one must appear in the notes, and the most important belong in the abstract. Lines like "== TOPIC: … ==" are section breaks the instructor set: use them as Level 1 headings.
-Write for ${AUDIENCE[aud]}, in ${lang}, in the formal, precise register of a journal article: third person, complete paragraphs, past tense for what the lecturer said (e.g. "Shippee explained that…") and present tense for established facts, each supported by a citation.
-
-Output GitHub-flavored Markdown in exactly this order:
-1. "# Title: Subtitle" — a concise, descriptive APA title in title case, with a subtitle after a colon.
-2. "## Abstract" followed by one paragraph of 150–220 words that states the lecture's purpose, its main points and their significance, like a journal abstract.
-3. A line "*Keywords:* " followed by 5–8 keywords or key phrases, lowercase except proper nouns, separated by commas.
-4. The body, organized like a journal article. Use APA heading levels: "##" = Level 1, "###" = Level 2, "####" = Level 3, headings in title case.
-   - Begin with "## Introduction": one or two paragraphs that set out the background, why the topic matters, and what the lecture covered.
-   - Then the main sections described below.
-   - Then "## Conclusion": one or two paragraphs that synthesize the main findings and their implications, and note what comes next if the lecture says so.
-${NOTE_FORMATS[style]}
-   Any Key Terms or Review Questions sections come after the Conclusion.
-Before each table write "**Table N**" on its own line, then the table title in italic title case on the next line.
-
-Citations (APA 7 in-text): cite the sources below using exactly the in-text forms given, placed at the end of the sentence or paragraph they support. Cite the lecture at least once per Level 1 section. Cite a material wherever its content is used. Do not cite anything else and do not write a References section — it is added automatically.
-${sources}
-
-After the notes, output exactly one final line and nothing after it:
-<!--didasko {"lectureTitle":"<the lecture's title in APA sentence case>","titles":{"F1":"<title of F1 in APA sentence case>"}}-->
-Include every F-number listed above in "titles".`;
-  const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L)}\n\n<transcript>\n${transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
-  setNotesBusy(true, 'Reading the transcript…');
-  const prev = L.notes;
-  let latest = '';
-  const show = t => { L.notes = { ...(L.notes || {}), md: stripFences(t.split('<!--didasko')[0]) }; const d = $('#notes-doc'); d.className = 'apa'; ensureJournalCss(); d.innerHTML = apaHtml(L); };
-  try {
-    const out = await callAI({
-      system, user, images: mat.images, maxTokens: 9000, signal: notesCtl.signal,
-      onText: t => { latest = t; $('#notes-status-text').textContent = 'Writing notes…'; if (!notesRAF) notesRAF = requestAnimationFrame(() => { notesRAF = 0; show(latest); }); }
-    });
-    const [body, meta] = out.split('<!--didasko');
-    let extra = {};
-    try { extra = JSON.parse((meta || '').replace(/-->[\s\S]*$/, '').trim() || '{}'); } catch { extra = {}; }
-    const titles = {};
-    files.forEach((f, i) => { const t = extra.titles?.['F' + (i + 1)]; if (t) titles[f.id] = String(t).trim(); });
-    const md = stripFences(body);
-    L.notes = { md, style, at: Date.now(), lang, lectureTitle: (extra.lectureTitle || '').trim() || null, titles, keywords: splitBody(md).keywords.split(/,\s*/).filter(Boolean) };
-    toast('Notes ready');
-  } catch (e) {
-    if (notesCtl?.signal.aborted) { if (latest) L.notes = { md: stripFences(latest.split('<!--didasko')[0]), style, at: Date.now(), partial: true }; else L.notes = prev; toast('Stopped'); }
-    else { L.notes = prev; toast(e.message === 'NO_AI' ? 'Choose an AI model in Settings first.' : e.message, 5000); }
-  } finally { notesCtl = null; setNotesBusy(false); saveSoon(); renderNotes(); }
-}
-function buildLocalNotes(L, useFiles) {
-  const sections = []; let cur = null, count = 0;
-  const hasTopics = L.segments.some(x => x.kind === 'topic');
-  for (const s of L.segments) {
-    if (s.kind === 'topic') { cur = { title: s.text, items: [] }; sections.push(cur); count = 0; continue; }
-    if (!cur || (!hasTopics && count >= 6)) { cur = { title: null, start: s.t, items: [] }; sections.push(cur); count = 0; }
-    cur.items.push(s); cur.end = s.t; count++;
-  }
-  const segs = speechSegs(L);
-  const all = segs.map(s => s.text).join('. ');
-  const kws = keyTerms(all, 7);
-  const cite = lectureInText(L);
-  const abs = sentencesOf(segs.filter(s => s.key).map(s => s.text).join('. ') || all).slice(0, 5).join(' ');
-  let md = `# ${L.title}\n\n## Abstract\n${abs} ${cite}\n\n*Keywords:* ${kws.join(', ')}\n\n## Introduction\n> Organized on this device without AI. Choose an AI model in Settings for a fully written journal-style article.\n\nThis lecture, ${L.course ? `part of ${L.course}, ` : ''}addressed ${kws.slice(0, 3).join(', ')} ${cite}.\n\n`;
-  const keys = segs.filter(s => s.key);
-  if (keys.length) md += `## Key Points Emphasized in Class\n${keys.map(s => `- ${endDot(s.text)}`).join('\n')} ${cite}\n\n`;
-  sections.forEach((sec, i) => {
-    if (!sec.items.length) return;
-    md += `## ${sec.title || `Part ${i + 1} (${fmtClock(sec.start)}–${fmtClock(sec.end)})`}\n`;
-    sec.items.forEach(s => sentencesOf(s.text).forEach(t => { md += `- ${s.key ? '★ ' : ''}${t}\n`; }));
-    md += `\n${cite.replace(/^\(|\)$/g, '') ? `Source: ${cite}` : ''}\n\n`;
-  });
-  const fs = useFiles ? citedFiles(L) : [];
-  if (fs.length) md += `## Lecture Materials\n${fs.map(f => `- **${fileCite(f).title}** — ${f.text ? f.text.split(/\s+/).slice(0, 28).join(' ') + '…' : 'image'} ${fileInText(f)}`).join('\n')}\n`;
-  return md;
-}
 function setNotesBusy(on, msg) {
   $('#notes-status').hidden = !on; if (msg) $('#notes-status-text').textContent = msg;
   $('#notes-generate').disabled = on; $('#notes-stop').hidden = !on;
@@ -1845,33 +1847,12 @@ function renderNotesCite() {
   const L = S.lecture, el = $('#notes-cite');
   if (!el) return;
   const lec = lecturerOf(L);
+  const k = styleKey($('#notes-style')?.value || L.notes?.style), mla = k === 'mla', n = citedFiles(L).length;
+  if (k === 'kids') { el.innerHTML = lec ? `Based on the lecture by <b>${esc(lec)}</b> · <button class="linklike" id="notes-cite-edit">Edit</button>` : `<button class="linklike" id="notes-cite-edit">Add the lecturer’s name</button> to credit them in the book.`; $('#notes-cite-edit').onclick = () => openLectureSheet(true); return; }
   el.innerHTML = lec
-    ? `Lecture cited as <b>${inl(lectureInText(L))}</b> · ${citedFiles(L).length} more source${citedFiles(L).length === 1 ? '' : 's'} in References · <button class="linklike" id="notes-cite-edit">Edit</button>`
-    : `<b>Add the lecturer’s name</b> so the notes can cite the lecture. <button class="linklike" id="notes-cite-edit">Add</button>`;
+    ? `Lecture cited as <b>${inl(mla ? mlaLectureInText(L) : lectureInText(L))}</b> · ${n} more source${n === 1 ? '' : 's'} in ${mla ? 'Works Cited' : k === 'apa' ? 'References' : 'Sources'} · <button class="linklike" id="notes-cite-edit">Edit</button>`
+    : `<b>Add the lecturer’s name</b> so the notes can cite the lecture${k === 'apa' || mla ? ' (required for APA and MLA)' : ''}. <button class="linklike" id="notes-cite-edit">Add</button>`;
   $('#notes-cite-edit').onclick = () => openLectureSheet(true);
-}
-function renderNotes() {
-  const L = S.lecture, doc = $('#notes-doc'), ed = $('#notes-editor');
-  const has = !!L.notes?.md;
-  renderNotesCite();
-  $('#notes-tools').style.visibility = has ? '' : 'hidden';
-  $('#notes-generate span').textContent = has ? 'Regenerate notes' : 'Generate notes';
-  $('#notes-edit span').textContent = S.ui.notesEdit ? 'Done' : 'Edit';
-  if (S.ui.notesEdit && has) { ed.hidden = false; doc.hidden = true; ed.value = L.notes.md; return; }
-  ed.hidden = true; doc.hidden = false;
-  doc.className = has ? 'apa' : 'doc';
-  if (has) { ensureJournalCss(); doc.innerHTML = apaHtml(L); return; }
-  const n = speechSegs(L).length;
-  doc.innerHTML = `<div class="empty"><h3>${n ? 'Ready to organize' : 'No notes yet'}</h3><p>${n ? `${n} transcript lines and ${citedFiles(L).length} lecture files are ready. Choose a format above and tap Generate notes. Notes are laid out like a journal article — title block, abstract, keywords, sections and APA references.` : 'Start captions on the Live tab, or import a transcript, and Didasko will turn it into notes laid out like a journal article.'}</p></div>`;
-}
-async function exportNotes(t) {
-  const L = S.lecture, name = slug(L.title);
-  if (t === 'docx') { const d = apaDocBlocks(L); return saveFile(name + '-notes.docx', await buildDocx(d.blocks, composeApa(L).fullTitle, { journal: true, runningHead: d.runningHead, footer: d.footer })); }
-  if (t === 'html') return saveFile(name + '-notes.html', apaStandalone(L), 'text/html');
-  if (t === 'md') return saveFile(name + '-notes.md', apaMarkdown(L), 'text/markdown');
-  if (t === 'print') return printHtml(`<style>${JOURNAL_CSS.replace(/\.jr/g, '#print-root .jr')}</style>${apaHtml(L)}`);
-  if (t === 'copy') return copyText(mdToText(apaMarkdown(L)));
-  if (t === 'transcript') return saveFile(name + '-transcript.txt', L.segments.map(s => s.kind === 'topic' ? `\n## ${s.text}\n` : `[${fmtClock(s.t)}] ${s.key ? '★ ' : ''}${s.text}${target() && s.tr?.[target()] ? `\n         ${s.tr[target()]}` : ''}`).join('\n'), 'text/plain');
 }
 function apaDocBlocks(L) {
   const c = composeApa(L), B = [];
@@ -1955,14 +1936,37 @@ function plainStyles(W) {
     <w:style w:type="paragraph" w:styleId="TableText"><w:name w:val="Table text"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:style>
     <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="567"/><w:pBdr><w:left w:val="single" w:sz="18" w:space="8" w:color="F2CB52"/></w:pBdr></w:pPr><w:rPr><w:color w:val="4A5853"/></w:rPr></w:style>
     <w:style w:type="paragraph" w:styleId="Footer"><w:name w:val="footer"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="right"/></w:pPr><w:rPr><w:sz w:val="16"/></w:rPr></w:style>
+    <w:style w:type="paragraph" w:styleId="Picture"><w:name w:val="Picture"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:jc w:val="center"/><w:spacing w:before="120" w:after="240"/></w:pPr></w:style>
+    <w:style w:type="paragraph" w:styleId="BookTitle"><w:name w:val="Book title"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/><w:spacing w:before="240" w:after="120"/></w:pPr><w:rPr><w:b/><w:sz w:val="56"/><w:color w:val="1D6B57"/></w:rPr></w:style>
+    <w:style w:type="paragraph" w:styleId="BookText"><w:name w:val="Book text"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/><w:spacing w:after="160" w:line="360" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="34"/><w:szCs w:val="34"/></w:rPr></w:style>
+    <w:style w:type="paragraph" w:styleId="BookBy"><w:name w:val="Book byline"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/></w:pPr><w:rPr>${hfont}<w:color w:val="8A7A5C"/><w:sz w:val="20"/></w:rPr></w:style>
+  </w:styles>`;
+}
+function mlaStyles(W) {
+  const tnr = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/>';
+  const st = (id, name, ppr, rpr = '') => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${name}"/><w:basedOn w:val="Normal"/><w:pPr>${ppr}</w:pPr><w:rPr>${rpr}</w:rPr></w:style>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}>
+    <w:docDefaults><w:rPrDefault><w:rPr>${tnr}<w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="en-US"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0" w:line="480" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>
+    <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:ind w:firstLine="720"/></w:pPr></w:style>
+    ${st('NoIndent', 'MLA heading', '<w:ind w:firstLine="0"/>')}
+    ${st('MlaTitle', 'Title', '<w:keepNext/><w:jc w:val="center"/><w:ind w:firstLine="0"/>')}
+    ${st('Title', 'Title alt', '<w:keepNext/><w:jc w:val="center"/><w:ind w:firstLine="0"/>')}
+    ${st('Heading1', 'heading 1', '<w:keepNext/><w:ind w:firstLine="0"/><w:outlineLvl w:val="0"/>', '<w:b/>')}
+    ${st('Heading2', 'heading 2', '<w:keepNext/><w:ind w:firstLine="0"/><w:outlineLvl w:val="1"/>', '<w:i/>')}
+    ${st('Heading3', 'heading 3', '<w:keepNext/><w:ind w:firstLine="0"/><w:outlineLvl w:val="2"/>', '<w:i/>')}
+    ${st('ListParagraph', 'List Paragraph', '<w:ind w:firstLine="0"/>')}
+    ${st('Reference', 'Works Cited entry', '<w:ind w:left="720" w:hanging="720"/>')}
+    ${st('TableText', 'Table text', '<w:ind w:firstLine="0"/><w:spacing w:line="240" w:lineRule="auto"/>')}
+    ${st('Quote', 'Quote', '<w:ind w:left="720" w:firstLine="0"/>')}
+    ${st('Footer', 'footer', '<w:ind w:firstLine="0"/><w:jc w:val="right"/>', '<w:sz w:val="16"/>')}
   </w:styles>`;
 }
 async function buildDocx(blocks, title, opts = {}) {
   const JSZip = await lib('jszip');
-  const jr = !!opts.journal, nums = [];
+  const jr = !!opts.journal, mla = !!opts.mla, nums = [], media = [];
   const para = (inner, ppr = '') => `<w:p>${ppr ? `<w:pPr>${ppr}</w:pPr>` : ''}${inner}</w:p>`;
   const hStyle = lv => jr ? 'Heading' + Math.max(1, Math.min(3, lv - 1)) : (lv === 1 ? 'Title' : 'Heading' + Math.min(3, lv - 1));
-  const M = jr ? 1080 : 1260;
+  const M = jr ? 1080 : mla ? 1440 : 1260;
   const refs = '<w:headerReference w:type="default" r:id="rId3"/><w:footerReference w:type="default" r:id="rId4"/>';
   const page = `<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="${M}" w:right="${M}" w:bottom="${M}" w:left="${M}" w:header="540" w:footer="540" w:gutter="0"/>`;
   const body = blocks.map(b => {
@@ -1976,6 +1980,14 @@ async function buildDocx(blocks, title, opts = {}) {
       case 'code': return para(docxRuns([{ text: b.text, code: true }]), '<w:ind w:firstLine="0"/>');
       case 'hr': return para('', '<w:ind w:firstLine="0"/><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="999999"/></w:pBdr>');
       case 'pagebreak': return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+      case 'image': {
+        const m = String(b.src || '').match(/^data:image\/(png|jpe?g);base64,(.+)$/); if (!m) return '';
+        const n = media.length + 1, ext = m[1] === 'png' ? 'png' : 'jpeg', rid = 'rIdImg' + n;
+        media.push({ rid, file: `image${n}.${ext}`, data: m[2] });
+        const cx = Math.round((b.wIn || 5) * 914400), cy = Math.round((b.hIn || b.wIn || 5) * 914400);
+        const pic = `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${n}" name="Picture ${n}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${n}" name="image${n}.${ext}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+        return para(pic, '<w:pStyle w:val="Picture"/>');
+      }
       case 'list': {
         let numId = null;
         return b.items.map(it => {
@@ -2006,19 +2018,22 @@ async function buildDocx(blocks, title, opts = {}) {
     ${nums.map(n => `<w:num w:numId="${n}"><w:abstractNumId w:val="1"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num>`).join('')}
   </w:numbering>`;
   const pageField = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';
-  const header = jr
+  const header = mla
+    ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:jc w:val="right"/><w:ind w:firstLine="0"/></w:pPr><w:r><w:t xml:space="preserve">${xe(opts.runningHead ? opts.runningHead + ' ' : '')}</w:t></w:r>${pageField}</w:p></w:hdr>`
+    : jr
     ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="10080"/></w:tabs><w:ind w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:rFonts ${SANS}/><w:sz w:val="15"/><w:color w:val="555555"/><w:spacing w:val="12"/></w:rPr><w:t xml:space="preserve">${xe(opts.runningHead || title.toUpperCase())}</w:t></w:r><w:r><w:tab/></w:r><w:r><w:rPr><w:rFonts ${SANS}/><w:sz w:val="16"/></w:rPr></w:r>${pageField}</w:p></w:hdr>`
     : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ${W}><w:p><w:pPr><w:jc w:val="right"/></w:pPr>${pageField}</w:p></w:hdr>`;
-  const footer = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ${W}><w:p><w:pPr><w:pStyle w:val="Footer"/></w:pPr><w:r><w:t xml:space="preserve">${xe(opts.footer || 'Prepared with Didasko')}</w:t></w:r></w:p></w:ftr>`;
+  const footer = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ${W}><w:p><w:pPr><w:pStyle w:val="Footer"/></w:pPr><w:r><w:t xml:space="preserve">${xe(opts.footer ?? 'Prepared with Didasko')}</w:t></w:r></w:p></w:ftr>`;
   const finalSect = `<w:sectPr>${refs}${jr ? '<w:type w:val="continuous"/>' : ''}${page}<w:cols w:num="1" w:space="400"/></w:sectPr>`;
-  const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>${body}${finalSect}</w:body></w:document>`;
+  const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W} xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body>${body}${finalSect}</w:body></w:document>`;
   const zip = new JSZip();
-  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`);
+  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`);
   zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`);
-  zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`);
+  zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>${media.map(m => `<Relationship Id="${m.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${m.file}"/>`).join('')}</Relationships>`);
+  media.forEach(m => zip.file('word/media/' + m.file, m.data, { base64: true }));
   zip.file('docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xe(title)}</dc:title><dc:creator>Didasko</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:created></cp:coreProperties>`);
   zip.file('word/document.xml', doc);
-  zip.file('word/styles.xml', jr ? journalStyles(W) : plainStyles(W));
+  zip.file('word/styles.xml', jr ? journalStyles(W) : mla ? mlaStyles(W) : plainStyles(W));
   zip.file('word/numbering.xml', numbering);
   zip.file('word/header1.xml', header);
   zip.file('word/footer1.xml', footer);
@@ -2047,6 +2062,567 @@ function readDocProps(xml) {
   const junk = /^(microsoft (word|powerpoint)|untitled|presentation\d*|document\d*|slide \d+|powerpoint presentation)/i;
   const title = unxml(g('dc:title') || '').trim(), author = unxml(g('dc:creator') || '').trim(), created = g('dcterms:created') || '';
   return { title: junk.test(title) ? '' : title, author: /^(user|admin|owner|microsoft office user)$/i.test(author) ? '' : author, year: (created.match(/\d{4}/) || [''])[0] };
+}
+
+/* ================= Notes output formats =================
+   APA journal article (narrative) · MLA journal article · outline overview · children's picture book · anything else the teacher describes.
+   Every format is written from the same transcript + materials; only the prompt, the renderer and the exports differ. */
+const STYLE_ALIAS = { study: 'apa', cornell: 'apa', handout: 'apa' };
+const STYLES = ['apa', 'mla', 'outline', 'kids', 'other'];
+const styleKey = s => STYLE_ALIAS[s] || (STYLES.includes(s) ? s : 'apa');
+const STYLE_LABEL = { apa: 'APA journal article', mla: 'MLA journal article', outline: 'Outline overview', kids: 'Children’s picture book', other: 'Custom output' };
+function styleHint(k) {
+  if (k === 'apa') return 'A cleaned-up narrative laid out like a journal article: abstract, keywords, sections written in full paragraphs, APA 7 in-text citations and References.';
+  if (k === 'mla') return 'An MLA 9 paper: heading block, centered title, narrative paragraphs with (Author) citations, and a Works Cited list.';
+  if (k === 'outline') return 'A quick bulleted overview — main ideas, supporting details and key terms — that’s easy to skim before a test.';
+  if (k === 'kids') {
+    const ip = imageProvider();
+    return aiReady() ? `The lecture retold as an 8–10 page picture book for ages 6–9. ${ip ? `Pictures are painted by ${ip === 'gemini' ? 'Gemini' : 'OpenAI'} (${esc(imageModel())}).` : `Pictures are drawn as illustrations by ${esc(prov().label.replace(/ \(.*\)$/, ''))}. For painted pictures, choose Gemini or ChatGPT in Settings.`}` : 'Picture books need an AI model. Choose one in Settings.';
+  }
+  return aiReady() ? 'Describe the output you want and Didasko writes it from the lecture and your files.' : 'Custom outputs need an AI model. Choose one in Settings.';
+}
+function renderNotesStyleUi() {
+  const k = styleKey($('#notes-style').value);
+  $('#notes-custom-wrap').hidden = k !== 'other';
+  $('#notes-style-hint').innerHTML = styleHint(k);
+  $('#notes-audience').disabled = k === 'kids';
+  renderNotesCite();
+}
+function syncNotesStyle(L) {
+  $('#notes-style').value = styleKey(L.notes?.style || S.settings.notesStyle || 'apa');
+  $('#notes-custom').value = L.notes?.custom || S.settings.notesCustom || '';
+  renderNotesStyleUi();
+}
+
+/* ---- MLA 9 citations ---- */
+const MLA_MONTHS = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'June', 'July', 'Aug.', 'Sept.', 'Oct.', 'Nov.', 'Dec.'];
+const mlaDate = ts => { const d = new Date(ts); return `${d.getDate()} ${MLA_MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
+const mlaLongDate = ts => { const d = new Date(ts); return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
+function mlaInvert(n) {
+  n = cleanName(n); if (!n || isOrg(n) || n.includes(',')) return n;
+  const p = n.split(/\s+/); if (p.length === 1) return n;
+  const last = p.pop(); return `${last}, ${p.join(' ')}`;
+}
+function mlaAuthors(names) {
+  const a = splitNames(names).map(cleanName).filter(Boolean);
+  if (!a.length) return '';
+  if (a.length === 1) return mlaInvert(a[0]);
+  if (a.length === 2) return `${mlaInvert(a[0])}, and ${a[1]}`;
+  return `${mlaInvert(a[0])}, et al.`;
+}
+function mlaInTextName(names) {
+  const a = splitNames(names).map(surname).filter(Boolean);
+  if (!a.length) return '';
+  if (a.length === 1) return a[0];
+  if (a.length === 2) return `${a[0]} and ${a[1]}`;
+  return `${a[0]} et al.`;
+}
+const MLA_QUOTED = new Set(['article', 'chapter', 'webpage']);
+const mlaLectureInText = L => `(${mlaInTextName([lecturerOf(L)]) || L.course || 'Lecture'})`;
+function mlaFileInText(f) {
+  const c = fileCite(f), who = mlaInTextName(c.authors);
+  if (who) return `(${who})`;
+  const short = c.title.split(/\s+/).slice(0, 4).join(' ');
+  return MLA_QUOTED.has(c.kind) ? `(“${short}”)` : `(*${short}*)`;
+}
+const mlaTitleDot = t => /[.?!]$/.test(t) ? t : t + '.';
+function mlaFileRef(f, titleOverride) {
+  const c = fileCite(f), t = (titleOverride || c.title).trim(), au = mlaAuthors(c.authors);
+  const quoted = MLA_QUOTED.has(c.kind);
+  let r = au ? endDot(au) + ' ' : '';
+  r += quoted ? `“${mlaTitleDot(t)}” ` : `*${t}*${/[?!]$/.test(t) ? '' : '.'} `;
+  const tail = [quoted && c.source ? `*${c.source}*` : c.source, c.year && c.year !== 'n.d.' ? c.year : ''].filter(Boolean).join(', ');
+  if (tail) r += endDot(tail) + ' ';
+  if (c.url) r += endDot(c.url.replace(/^https?:\/\//, '')) + ' ';
+  const desc = { slides: 'PowerPoint presentation', image: 'Photograph', dataset: 'Data set', transcript: 'Transcript' }[c.kind];
+  if (desc) r += desc + '.';
+  return r.trim();
+}
+function mlaLectureRef(L, title) {
+  const lec = lecturerOf(L);
+  const where = [L.course, mlaDate(L.createdAt), L.institution].filter(Boolean).join(', ');
+  return `${lec ? endDot(mlaAuthors([lec])) + ' ' : ''}“${mlaTitleDot(title || L.title)}” ${endDot(where)} Lecture.`;
+}
+function worksCited(L) {
+  const n = L.notes || {}, titles = n.titles || {};
+  const refs = [mlaLectureRef(L, n.lectureTitle), ...citedFiles(L).map(f => mlaFileRef(f, titles[f.id]))];
+  const key = r => r.replace(/[*“”"]/g, '').toLowerCase();
+  return [...new Set(refs)].sort((a, b) => key(a).localeCompare(key(b)));
+}
+function composeMla(L) {
+  const sb = splitBody(L.notes?.md || '');
+  const lec = lecturerOf(L), author = (L.author || S.settings.author || '').trim();
+  const writer = author || lec;
+  const head = [writer || 'Lecture notes', author && lec && author !== lec ? lec : (L.institution || S.settings.institution || ''), L.course, mlaLongDate(L.createdAt)].filter(Boolean);
+  return { title: sb.title || L.title, head, body: sb.body, refs: worksCited(L), running: surname(writer || '') || '' };
+}
+
+/* ---- Renderers ---- */
+function mlaHtml(L) {
+  const c = composeMla(L);
+  return `<article class="mla">
+    ${c.running ? `<div class="mla-run">${esc(c.running)} 1</div>` : ''}
+    <div class="mla-head">${c.head.map(h => `<p>${esc(h)}</p>`).join('')}</div>
+    <h1 class="mla-title">${inl(c.title)}</h1>
+    <div class="mla-body">${mdToHtml(c.body)}</div>
+    <section class="mla-wc"><h2>Works Cited</h2>${c.refs.map(r => `<p class="mla-ref">${inl(r)}</p>`).join('')}</section>
+  </article>`;
+}
+function plainDocHtml(L) {
+  const k = styleKey(L.notes?.style), md = L.notes?.md || '';
+  const meta = [STYLE_LABEL[k], L.course, fmtDate(L.createdAt), lecturerOf(L)].filter(Boolean).join(' · ');
+  return `<article class="nd nd-${k}"><p class="nd-kicker">${esc(meta)}</p>${mdToHtml(md)}
+    <section class="nd-src"><h2>Sources</h2>${referenceList(L).map(r => `<p class="apa-ref">${inl(r)}</p>`).join('')}</section></article>`;
+}
+function bookImgSrc(p) { return p?.img || ''; }
+function bookHtml(L, { editable = true, busy = false } = {}) {
+  const b = L.notes?.book; if (!b) return '';
+  const art = (p, i) => {
+    const src = bookImgSrc(p);
+    if (src) return `<img src="${esc(src)}" alt="${esc(p.picture || 'Illustration')}" loading="lazy">`;
+    return `<div class="book-ph">${busy || p?.drawing ? '<span class="spinner"></span><span>Drawing…</span>' : `<span>${esc(p?.picture || 'Picture')}</span>`}</div>`;
+  };
+  const lec = lecturerOf(L);
+  return `<div class="book">
+    <section class="book-page book-cover"><div class="book-art">${art(b.cover || {}, -1)}</div>
+      <div class="book-cap"><h1 class="book-title">${esc(b.title || L.title)}</h1><p class="book-by">${esc(['A picture book', lec ? `based on a lecture by ${lec}` : 'based on a lecture', L.course].filter(Boolean).join(' · '))}</p></div>
+      ${editable ? `<div class="book-tools"><button class="btn sm" data-redraw="-1">${icon('spark')}Redraw</button></div>` : ''}</section>
+    ${b.pages.map((p, i) => `<section class="book-page" data-page="${i}"><div class="book-art">${art(p, i)}</div>
+      <div class="book-cap"><p class="book-text" ${editable ? 'contenteditable="true" spellcheck="true"' : ''} data-page-text="${i}">${esc(p.text)}</p></div>
+      <div class="book-foot"><span class="book-num">${i + 1}</span>${editable ? `<button class="btn sm ghost" data-redraw="${i}">${icon('spark')}Redraw picture</button>` : ''}</div></section>`).join('')}
+    ${b.glossary?.length ? `<section class="book-page book-words"><div class="book-cap"><h2>Words to know</h2><dl>${b.glossary.map(g => `<div><dt>${esc(g.word)}</dt><dd>${esc(g.meaning)}</dd></div>`).join('')}</dl>
+      ${b.wonder ? `<h2>Wonder together</h2><p>${esc(b.wonder)}</p>` : ''}<p class="book-src">${inl(lectureRef(L, L.notes?.lectureTitle))}</p></div></section>` : ''}
+  </div>`;
+}
+function notesDocHtml(L, opts) {
+  const k = styleKey(L.notes?.style);
+  ensureJournalCss(); ensureFormatCss();
+  if (k === 'apa') return apaHtml(L);
+  if (k === 'mla') return mlaHtml(L);
+  if (k === 'kids') return bookHtml(L, opts);
+  return plainDocHtml(L);
+}
+function renderNotes() {
+  const L = S.lecture, doc = $('#notes-doc'), ed = $('#notes-editor');
+  const k = styleKey(L.notes?.style);
+  const has = !!(L.notes?.md || L.notes?.book);
+  renderNotesCite();
+  $('#notes-tools').style.visibility = has ? '' : 'hidden';
+  $('#notes-edit').hidden = k === 'kids';
+  $('#notes-generate span').textContent = has ? 'Regenerate' : 'Generate';
+  $('#notes-edit span').textContent = S.ui.notesEdit ? 'Done' : 'Edit';
+  $$('#notes-export [data-exp="docx"]').forEach(b => { b.lastChild.textContent = k === 'kids' ? 'Word picture book (.docx)' : 'Word document (.docx)'; });
+  if (S.ui.notesEdit && has && k !== 'kids') { ed.hidden = false; doc.hidden = true; ed.value = L.notes.md; return; }
+  ed.hidden = true; doc.hidden = false;
+  doc.className = has ? `apa notes-${k}` : 'doc';
+  if (has) { doc.innerHTML = notesDocHtml(L); return; }
+  const n = speechSegs(L).length;
+  doc.innerHTML = `<div class="empty"><h3>${n ? 'Ready to write' : 'No notes yet'}</h3><p>${n ? `${n} transcript lines and ${citedFiles(L).length} lecture files are ready. Choose an output above — an APA or MLA article, a bulleted outline, a children’s picture book, or anything else you describe — and tap Generate.` : 'Start captions on the Live tab, or import a transcript, and Didasko will turn it into polished notes in the format you choose.'}</p></div>`;
+}
+
+/* ---- Prompts ---- */
+function apaSystem({ aud, lang, sources }) {
+  return `You are an expert science editor who turns raw lecture transcripts into a polished, narrative article written and structured like a scientific journal article, using APA 7th edition style.
+The transcript comes from live speech recognition: it may lack punctuation and contain misheard words, filler words and false starts. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Do not add facts that are not supported by the transcript or the materials; where the recording is unclear, write "(unclear in recording)".
+Lines marked ★KEY POINT were flagged by the instructor as important: every one must appear in the article, and the most important belong in the abstract. Lines like "== TOPIC: … ==" are section breaks the instructor set: use them as Level 1 headings.
+Write for ${AUDIENCE[aud]}, in ${lang}, in the formal, precise register of a journal article: third person, past tense for what the lecturer said (e.g. "Shippee explained that…") and present tense for established facts, each supported by a citation.
+
+Write the whole article as connected prose. Do NOT use bulleted lists, numbered lists, tables, bold run-in labels, Q&A, "Key Terms" or "Review Questions" sections. Explain ideas in developed paragraphs, each with a topic sentence, supporting detail and examples from the lecture, and transitions that show how ideas connect. Bold a key term only the first time it is defined.
+
+Output GitHub-flavored Markdown in exactly this order:
+1. "# Title: Subtitle" — a concise, descriptive APA title in title case, with a subtitle after a colon.
+2. "## Abstract" followed by one paragraph of 150–220 words that states the lecture's purpose, its main points and their significance.
+3. A line "*Keywords:* " followed by 5–8 keywords, lowercase except proper nouns, separated by commas.
+4. The body, using APA heading levels: "##" = Level 1, "###" = Level 2 (only when a section clearly has parts), headings in title case.
+   - "## Introduction": one or two paragraphs on the background, why the topic matters, and what the lecture covered.
+   - One "##" section per major topic, in lecture order, each with two to four well-developed paragraphs.
+   - "## Conclusion": one or two paragraphs that synthesize the main ideas and their implications, and note what comes next if the lecture says so.
+
+Citations (APA 7 in-text): cite the sources below using exactly the in-text forms given, at the end of the sentence or paragraph they support. Cite the lecture at least once per Level 1 section. Cite a material wherever its content is used. Do not cite anything else and do not write a References section — it is added automatically.
+${sources}
+
+After the article, output exactly one final line and nothing after it:
+<!--didasko {"lectureTitle":"<the lecture's title in APA sentence case>","titles":{"F1":"<title of F1 in APA sentence case>"}}-->
+Include every F-number listed above in "titles".`;
+}
+function mlaSystem({ aud, lang, sources }) {
+  return `You are an expert editor who turns raw lecture transcripts into a polished narrative article in MLA style (MLA Handbook, 9th edition).
+The transcript comes from live speech recognition: it may lack punctuation and contain misheard words, filler words and false starts. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Do not add facts that are not supported by the transcript or the materials.
+Lines marked ★KEY POINT were flagged by the instructor as important: every one must appear in the article. Lines like "== TOPIC: … ==" are section breaks the instructor set.
+Write for ${AUDIENCE[aud]}, in ${lang}, in a clear academic register: present tense when discussing what the lecture argues ("Rivera explains that…"), with an introduction that states the lecture's central idea as a thesis.
+
+Write the whole article as connected prose: no bulleted or numbered lists, no tables, no bold labels. Use developed paragraphs with topic sentences and transitions.
+
+Output GitHub-flavored Markdown in exactly this order:
+1. "# Title" — an informative title in MLA title case (a subtitle after a colon is fine). Do not write a name, date or course heading — the app adds it.
+2. An introductory paragraph with no heading.
+3. One "##" section per major topic in lecture order (headings in title case), each with two to four paragraphs.
+4. "## Conclusion" with one or two paragraphs.
+
+Citations (MLA 9 in-text): cite the sources below using exactly the forms given, placed before the sentence's final punctuation, e.g. "…from water (Rivera)." For a direct quotation from the lecture add the timestamp, e.g. (Rivera 00:12:40). Do not use page numbers unless the material shows them. Do not cite anything else and do not write a Works Cited list — it is added automatically.
+${sources}
+
+After the article, output exactly one final line and nothing after it:
+<!--didasko {"lectureTitle":"<the lecture's title in MLA title case>","titles":{"F1":"<title of F1 in MLA title case>"}}-->
+Include every F-number listed above in "titles".`;
+}
+function outlineSystem({ aud, lang }) {
+  return `You turn raw lecture transcripts into a crisp, skimmable outline for ${AUDIENCE[aud]}, written in ${lang}.
+The transcript comes from speech recognition: fix obvious recognition errors silently and drop filler. Do not add facts that are not in the transcript or the materials. Lines marked ★KEY POINT were flagged by the instructor: include every one and start its bullet with "★ ". Lines like "== TOPIC: … ==" are the instructor's section breaks.
+Output GitHub-flavored Markdown in exactly this order:
+1. "# Title" — the lecture's topic.
+2. One sentence in italics summarizing the whole lecture.
+3. "## Big Picture" — two or three bullets on why this matters.
+4. One "##" heading per major topic in lecture order. Under each, nested "-" bullets: main idea → supporting details → examples, at most three levels deep. Short phrases, not paragraphs. Bold each key term the first time it appears.
+5. "## Key Terms" — bullets in the form "**Term** — plain-language meaning".
+6. "## Takeaways" — three to five bullets a student should remember.
+No citations, no introduction or conclusion paragraphs, nothing after the Takeaways.`;
+}
+function customSystem({ aud, lang, custom, sources }) {
+  return `You turn a lecture transcript (and any lecture materials) into exactly the output a teacher asks for.
+The teacher's request: «${custom}»
+Rules:
+- Produce that output and nothing else: no preface, no notes about what you did.
+- Write in ${lang}, for ${AUDIENCE[aud]} unless the request says otherwise.
+- The transcript comes from speech recognition: fix obvious recognition errors silently. Use only facts supported by the transcript or the materials.
+- Use GitHub-flavored Markdown (headings, lists, tables, bold) wherever it suits the requested format. Start with a "# " title.
+- If the requested format normally cites sources, cite them with these APA in-text forms:
+${sources}`;
+}
+function kidsSystem({ lang }) {
+  return `You are an award-winning children's picture-book author and a careful teacher. You retell a lecture as a short, warm picture book for children aged 6 to 9, written in ${lang}.
+Rules:
+- 8 to 10 pages. Each page has 1 to 3 short sentences (at most 40 words) with simple, vivid words. Read-aloud rhythm is welcome; rhyme is optional.
+- Keep the science or subject accurate: simplify, but never say anything false. Explain the lecture's key ideas in the order that makes them easiest to understand, through a friendly main character on a small adventure.
+- Page 1 introduces the character and the question; the last page recaps the big idea and ends on a sense of wonder.
+- For each page, describe the illustration concretely (who, where, what is happening, colors) in one or two sentences. Pictures contain no words, letters or numbers.
+- Describe the main character once, visually, so every picture can show them the same way, and give one art-style description for the whole book.
+- Add 3 to 6 "words to know" with child-friendly meanings, and one "wonder together" question a grown-up can ask.
+- The transcript comes from speech recognition; ignore recognition errors. Use only ideas from the transcript and materials.
+Reply with JSON only in this shape:
+{"title":"","character":"","style":"","cover":"<cover illustration description>","pages":[{"text":"","picture":""}],"glossary":[{"word":"","meaning":""}],"wonder":"","lectureTitle":"<the lecture's title in APA sentence case>"}`;
+}
+
+/* ---- Generate ---- */
+async function generateNotes() {
+  const L = S.lecture;
+  if (!speechSegs(L).length) { toast('Record, type or import a transcript first.'); return; }
+  const style = styleKey($('#notes-style').value), aud = $('#notes-audience').value, lv = $('#notes-lang').value;
+  const lang = lv === 'src' ? srcName(S.settings.srcLang) : tgtName(lv);
+  const useFiles = $('#notes-use-files').checked;
+  const custom = $('#notes-custom').value.trim();
+  if ((style === 'apa' || style === 'mla') && !lecturerOf(L)) { openLectureSheet(true); toast('Add the lecturer’s name so the article can cite the lecture.', 4000); return; }
+  if (style === 'other' && !custom) { $('#notes-custom').focus(); toast('Describe the output you’re looking for.'); return; }
+  if (!aiReady()) {
+    if (style === 'kids' || style === 'other') { toast(`${style === 'kids' ? 'Picture books' : 'Custom outputs'} need an AI model. Choose one in Settings.`, 4500); openSettings(); return; }
+    L.notes = { md: style === 'outline' ? buildLocalOutline(L, useFiles) : buildLocalNarrative(L, useFiles, style), style, local: true, at: Date.now() };
+    saveSoon(); S.ui.notesEdit = false; renderNotes(); toast('Notes organized on this device'); return;
+  }
+  notesCtl = new AbortController();
+  setNotesBusy(true, 'Checking sources…');
+  const files = useFiles ? citedFiles(L) : [];
+  if (style === 'apa' || style === 'mla' || style === 'other') for (const f of files) if (f.text && !f.cite?.checked && !(f.cite?.authors)) await detectCitation(f, { quiet: true });
+  const mat = useFiles ? materials('useNotes') : { text: '', images: [], names: [] };
+  const lecT = mlaInTextName([lecturerOf(L)]) || L.course || 'Lecture';
+  const sources = style === 'mla'
+    ? [`- LECTURE — the transcript itself. Cite as ${mlaLectureInText(L)}; for a quotation (${lecT} 00:12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${mlaFileInText(f)}.`)].join('\n')
+    : [`- LECTURE — the transcript itself. Cite as ${lectureInText(L)}. For a direct quotation add the timestamp, e.g. (${inTextAuthors([lecturerOf(L)]) || lecT}, ${yearOf(L.createdAt)}, 12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${fileInText(f)}.`)].join('\n');
+  const opts = { aud, lang, sources, custom };
+  const system = { apa: apaSystem, mla: mlaSystem, outline: outlineSystem, other: customSystem, kids: kidsSystem }[style](opts);
+  const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
+  if (style === 'kids') return generateKidsBook(L, { system, user, images: mat.images, lang });
+  setNotesBusy(true, 'Reading the transcript…');
+  const prev = L.notes;
+  let latest = '';
+  const show = t => { L.notes = { ...(L.notes || {}), style, md: stripFences(t.split('<!--didasko')[0]) }; delete L.notes.book; const d = $('#notes-doc'); d.className = `apa notes-${style}`; d.innerHTML = notesDocHtml(L); };
+  try {
+    const out = await callAI({
+      system, user, images: mat.images, maxTokens: 10000, signal: notesCtl.signal,
+      onText: t => { latest = t; $('#notes-status-text').textContent = 'Writing…'; if (!notesRAF) notesRAF = requestAnimationFrame(() => { notesRAF = 0; show(latest); }); }
+    });
+    const [body, meta] = out.split('<!--didasko');
+    let extra = {};
+    try { extra = JSON.parse((meta || '').replace(/-->[\s\S]*$/, '').trim() || '{}'); } catch { extra = {}; }
+    const titles = {};
+    files.forEach((f, i) => { const t = extra.titles?.['F' + (i + 1)]; if (t) titles[f.id] = String(t).trim(); });
+    const md = stripFences(body);
+    L.notes = { md, style, at: Date.now(), lang, custom: style === 'other' ? custom : undefined, lectureTitle: (extra.lectureTitle || '').trim() || null, titles, keywords: splitBody(md).keywords.split(/,\s*/).filter(Boolean) };
+    toast(`${STYLE_LABEL[style]} ready`);
+  } catch (e) {
+    if (notesCtl?.signal.aborted) { if (latest) L.notes = { md: stripFences(latest.split('<!--didasko')[0]), style, at: Date.now(), partial: true }; else L.notes = prev; toast('Stopped'); }
+    else { L.notes = prev; toast(e.message === 'NO_AI' ? 'Choose an AI model in Settings first.' : e.message, 5000); }
+  } finally { notesCtl = null; setNotesBusy(false); saveSoon(); renderNotes(); }
+}
+
+/* ---- Children's book ---- */
+const BOOK_ART = 'Warm, friendly children’s picture-book illustration, soft gouache and colored-pencil texture, bright but gentle colors, simple shapes, expressive faces, plenty of space, no text, letters or numbers in the image.';
+function pagePrompt(b, p, cover) {
+  return `${b.style || BOOK_ART} Main character: ${b.character || 'a curious, friendly child'}. ${cover ? `Book cover for “${b.title}”: ${p.picture || 'the main character, smiling, ready for an adventure'}` : `Scene: ${p.picture}`} Square composition. Do not include any words, letters, numbers or captions.`;
+}
+async function drawBookPicture(b, p, cover, signal) {
+  const prompt = pagePrompt(b, p, cover);
+  if (imageProvider() && !b.svgOnly) {
+    try { return await shrinkImage(await aiImage(prompt, signal), 768); }
+    catch (e) {
+      if (signal?.aborted) throw e;
+      b.svgOnly = true;
+      toast(`Couldn’t paint pictures with ${imageModel()}: ${e.message.replace(/^.*?: /, '')} Drawing illustrations instead.`, 6000);
+    }
+  }
+  return aiSvgPicture(prompt, signal);
+}
+async function aiSvgPicture(prompt, signal) {
+  const out = await callAI({
+    signal, maxTokens: 6000,
+    system: 'You are an illustrator who draws charming, simple children’s-book pictures as SVG code. Reply with one complete <svg> element only: viewBox="0 0 800 800", flat filled shapes with soft rounded forms, a bright friendly palette, a full background (sky, ground or room), a clear focal subject, and expressive simple faces. No text, letters or numbers. No script, image or foreignObject elements, external links or CSS imports. Keep it under 12 KB.',
+    user: prompt
+  });
+  return sanitizeSvg(out);
+}
+function sanitizeSvg(raw) {
+  const m = String(raw || '').match(/<svg[\s\S]*<\/svg>/i); if (!m) throw new Error('The AI didn’t return a picture.');
+  const doc = new DOMParser().parseFromString(m[0], 'image/svg+xml');
+  const svg = doc.documentElement;
+  if (!svg || svg.nodeName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) throw new Error('The picture couldn’t be read.');
+  doc.querySelectorAll('script,foreignObject,image,iframe,object,embed,a,style').forEach(n => n.remove());
+  doc.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(a => { const n = a.name.toLowerCase(), v = a.value.trim().toLowerCase(); if (n.startsWith('on') || ((n === 'href' || n === 'xlink:href') && !v.startsWith('#')) || v.includes('javascript:') || (v.includes('url(') && !/url\(\s*#/.test(v))) el.removeAttribute(a.name); });
+  });
+  if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', '0 0 800 800');
+  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+}
+function loadImg(src) { return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Image could not be loaded')); im.src = src; }); }
+async function shrinkImage(src, max = 768, mime = 'image/jpeg') {
+  const im = await loadImg(src);
+  const k = Math.min(1, max / Math.max(im.naturalWidth || max, im.naturalHeight || max));
+  const c = document.createElement('canvas'); c.width = Math.round((im.naturalWidth || max) * k); c.height = Math.round((im.naturalHeight || max) * k);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+  return c.toDataURL(mime, 0.84);
+}
+async function generateKidsBook(L, { system, user, images, lang }) {
+  setNotesBusy(true, 'Writing the story…');
+  const prev = L.notes;
+  try {
+    const out = await callAI({ system, user, images, json: true, maxTokens: 6000, signal: notesCtl.signal, onText: t => { const k = (t.match(/"text"\s*:/g) || []).length; $('#notes-status-text').textContent = k ? `Writing page ${k}…` : 'Writing the story…'; } });
+    const j = parseJson(out);
+    const pages = (j.pages || []).map(p => ({ text: String(p.text || '').trim(), picture: String(p.picture || '').trim() })).filter(p => p.text).slice(0, 12);
+    if (pages.length < 3) throw new Error('The AI didn’t return a usable story. Try again.');
+    const book = { title: String(j.title || L.title).trim(), character: String(j.character || '').trim(), style: String(j.style || '').trim(), cover: { picture: String(j.cover || '').trim() }, pages, glossary: (j.glossary || []).filter(g => g?.word).slice(0, 8).map(g => ({ word: String(g.word), meaning: String(g.meaning || '') })), wonder: String(j.wonder || '').trim() };
+    L.notes = { style: 'kids', book, md: bookMarkdown(L, book), at: Date.now(), lang, lectureTitle: String(j.lectureTitle || '').trim() || null, titles: {} };
+    saveSoon(); renderNotes();
+    await drawAllPictures(L, book, notesCtl.signal);
+    toast('Picture book ready');
+  } catch (e) {
+    if (notesCtl?.signal.aborted) { toast('Stopped'); if (!L.notes?.book) L.notes = prev; }
+    else { if (!L.notes?.book) L.notes = prev; toast(e.message === 'NO_AI' ? 'Choose an AI model in Settings first.' : e.message, 5000); }
+  } finally { notesCtl = null; setNotesBusy(false); if (L.notes?.book) L.notes.md = bookMarkdown(L, L.notes.book); saveSoon(); renderNotes(); }
+}
+async function drawAllPictures(L, book, signal) {
+  const jobs = [{ p: book.cover, cover: true }, ...book.pages.map(p => ({ p, cover: false }))].filter(j => !j.p.img);
+  let done = 0; const total = jobs.length;
+  const status = () => { $('#notes-status').hidden = false; $('#notes-status-text').textContent = `Drawing picture ${Math.min(done + 1, total)} of ${total}…`; };
+  status();
+  const worker = async () => {
+    while (jobs.length) {
+      if (signal?.aborted) return;
+      const j = jobs.shift(); j.p.drawing = true; rerenderBook(L);
+      try { j.p.img = await drawBookPicture(book, j.p, j.cover, signal); }
+      catch (e) { if (signal?.aborted) return; j.p.error = e.message; }
+      finally { delete j.p.drawing; done++; status(); saveSoon(); rerenderBook(L); }
+    }
+  };
+  await Promise.all([worker(), worker()]);
+}
+function rerenderBook(L) { if (S.lecture === L && S.view === 'notes' && S.ui.notesTab === 'notes') { const d = $('#notes-doc'); d.hidden = false; d.className = 'apa notes-kids'; d.innerHTML = bookHtml(L); } }
+async function redrawPicture(i) {
+  const L = S.lecture, b = L.notes?.book; if (!b) return;
+  if (!aiReady()) { toast('Choose an AI model in Settings to draw pictures.'); return; }
+  const p = i < 0 ? b.cover : b.pages[i]; if (!p || p.drawing) return;
+  delete b.svgOnly; p.drawing = true; delete p.img; rerenderBook(L);
+  try { p.img = await drawBookPicture(b, p, i < 0); toast('New picture ready'); }
+  catch (e) { toast(e.message, 4000); }
+  finally { delete p.drawing; saveSoon(); rerenderBook(L); }
+}
+function bookMarkdown(L, b) {
+  return [`# ${b.title}`, '', `*A picture book based on a lecture${lecturerOf(L) ? ` by ${lecturerOf(L)}` : ''}${L.course ? ` · ${L.course}` : ''}*`, '',
+    ...b.pages.flatMap((p, i) => [`## Page ${i + 1}`, '', p.text, '', `*Picture: ${p.picture}*`, '']),
+    ...(b.glossary?.length ? ['## Words to know', '', ...b.glossary.map(g => `- **${g.word}** — ${g.meaning}`), ''] : []),
+    ...(b.wonder ? ['## Wonder together', '', b.wonder, ''] : [])].join('\n');
+}
+
+/* ---- On-device fallbacks (no AI) ---- */
+function lectureSections(L) {
+  const sections = []; let cur = null, count = 0;
+  const hasTopics = L.segments.some(x => x.kind === 'topic');
+  for (const s of L.segments) {
+    if (s.kind === 'topic') { cur = { title: s.text, items: [] }; sections.push(cur); count = 0; continue; }
+    if (!cur || (!hasTopics && count >= 6)) { cur = { title: null, start: s.t, items: [] }; sections.push(cur); count = 0; }
+    cur.items.push(s); cur.end = s.t; count++;
+  }
+  return sections.filter(x => x.items.length);
+}
+function buildLocalNarrative(L, useFiles, style) {
+  const segs = speechSegs(L), mla = style === 'mla';
+  const all = segs.map(s => s.text).join('. ');
+  const kws = keyTerms(all, 7);
+  const cite = mla ? mlaLectureInText(L) : lectureInText(L);
+  const para = items => { const sents = items.flatMap(s => sentencesOf(s.text).map(cleanSpoken)).filter(t => words(t) > 3); const out = []; for (let i = 0; i < sents.length; i += 4) out.push(sents.slice(i, i + 4).join(' ').replace(/\.$/, '') + ` ${cite}.`); return out.join('\n\n'); };
+  const keys = segs.filter(s => s.key).map(s => cleanSpoken(s.text));
+  let md = `# ${L.title}\n\n`;
+  if (!mla) md += `## Abstract\n${(keys.length ? keys : sentencesOf(all).map(cleanSpoken)).slice(0, 5).join(' ').replace(/\.$/, '')} ${cite}.\n\n*Keywords:* ${kws.join(', ')}\n\n## Introduction\n`;
+  md += `> Organized on this device without AI. Choose an AI model in Settings for a fully written article.\n\nThis lecture${L.course ? `, part of ${L.course},` : ''} addressed ${kws.slice(0, 3).join(', ')}${keys.length ? `, and the lecturer emphasized that ${keys[0].charAt(0).toLowerCase() + keys[0].slice(1).replace(/\.$/, '')}` : ''} ${cite}.\n\n`;
+  lectureSections(L).forEach((sec, i) => { md += `## ${sec.title || `Part ${i + 1}`}\n${para(sec.items)}\n\n`; });
+  md += `## Conclusion\nTaken together, the lecture connected ${kws.slice(0, 4).join(', ')} ${cite}.\n`;
+  const fs = useFiles ? citedFiles(L) : [];
+  if (fs.length) md += `\nThe lecture materials ${fs.map(f => `${mla ? mlaFileInText(f) : fileInText(f)}`).join(', ')} provide further detail.\n`;
+  return md;
+}
+function buildLocalOutline(L, useFiles) {
+  const segs = speechSegs(L);
+  const kws = keyTerms(segs.map(s => s.text).join('. '), 8);
+  let md = `# ${L.title}\n\n*Organized on this device without AI — key ideas in lecture order.*\n\n`;
+  const keys = segs.filter(s => s.key);
+  if (keys.length) md += `## Big Picture\n${keys.map(s => `- ★ ${cleanSpoken(s.text)}`).join('\n')}\n\n`;
+  lectureSections(L).forEach((sec, i) => {
+    md += `## ${sec.title || `Part ${i + 1} (${fmtClock(sec.start)}–${fmtClock(sec.end)})`}\n`;
+    sec.items.forEach(s => sentencesOf(s.text).map(cleanSpoken).filter(t => words(t) > 3).forEach(t => { md += `- ${s.key ? '★ ' : ''}${t}\n`; }));
+    md += '\n';
+  });
+  md += `## Key Terms\n${kws.map(k => `- **${k}**`).join('\n')}\n`;
+  const fs = useFiles ? citedFiles(L) : [];
+  if (fs.length) md += `\n## Lecture Materials\n${fs.map(f => `- **${fileCite(f).title}** — ${f.text ? f.text.split(/\s+/).slice(0, 24).join(' ') + '…' : 'image'}`).join('\n')}\n`;
+  return md;
+}
+
+/* ---- Exports ---- */
+const MLA_CSS = `
+.mla{background:#fff;color:#111;max-width:8.5in;margin:0 auto;padding:clamp(22px,7vw,1in);font:1.02rem/2 "Times New Roman",Tinos,Times,serif;box-shadow:0 1px 4px rgba(0,0,0,.12);border-radius:3px;overflow-wrap:anywhere;position:relative}
+.mla p{margin:0}
+.mla-run{text-align:right;margin-bottom:.2em}
+.mla-head p{text-indent:0}
+.mla-title{font-weight:400;font-size:1em;line-height:2;font-family:inherit;text-align:center;margin:0;border:0;padding:0;color:inherit;text-wrap:balance}
+.mla-body p{text-indent:.5in}
+.mla-body h2{font-weight:700;font-size:1em;line-height:2;font-family:inherit;margin:0;text-align:left;border:0;padding:0;color:inherit}
+.mla-body h3{font-style:italic;font-weight:400;font-size:1em;line-height:2;font-family:inherit;margin:0}
+.mla-body blockquote{margin:0 0 0 .5in;padding:0;border:0;background:none}
+.mla-body blockquote p{text-indent:0}
+.mla-body ul,.mla-body ol{margin:0;padding-left:.5in}
+.mla-wc{margin-top:2em}
+.mla-wc h2{font-weight:400;font-size:1em;line-height:2;font-family:inherit;text-align:center;margin:0;border:0;padding:0;color:inherit}
+.mla-ref{padding-left:.5in;text-indent:-.5in}
+.mla a{color:inherit}
+@media print{.mla{box-shadow:none;max-width:none;padding:0;font-size:12pt}.mla-wc{break-before:page}}`;
+const ND_CSS = `
+.nd{background:#fff;color:#15201c;max-width:820px;margin:0 auto;padding:clamp(20px,5vw,52px);border-radius:12px;border:1px solid #d6dfdb;font:1.02rem/1.65 Literata,Georgia,serif;overflow-wrap:anywhere}
+.nd-kicker{margin:0 0 .6em;font:700 .74rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:#1d6b57}
+.nd h1{font-size:1.8rem;line-height:1.2;margin:0 0 .4em;text-wrap:balance}
+.nd h2{font:700 1.15rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;margin:1.6em 0 .5em;padding-bottom:.3em;border-bottom:1px solid #d6dfdb;color:#1d6b57}
+.nd h3{font:700 1.02rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;margin:1.2em 0 .3em}
+.nd p,.nd ul,.nd ol{margin:.5em 0}
+.nd li{margin:.2em 0}
+.nd ul ul,.nd ol ol,.nd ul ol,.nd ol ul{margin:.15em 0}
+.nd blockquote{margin:1em 0;padding:.6em 1em;border-left:3px solid #f2cb52;background:#f6f8f7;border-radius:0 8px 8px 0}
+.nd table{border-collapse:collapse;font:.92rem/1.45 "Atkinson Hyperlegible",system-ui,sans-serif;min-width:100%}
+.nd th,.nd td{border:1px solid #d6dfdb;padding:7px 9px;text-align:left;vertical-align:top}
+.nd th{background:#f6f8f7}
+.nd-src{margin-top:2.2em;font-size:.86rem;color:#4a5853}
+.nd-src h2{font-size:.8rem;letter-spacing:.09em;text-transform:uppercase;color:#5a6963}
+.nd-src .apa-ref{padding-left:2em;text-indent:-2em;margin:.3em 0}
+.nd a{color:inherit}
+@media print{.nd{border:0;padding:0;max-width:none}}`;
+const BOOK_CSS = `
+.book{display:grid;gap:18px;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));font-family:Literata,Georgia,serif}
+.book-page{background:#fffdf6;color:#2b2218;border-radius:18px;border:1px solid #eadfc8;box-shadow:0 2px 10px rgba(60,40,10,.08);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.book-art{aspect-ratio:1/1;background:#f3ead6;display:grid;place-items:center;overflow:hidden}
+.book-art img{width:100%;height:100%;object-fit:cover;display:block}
+.book-ph{display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;padding:24px;text-align:center;color:#8a7a5c;font:italic .9rem/1.4 Literata,Georgia,serif}
+.book-cap{padding:16px 20px 8px;flex:1}
+.book-text{margin:0;font-size:1.22rem;line-height:1.5;text-wrap:pretty;outline:none;border-radius:6px}
+.book-text:focus{background:#fff4cf}
+.book-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 12px 12px 20px}
+.book-num{font:700 .9rem/1 "Atkinson Hyperlegible",system-ui,sans-serif;color:#b59a63}
+.book-cover{background:#173a30;color:#fdf6e3;border-color:#173a30}
+.book-cover .book-art{background:#0f2a22}
+.book-title{margin:0;font:700 1.8rem/1.15 Literata,Georgia,serif;text-wrap:balance;color:#f2cb52}
+.book-by{margin:.4em 0 0;font:.9rem/1.4 "Atkinson Hyperlegible",system-ui,sans-serif;opacity:.85}
+.book-tools{position:absolute;top:10px;right:10px}
+.book-words h2{margin:0 0 .4em;font:700 1.2rem/1.2 Literata,Georgia,serif;color:#1d6b57}
+.book-words h2:not(:first-child){margin-top:1em}
+.book-words dl{margin:0;display:grid;gap:8px}
+.book-words dt{font-weight:700}
+.book-words dd{margin:0 0 0 .2em;color:#5c4f3b}
+.book-src{margin-top:1.4em;font:.78rem/1.4 "Atkinson Hyperlegible",system-ui,sans-serif;color:#8a7a5c;padding-left:1.6em;text-indent:-1.6em}
+.book .btn{background:rgba(255,255,255,.85);border-color:#e0d4b8;color:#2b2218}
+@media print{.book{display:block}.book-page{break-inside:avoid;break-after:page;box-shadow:none;border:0;max-width:6.5in;margin:0 auto}.book-tools,.book-foot .btn{display:none}}`;
+function ensureFormatCss() { if (!document.getElementById('fmt-css')) { const st = document.createElement('style'); st.id = 'fmt-css'; st.textContent = MLA_CSS + ND_CSS + BOOK_CSS; document.head.appendChild(st); } }
+function standaloneHtml(L) {
+  const k = styleKey(L.notes?.style);
+  if (k === 'apa') return apaStandalone(L);
+  const title = k === 'mla' ? composeMla(L).title : k === 'kids' ? L.notes.book.title : (splitBody(L.notes.md).title || L.title);
+  const css = k === 'mla' ? MLA_CSS : k === 'kids' ? BOOK_CSS : ND_CSS;
+  const body = k === 'mla' ? mlaHtml(L) : k === 'kids' ? bookHtml(L, { editable: false }) : plainDocHtml(L);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,700;1,7..72,400&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>body{margin:0;background:${k === 'kids' ? '#f4efe3' : '#e6e8e7'};padding:24px 12px}${css}</style></head><body>${body}</body></html>`;
+}
+function formatMarkdown(L) {
+  const k = styleKey(L.notes?.style);
+  if (k === 'apa') return apaMarkdown(L);
+  if (k === 'mla') { const c = composeMla(L); return [...c.head.map(h => h + '  '), '', `# ${c.title}`, '', c.body, '', '## Works Cited', '', c.refs.join('\n\n')].join('\n').replace(/\n{3,}/g, '\n\n'); }
+  if (k === 'kids') return bookMarkdown(L, L.notes.book) + `\n\n---\n\n${lectureRef(L, L.notes?.lectureTitle)}\n`;
+  return `${L.notes.md}\n\n## Sources\n\n${referenceList(L).join('\n\n')}\n`;
+}
+function mlaDocBlocks(L) {
+  const c = composeMla(L), B = [];
+  c.head.forEach(h => B.push({ type: 'p', style: 'NoIndent', runs: [{ text: h }] }));
+  B.push({ type: 'p', style: 'MlaTitle', runs: parseInline(c.title) });
+  parseMd(c.body).forEach(b => B.push(b.type === 'h' ? { ...b, level: 2 } : b));
+  B.push({ type: 'pagebreak' }, { type: 'p', style: 'MlaTitle', runs: [{ text: 'Works Cited' }] });
+  c.refs.forEach(r => B.push({ type: 'ref', text: r }));
+  return { blocks: B, running: c.running };
+}
+function plainDocBlocks(L) {
+  const B = [{ type: 'p', runs: [{ text: [STYLE_LABEL[styleKey(L.notes.style)], L.course, fmtDate(L.createdAt), lecturerOf(L)].filter(Boolean).join(' · '), i: true }] }, ...parseMd(L.notes.md)];
+  B.push({ type: 'h', level: 2, text: 'Sources' }); referenceList(L).forEach(r => B.push({ type: 'ref', text: r }));
+  return B;
+}
+async function bookDocBlocks(L) {
+  const b = L.notes.book, B = [];
+  const img = async p => { if (!p?.img) return null; try { const png = /^data:image\/svg/.test(p.img) ? await shrinkImage(p.img, 900, 'image/png') : await shrinkImage(p.img, 900); return { type: 'image', src: png, wIn: 5.6, hIn: 5.6 }; } catch { return null; } };
+  const cov = await img(b.cover); if (cov) B.push(cov);
+  B.push({ type: 'p', style: 'BookTitle', runs: [{ text: b.title }] }, { type: 'p', style: 'BookBy', runs: [{ text: `A picture book based on a lecture${lecturerOf(L) ? ` by ${lecturerOf(L)}` : ''}${L.course ? ` · ${L.course}` : ''}` }] });
+  for (const [i, p] of b.pages.entries()) {
+    B.push({ type: 'pagebreak' });
+    const im = await img(p); if (im) B.push(im);
+    B.push({ type: 'p', style: 'BookText', runs: [{ text: p.text }] }, { type: 'p', style: 'BookBy', runs: [{ text: String(i + 1) }] });
+  }
+  if (b.glossary?.length || b.wonder) {
+    B.push({ type: 'pagebreak' });
+    if (b.glossary?.length) { B.push({ type: 'h', level: 2, text: 'Words to know' }); b.glossary.forEach(g => B.push({ type: 'p', runs: [{ text: g.word + ' — ', b: true }, { text: g.meaning }] })); }
+    if (b.wonder) B.push({ type: 'h', level: 2, text: 'Wonder together' }, { type: 'p', runs: [{ text: b.wonder }] });
+    B.push({ type: 'ref', text: lectureRef(L, L.notes?.lectureTitle) });
+  }
+  return B;
+}
+async function exportNotes(t) {
+  const L = S.lecture, name = slug(L.title), k = styleKey(L.notes?.style);
+  if (t === 'transcript') return saveFile(name + '-transcript.txt', L.segments.map(s => s.kind === 'topic' ? `\n## ${s.text}\n` : `[${fmtClock(s.t)}] ${s.key ? '★ ' : ''}${s.text}${target() && s.tr?.[target()] ? `\n         ${s.tr[target()]}` : ''}`).join('\n'), 'text/plain');
+  if (!L.notes?.md && !L.notes?.book) { toast('Generate notes first.'); return; }
+  const suffix = { apa: 'apa', mla: 'mla', outline: 'outline', kids: 'picture-book', other: 'notes' }[k];
+  if (t === 'docx') {
+    if (k === 'apa') { const d = apaDocBlocks(L); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeApa(L).fullTitle, { journal: true, runningHead: d.runningHead, footer: d.footer })); }
+    if (k === 'mla') { const d = mlaDocBlocks(L); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeMla(L).title, { mla: true, runningHead: d.running, footer: '' })); }
+    if (k === 'kids') { toast('Preparing pictures…'); return saveFile(`${name}-${suffix}.docx`, await buildDocx(await bookDocBlocks(L), L.notes.book.title, { footer: L.notes.book.title })); }
+    return saveFile(`${name}-${suffix}.docx`, await buildDocx(plainDocBlocks(L), splitBody(L.notes.md).title || L.title));
+  }
+  if (t === 'html') return saveFile(`${name}-${suffix}.html`, standaloneHtml(L), 'text/html');
+  if (t === 'md') return saveFile(`${name}-${suffix}.md`, formatMarkdown(L), 'text/markdown');
+  if (t === 'print') {
+    const css = k === 'apa' ? JOURNAL_CSS.replace(/\.jr/g, '#print-root .jr') : (k === 'mla' ? MLA_CSS : k === 'kids' ? BOOK_CSS : ND_CSS);
+    return printHtml(`<style>${css}</style>${k === 'kids' ? bookHtml(L, { editable: false }) : notesDocHtml(L)}`);
+  }
+  if (t === 'copy') return copyText(mdToText(formatMarkdown(L)));
 }
 
 /* ================= Cloud: Firebase accounts, lecture library, newsletter ================= */
@@ -2156,7 +2732,7 @@ async function deleteLecture(id) {
 async function switchLecture(L) {
   if (LIVE.code) stopSharing(true);
   S.lecture = normalizeLecture(L); S.settings.lastLecture = L.id; saveSettings(); S.ui.practice = {}; S.ui.notesEdit = false;
-  await saveNow(); renderAll();
+  await saveNow(); syncNotesStyle(S.lecture); renderAll();
 }
 
 /* ---- Sign-in ---- */
@@ -2337,12 +2913,12 @@ function openLectureSheet(focusLecturer) {
         if (L.lecturer) S.settings.lecturer = L.lecturer; if (L.institution) S.settings.institution = L.institution; if (L.author) S.settings.author = L.author; saveSettings();
         if (L.notes) L.notes.lectureTitle = null;
         renderHeader(); saveSoon(); prev(); if (S.view === 'notes') renderNotes();
+        if (S.view === 'home') renderHomeList();
       };
       ['#lec-title', '#lec-course', '#lec-lecturer', '#lec-inst', '#lec-author', '#lec-date'].forEach(id => { $(id, sh).oninput = upd; });
       prev();
       if (focusLecturer) setTimeout(() => $('#lec-lecturer', sh).focus(), 60);
-      const doNew = async () => { if (S.rec.running) pauseCaptions(true); await saveNow(); const n = newLecture(); n.course = L.course; n.lecturer = L.lecturer; n.institution = L.institution; n.author = L.author; if (locked) await deleteLecture(L.id); await switchLecture(n); closeSheet(); toast('New lecture started'); };
-      if (locked && (speechSegs(L).length || L.notes)) twoStep($('#lec-new', sh), 'Tap again — this replaces the current lecture', doNew); else $('#lec-new', sh).onclick = doNew;
+      $('#lec-new', sh).onclick = () => { closeSheet(); openNewLectureSheet(); };
       $$('.lec-item', sh).forEach(b => b.onclick = async () => { if (b.dataset.lid === L.id) { closeSheet(); return; } if (S.rec.running) pauseCaptions(true); await saveNow(); const l = await openLecture(b.dataset.lid); if (l) await switchLecture(l); closeSheet(); });
       twoStep($('#lec-del', sh), 'Tap again to delete permanently', async () => {
         if (S.rec.running) pauseCaptions(true);
@@ -2377,6 +2953,7 @@ function aiSectionHtml() {
       <label class="field"><span>Faster model for live translation</span><input id="ai-fast" list="ai-models" value="${esc(m.fast || p.fast)}" placeholder="Same as above" autocomplete="off" spellcheck="false"></label>
       <datalist id="ai-models">${list.map(x => `<option value="${esc(x)}"></option>`).join('')}</datalist>
     </div>` : ''}
+    ${p.kind === 'gemini' || id === 'openai' ? `<label class="field"><span>Picture model (children’s books)</span><input id="ai-image" value="${esc((st.imageModels || {})[id] || IMAGE_MODELS[p.kind === 'gemini' ? 'gemini' : 'openai'])}" autocomplete="off" spellcheck="false"></label>` : !['sample'].includes(p.kind) ? `<p class="small muted" style="margin:0">Children’s-book pictures: this service draws simple illustrations. Gemini and ChatGPT can paint full pictures.</p>` : ''}
     <div class="row">${canList ? `<button class="btn sm" id="ai-refresh">Refresh model list</button>` : ''}<button class="btn sm" id="ai-test">Test connection</button><span class="small muted" id="ai-test-out"></span></div>`;
 }
 function bindAiSection(box) {
@@ -2391,6 +2968,7 @@ function bindAiSection(box) {
   on('#az-dep', v => { st.azure.deployment = v; }); on('#az-fast', v => { st.azure.fastDeployment = v; });
   on('#ai-main', v => { st.models[id] = { ...(st.models[id] || {}), main: v }; });
   on('#ai-fast', v => { st.models[id] = { ...(st.models[id] || {}), fast: v }; });
+  on('#ai-image', v => { st.imageModels = { ...(st.imageModels || {}), [id]: v }; });
   const out = $('#ai-test-out', box);
   const rb = $('#ai-refresh', box);
   if (rb) rb.onclick = async () => {
@@ -2441,9 +3019,180 @@ function renderAiState() {
   const chip = $('#ai-chip');
   if (chip) { chip.textContent = ok ? `AI: ${aiLabel()}` : 'AI: not set up'; chip.className = 'chip ' + (ok ? 'ok' : 'warn'); }
   const nh = $('#notes-gen-hint'), qh = $('#quiz-hint');
-  if (nh) nh.textContent = ok ? '' : 'No AI model is set up, so Didasko builds simple notes on this device. Choose an AI service in Settings for full APA notes.';
-  if (qh) qh.textContent = ok ? '' : 'No AI model is set up, so Didasko builds fill-in-the-blank items. Choose an AI service in Settings for real questions.';
+  if (nh) nh.textContent = ok ? '' : 'No AI model is set up, so Didasko organizes simple notes on this device. Choose an AI service in Settings for fully written articles, picture books and custom outputs.';
+  if (qh) qh.textContent = ok ? '' : 'No AI model is set up, so Didasko builds simple concept checks on this device. Choose an AI service in Settings for scenario and misconception questions.';
+  if ($('#notes-style-hint')) renderNotesStyleUi();
+  if (S.view === 'home') renderHome();
   TR.engineCache.clear(); renderEngineNote();
+}
+
+/* ================= Home dashboard (shown when the app opens) ================= */
+const COURSE_HUES = [158, 205, 28, 262, 340, 92, 190, 12, 300, 48];
+const courseHue = c => { let h = 0; for (const ch of String(c || '')) h = (h * 31 + ch.codePointAt(0)) >>> 0; return COURSE_HUES[h % COURSE_HUES.length]; };
+function greeting() { const h = new Date().getHours(); return h < 5 ? 'Working late' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; }
+const firstName = n => cleanName(n).split(/\s+/)[0] || '';
+function relBucket(ts) {
+  const now = new Date(), d = new Date(ts);
+  const day = 864e5, startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (ts >= startToday) return 'Today';
+  if (ts >= startToday - day) return 'Yesterday';
+  if (ts >= startToday - 6 * day) return 'This week';
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) return 'Earlier this month';
+  return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+function homeLectures() {
+  const all = [...S.index];
+  if (S.lecture && !all.some(m => m.id === S.lecture.id)) all.unshift(lectureMeta(S.lecture));
+  return all.map(m => (S.lecture && m.id === S.lecture.id ? lectureMeta(S.lecture) : m)).sort((a, b) => b.createdAt - a.createdAt);
+}
+function homeStats(list) {
+  const real = list.filter(m => !m.sample);
+  const ms = real.reduce((n, m) => n + (m.ms || 0), 0);
+  return [
+    ['Lectures', real.length.toLocaleString()],
+    ['Time captioned', ms < 3.6e6 ? `${Math.round(ms / 6e4)} min` : `${(ms / 3.6e6).toFixed(ms < 36e6 ? 1 : 0)} h`],
+    ['Words captured', real.reduce((n, m) => n + (m.words || 0), 0).toLocaleString()],
+    ['Live quizzes run', real.reduce((n, m) => n + (m.runs || 0), 0).toLocaleString()]
+  ];
+}
+function setupSteps() {
+  const steps = [];
+  steps.push({ id: 'name', done: !!S.settings.lecturer, label: 'Add your name and school', sub: 'Used to cite your lectures in the notes.' });
+  steps.push({ id: 'ai', done: aiReady(), label: 'Choose an AI model', sub: 'Unlocks written articles, picture books and scenario quizzes. Several are free.' });
+  if (cloudConfigured()) steps.push({ id: 'account', done: isSignedIn(), label: 'Sign in to keep a library', sub: 'Save every lecture and open it on any device.' });
+  return steps;
+}
+function lecCardHtml(m) {
+  const cur = S.lecture && m.id === S.lecture.id;
+  const live = cur && S.rec.running;
+  const chips = [
+    m.notes ? `<span class="chip ok">${icon('notes')}${esc(STYLE_LABEL[styleKey(m.notes)] || 'Notes')}</span>` : '',
+    m.quiz ? `<span class="chip">${icon('quiz')}${m.quiz} questions</span>` : '',
+    m.runs ? `<span class="chip">${icon('trophy')}${m.runs} live run${m.runs > 1 ? 's' : ''}</span>` : '',
+    m.keys ? `<span class="chip">${icon('star')}${m.keys} key point${m.keys > 1 ? 's' : ''}</span>` : '',
+    m.files ? `<span class="chip">${icon('files')}${m.files} file${m.files > 1 ? 's' : ''}</span>` : ''
+  ].filter(Boolean).join('');
+  const meta = [fmtDate(m.createdAt), m.ms ? fmtClock(m.ms) : '', m.words ? `${m.words.toLocaleString()} words` : 'Not recorded yet'].filter(Boolean).join(' · ');
+  return `<article class="lec-card ${cur ? 'current' : ''}" data-lid="${m.id}" style="--h:${courseHue(m.course || m.title)}">
+    <button class="lec-open" data-open="${m.notes ? 'notes' : 'live'}" aria-label="Open ${esc(m.title)}">
+      <span class="lec-course">${esc(m.course || (m.sample ? 'Sample lecture' : 'No course'))}${live ? ' · <b class="live-tag">● LIVE</b>' : cur ? ' · Open now' : ''}</span>
+      <span class="lec-title">${esc(m.title)}</span>
+      <span class="lec-meta">${esc(meta)}</span>
+    </button>
+    ${chips ? `<div class="lec-chips">${chips}</div>` : ''}
+    <div class="lec-actions">
+      <button class="btn sm" data-open="live">${icon('cc')}Captions</button>
+      <button class="btn sm" data-open="notes">${icon('notes')}Notes</button>
+      <button class="btn sm" data-open="quiz">${icon('quiz')}Quiz</button>
+      <button class="icon-btn sm lec-del" data-del aria-label="Delete ${esc(m.title)}" title="Delete">${icon('trash')}</button>
+    </div>
+  </article>`;
+}
+function renderHomeList() {
+  const box = $('#home-list'); if (!box) return;
+  const q = (S.ui.homeQ || '').trim().toLowerCase(), course = S.ui.homeCourse || '';
+  const list = homeLectures().filter(m => (!course || (m.course || '') === course) && (!q || `${m.title} ${m.course}`.toLowerCase().includes(q)));
+  if (!list.length) {
+    box.innerHTML = `<div class="panel empty"><h3>${q || course ? 'No lectures match' : 'Your lectures will appear here'}</h3><p>${q || course ? 'Try a different search or course.' : 'Tap New lecture to start captioning. Every lecture you record is saved with its transcript, notes and quiz.'}</p></div>`;
+    return;
+  }
+  const groups = new Map();
+  list.forEach(m => { const g = relBucket(m.createdAt); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(m); });
+  box.innerHTML = [...groups].map(([g, items]) => `<div class="lec-group"><h3 class="eyebrow">${esc(g)}</h3><div class="lec-grid">${items.map(lecCardHtml).join('')}</div></div>`).join('');
+  $$('[data-del]', box).forEach(b => {
+    const id = b.closest('.lec-card').dataset.lid;
+    twoStep(b, 'Delete?', async () => {
+      if (S.lecture?.id === id) { if (S.rec.running) pauseCaptions(true); await deleteLecture(id); const next = S.index[0] ? await openLecture(S.index[0].id) : null; await switchLecture(next || newLecture()); }
+      else await deleteLecture(id);
+      toast('Lecture deleted'); renderHome();
+    });
+  });
+}
+function renderHome() {
+  const root = $('#home'); if (!root || !S.lecture) return;
+  const list = homeLectures();
+  const name = firstName(S.settings.lecturer || (isSignedIn() ? CLOUD.user.displayName : '') || '');
+  const courses = [...new Set(list.map(m => m.course).filter(Boolean))];
+  if (S.ui.homeCourse && !courses.includes(S.ui.homeCourse)) S.ui.homeCourse = '';
+  const steps = setupSteps(), open = steps.filter(s => !s.done);
+  const L = S.lecture, hasCur = speechSegs(L).length || L.notes || L.quiz;
+  const locked = libraryLocked();
+  root.innerHTML = `
+    <section class="home-hero">
+      <div class="home-greet">
+        <span class="eyebrow">${esc(new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }))}</span>
+        <h1>${esc(greeting())}${name ? `, ${esc(name)}` : ''}</h1>
+        <p>Caption your lecture live, turn it into notes in the format you need, and check understanding with a live quiz.</p>
+      </div>
+      <div class="home-cta">
+        <button class="new-lec" id="home-new">${icon('plus')}<span><b>New lecture</b><small>Set up and start captions</small></span></button>
+        ${hasCur ? `<button class="btn" id="home-resume">${icon(S.rec.running ? 'cc' : 'mic')}${S.rec.running ? 'Back to live captions' : `Continue “${esc(L.title.length > 28 ? L.title.slice(0, 27) + '…' : L.title)}”`}</button>` : ''}
+      </div>
+    </section>
+    ${S.rec.running ? `<div class="home-live" role="status"><span class="dot"></span><span class="grow">Captions are live for <b>${esc(L.title)}</b> · ${fmtClock(elapsed())}</span><button class="btn sm" id="home-golive">Return to live</button></div>` : ''}
+    ${list.some(m => !m.sample) ? `<section class="home-stats" aria-label="Your teaching at a glance">${homeStats(list).map(([k, v]) => `<div class="hstat"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('')}</section>` : ''}
+    ${open.length ? `<section class="panel home-setup"><div class="row between"><h2>Get set up</h2><span class="chip">${steps.length - open.length} of ${steps.length} done</span></div>
+      <div class="setup-steps">${steps.map(s => `<button class="setup-step ${s.done ? 'done' : ''}" data-step="${s.id}" ${s.done ? 'disabled' : ''}><span class="tick">${s.done ? '✓' : ''}</span><span class="grow"><b>${esc(s.label)}</b><small>${esc(s.sub)}</small></span>${s.done ? '' : icon('arrow')}</button>`).join('')}</div></section>` : ''}
+    <section class="home-lib">
+      <div class="row between home-lib-head">
+        <h2>Past lectures</h2>
+        <label class="search">${icon('search')}<input id="home-q" type="search" placeholder="Search lectures" value="${esc(S.ui.homeQ || '')}" aria-label="Search lectures" autocomplete="off"></label>
+      </div>
+      ${courses.length > 1 ? `<div class="course-chips" role="group" aria-label="Filter by course"><button class="cchip" aria-pressed="${!S.ui.homeCourse}" data-course="">All</button>${courses.map(c => `<button class="cchip" aria-pressed="${S.ui.homeCourse === c}" data-course="${esc(c)}" style="--h:${courseHue(c)}">${esc(c)}</button>`).join('')}</div>` : ''}
+      ${locked ? `<div class="notice">Without an account Didasko keeps one lecture on this device. <button class="linklike" data-signin>Sign in</button> to save a library of lectures you can reopen any time.</div>` : ''}
+      <div id="home-list"></div>
+    </section>
+    <p class="home-foot small muted">Students join from your QR code — no account needed. Have a code yourself? <a class="linklike" href="?join=">Join a session</a></p>`;
+  renderHomeList();
+  $('#home-new').onclick = openNewLectureSheet;
+  const r = $('#home-resume'); if (r) r.onclick = () => showView('live');
+  const gl = $('#home-golive'); if (gl) gl.onclick = () => showView('live');
+  $('#home-q').oninput = e => { S.ui.homeQ = e.target.value; renderHomeList(); };
+  $$('.cchip', root).forEach(b => b.onclick = () => { S.ui.homeCourse = b.dataset.course; renderHome(); });
+  $$('.setup-step', root).forEach(b => b.onclick = () => { const s = b.dataset.step; if (s === 'name') openLectureSheet(true); else if (s === 'ai') openSettings(); else openAccountSheet(); });
+  $('#home-list').onclick = async e => {
+    const b = e.target.closest('[data-open]'); if (!b) return;
+    const id = b.closest('.lec-card').dataset.lid, view = b.dataset.open;
+    if (S.lecture?.id !== id) {
+      if (S.rec.running) { pauseCaptions(true); toast('Captions paused for the previous lecture'); }
+      await saveNow();
+      const l = await openLecture(id); if (!l) { toast('Couldn’t open that lecture.'); return; }
+      await switchLecture(l);
+    }
+    showView(view);
+  };
+}
+function openNewLectureSheet() {
+  const L = S.lecture, locked = libraryLocked();
+  const replaces = locked && (speechSegs(L).length || L.notes);
+  const courses = [...new Set(homeLectures().map(m => m.course).filter(Boolean))];
+  const canCaption = SR && !IS_ARTIFACT;
+  openSheet('New lecture', `
+    <label class="field"><span>Title</span><input id="nl-title" placeholder="${esc(newLecture().title)}" autocomplete="off"></label>
+    <div class="grid-2 stack-sm">
+      <label class="field"><span>Course / section</span><input id="nl-course" list="nl-courses" value="${esc(L.course && !L.sample ? L.course : '')}" placeholder="e.g. BIO 110: Introductory Biology" autocomplete="off"><datalist id="nl-courses">${courses.map(c => `<option value="${esc(c)}"></option>`).join('')}</datalist></label>
+      <label class="field"><span>Speaking</span><select id="nl-lang">${SRC_LANGS.map(([c, l]) => `<option value="${c}" ${c === S.settings.srcLang ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+    </div>
+    ${canCaption ? `<label class="switch"><input type="checkbox" id="nl-start" checked> Start captions right away</label>` : `<p class="small muted" style="margin:0">${IS_ARTIFACT ? 'Live captions run in the installed app. You can still type or import a transcript.' : 'This browser can’t caption from the microphone. You can type or import a transcript.'}</p>`}
+    ${replaces ? `<div class="notice warn">Without an account, starting a new lecture replaces the one on this device. <button class="linklike" data-signin>Sign in</button> to keep both.</div>` : ''}
+    <div class="row"><button class="btn primary" id="nl-ok">${icon(canCaption ? 'mic' : 'plus')}${canCaption ? 'Create and start' : 'Create lecture'}</button><button class="btn ghost" data-close>Cancel</button></div>`,
+    sh => {
+      const go = async () => {
+        const start = canCaption && $('#nl-start', sh)?.checked;
+        if (S.rec.running) pauseCaptions(true);
+        await saveNow();
+        const n = newLecture($('#nl-title', sh).value.trim() || undefined);
+        n.course = $('#nl-course', sh).value.trim(); n.lecturer = S.settings.lecturer || L.lecturer || ''; n.institution = S.settings.institution || L.institution || ''; n.author = L.sample ? '' : (L.author || '');
+        const lang = $('#nl-lang', sh).value;
+        if (lang !== S.settings.srcLang) { S.settings.srcLang = lang; saveSettings(); TR.engineCache.clear(); $('#src-lang').value = lang; renderEngineNote(); }
+        if (locked) await deleteLecture(L.id);
+        await switchLecture(n); closeSheet(); showView('live');
+        if (start) toggleCaptions(); else toast('New lecture ready');
+      };
+      const ok = $('#nl-ok', sh);
+      if (replaces) twoStep(ok, 'Tap again — this replaces the current lecture', go); else ok.onclick = go;
+      $('#nl-title', sh).onkeydown = e => { if (e.key === 'Enter' && !replaces) go(); };
+    });
 }
 
 /* ================= Live sessions (presenter side) =================
@@ -2558,20 +3307,27 @@ async function openShareSheet() {
     });
 }
 
-/* ================= Live quiz (presenter side) ================= */
+/* ================= Live quiz (presenter side) =================
+   Flow: lobby → question → reveal → … → reflection (exit ticket) → review → celebration.
+   A live leaderboard sits on the right and shows who has answered each question as it happens. */
 const PALETTE = [['Red', '#e5484d'], ['Orange', '#f76b15'], ['Amber', '#e2a336'], ['Lime', '#7cb342'], ['Green', '#30a46c'], ['Teal', '#12a594'], ['Sky', '#0d9adb'], ['Blue', '#3e63dd'], ['Indigo', '#5b5bd6'], ['Violet', '#8e4ec6'], ['Pink', '#d6409f'], ['Coral', '#ec5e5e'], ['Gold', '#c29b0c'], ['Jade', '#29a383'], ['Plum', '#ab4aba'], ['Navy', '#2f4e9e']];
 const ANIMALS = 'Otter Fox Heron Lynx Panda Koala Falcon Beaver Bison Owl Badger Dolphin Gecko Ibex Jaguar Kiwi Lemur Manatee Narwhal Ocelot Penguin Quokka Raven Seal Tapir Walrus Yak Zebra Moose Puffin Sloth Turtle Wombat Hedgehog Crane Marmot Orca Llama Hare Toucan Axolotl Bobcat Capybara Dingo Egret Ferret Gazelle Hippo Iguana Jackal Kestrel Lobster Meerkat Newt Okapi Pelican Robin Salmon Tiger Viper Wolf'.split(' ');
 const OPT_COLORS = ['#e5484d', '#3e63dd', '#e2a336', '#30a46c'];
+const CONF_LABELS = ['Guessing', 'Fairly sure', 'Certain'];
 const displayName = (p, mode) => (mode === 'ask' && p?.name) ? p.name : (p ? `${p.color} ${p.animal}` : 'Someone');
 const colorHex = c => (PALETTE.find(p => p[0] === c) || [0, '#888'])[1];
-function liveQuizSettings() { return { duration: +$('#quiz-timer').value, nameMode: $('#quiz-names').value, showBoard: $('#quiz-board').checked }; }
+function liveQuizSettings() { return { duration: +$('#quiz-timer').value, nameMode: $('#quiz-names').value, showBoard: $('#quiz-board').checked, conf: $('#quiz-conf').checked, reflectOn: $('#quiz-reflect').checked }; }
 async function openLiveQuiz() {
   const qs = S.lecture.quiz?.questions || [];
   if (!qs.length) { toast('Generate a quiz first.'); return; }
   if (!LIVE.code && !(await startSharing())) return;
   const set = liveQuizSettings();
-  LIVE.q = { ...set, i: -1, state: 'lobby', qs, results: {}, scores: {}, responses: {}, startedAt: 0, off: null, timer: null };
-  await LIVE.ref.update({ quiz: { state: 'lobby', total: qs.length, nameMode: set.nameMode, duration: set.duration, showBoard: set.showBoard }, reveal: null, responses: null, scores: null });
+  const reflection = set.reflectOn ? (S.lecture.quiz.reflection || DEFAULT_REFLECTION) : '';
+  LIVE.q = { ...set, reflection, i: -1, state: 'lobby', qs, results: {}, scores: {}, delta: {}, responses: {}, startedAt: 0, off: null, timer: null };
+  await LIVE.ref.update({ quiz: { state: 'lobby', total: qs.length, nameMode: set.nameMode, duration: set.duration, showBoard: set.showBoard, conf: set.conf }, reveal: null, responses: null, scores: null });
+  // clear last run's confidence and reflections
+  const clr = {}; Object.keys(LIVE.people).forEach(pid => { clr[`participants/${pid}/conf`] = null; clr[`participants/${pid}/reflect`] = null; });
+  if (Object.keys(clr).length) LIVE.ref.update(clr).catch(() => {});
   let ov = $('#liveq');
   if (!ov) { ov = document.createElement('div'); ov.id = 'liveq'; ov.className = 'present liveq'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-label', 'Live quiz'); document.body.appendChild(ov); }
   ov.hidden = false; document.body.style.overflow = 'hidden';
@@ -2580,20 +3336,23 @@ async function openLiveQuiz() {
 }
 function closeLiveQuiz(silent) {
   const q = LIVE.q; if (!q) return;
-  clearInterval(q.timer); q.off && q.off();
+  clearInterval(q.timer); q.off && q.off(); stopCelebration();
   if (LIVE.ref && !silent) LIVE.ref.update({ quiz: { state: 'closed' } }).catch(() => {});
   if (!q.saved && Object.keys(q.results).length) saveQuizRun(q);
   LIVE.q = null;
-  const ov = $('#liveq'); if (ov) ov.hidden = true;
+  const ov = $('#liveq'); if (ov) { ov.hidden = true; ov.innerHTML = ''; ov.classList.remove('celebrating'); }
   document.body.style.overflow = ''; if (document.fullscreenElement) document.exitFullscreen?.();
 }
+function confOf(pid, i) { const c = LIVE.people[pid]?.conf; const v = c ? c[i] ?? c[String(i)] : undefined; return Number.isInteger(v) ? v : undefined; }
 function saveQuizRun(q) {
   const L = S.lecture; L.quiz.runs = L.quiz.runs || [];
-  L.quiz.runs.push({ at: Date.now(), nameMode: q.nameMode, people: Object.fromEntries(Object.entries(LIVE.people).map(([k, p]) => [k, displayName(p, q.nameMode)])), results: q.results, scores: q.scores });
+  const conf = {}, reflections = {};
+  Object.entries(LIVE.people).forEach(([pid, p]) => { if (p.conf) conf[pid] = p.conf; if (p.reflect) reflections[pid] = p.reflect; });
+  L.quiz.runs.push({ at: Date.now(), nameMode: q.nameMode, people: Object.fromEntries(Object.entries(LIVE.people).map(([k, p]) => [k, displayName(p, q.nameMode)])), results: q.results, scores: q.scores, conf, reflections, reflection: q.reflection });
   saveSoon();
 }
 async function askQuestion(i) {
-  const q = LIVE.q; q.i = i; q.state = 'question';
+  const q = LIVE.q; q.i = i; q.state = 'question'; q.delta = {};
   const item = q.qs[i];
   clearInterval(q.timer); q.off && q.off(); q.responses = {};
   await LIVE.ref.child('quiz').update({ state: 'question', index: i, startedAt: TS(), q: { stem: item.stem, options: item.options, type: item.type || 'mc' } });
@@ -2620,38 +3379,104 @@ async function reveal() {
   const q = LIVE.q; if (!q || q.state !== 'question') return;
   q.state = 'reveal'; clearInterval(q.timer); q.off && q.off();
   const item = q.qs[q.i], counts = item.options.map(() => 0), win = (q.duration || 30) * 1000;
+  q.delta = {};
   for (const [pid, r] of Object.entries(q.responses)) {
     if (r.c >= 0 && r.c < counts.length) counts[r.c]++;
     const pts = r.c === item.answer ? Math.round(500 + 500 * Math.max(0, 1 - (r.ms || win) / win)) : 0;
-    q.scores[pid] = (q.scores[pid] || 0) + pts;
+    q.scores[pid] = (q.scores[pid] || 0) + pts; q.delta[pid] = pts;
   }
   q.results[q.i] = q.responses;
-  await LIVE.ref.update({ [`reveal/${q.i}`]: { answer: item.answer, explanation: item.explanation || '', counts }, scores: q.scores, 'quiz/state': 'reveal' });
+  await LIVE.ref.update({ [`reveal/${q.i}`]: { answer: item.answer, explanation: item.explanation || '', reflect: item.reflect || '', feedback: item.feedback || [], counts }, scores: q.scores, 'quiz/state': 'reveal' });
+  renderLiveQuiz();
+}
+async function startReflection() {
+  const q = LIVE.q; q.state = 'reflect';
+  await LIVE.ref.child('quiz').update({ state: 'reflect', prompt: q.reflection });
   renderLiveQuiz();
 }
 async function endQuiz() {
   const q = LIVE.q; q.state = 'ended'; clearInterval(q.timer); q.off && q.off();
   await LIVE.ref.child('quiz/state').set('ended');
-  saveQuizRun(q); q.saved = true;
+  if (!q.saved) { saveQuizRun(q); q.saved = true; }
   renderLiveQuiz();
 }
-function boardRows(q, limit) {
-  return Object.entries(q.scores).sort((a, b) => b[1] - a[1]).slice(0, limit).map(([pid, sc], k) => {
-    const p = LIVE.people[pid];
-    return `<li><span class="rank">${k + 1}</span><span class="dot" style="background:${colorHex(p?.color)}"></span><span class="grow">${esc(displayName(p, q.nameMode))}</span><b class="mono">${sc}</b></li>`;
-  }).join('');
+function podium(q) {
+  const ranked = Object.entries(q.scores).filter(([, s]) => s > 0).sort((a, b) => b[1] - a[1]);
+  const top = ranked.length ? ranked[0][1] : 0;
+  const nm = pid => displayName(LIVE.people[pid], q.nameMode);
+  const winners = ranked.filter(([, s]) => s === top).map(([pid, s]) => ({ pid, name: nm(pid), score: s, color: LIVE.people[pid]?.color || '' }));
+  const runners = ranked.filter(([, s]) => s < top).slice(0, 2).map(([pid, s]) => ({ pid, name: nm(pid), score: s }));
+  return { winners, runners };
+}
+async function celebrate() {
+  const q = LIVE.q; q.state = 'celebrate';
+  const { winners, runners } = podium(q);
+  q.podium = { winners, runners };
+  await LIVE.ref.child('quiz').update({ state: 'celebrate', winners: winners.map(({ pid, name, score }) => ({ pid, name, score })), runners: runners.map(({ name, score }) => ({ name, score })) }).catch(() => {});
+  renderLiveQuiz();
+}
+function answeredCount(q, pid) { let n = 0; for (const r of Object.values(q.results)) if (r && r[pid]) n++; if (q.state === 'question' && q.responses[pid]) n++; return n; }
+function boardEntries(q) {
+  const ids = new Set([...Object.keys(LIVE.people).filter(pid => LIVE.people[pid]?.online !== false), ...Object.keys(q.scores)]);
+  return [...ids].map(pid => ({ pid, p: LIVE.people[pid], score: q.scores[pid] || 0, answered: answeredCount(q, pid), now: !!q.responses[pid], online: LIVE.people[pid]?.online !== false }))
+    .sort((a, b) => b.score - a.score || b.answered - a.answered || displayName(a.p, q.nameMode).localeCompare(displayName(b.p, q.nameMode)));
+}
+function boardHtml(q) {
+  const rows = boardEntries(q), asked = q.state === 'lobby' ? 0 : Math.max(0, q.i + 1);
+  const n = onlineCount(), inQ = q.state === 'question', ans = Object.keys(q.responses).length;
+  const totalPossible = rows.length * asked, given = rows.reduce((s, r) => s + r.answered, 0);
+  const part = totalPossible ? Math.round(given / totalPossible * 100) : 0;
+  const meter = inQ ? (n ? ans / n : 0) : part / 100;
+  const label = q.state === 'lobby' ? `<b>${n}</b> joined` : inQ ? `<b>${ans}</b> of ${n} answered` : `<b>${part}%</b> participation`;
+  let rank = 0, prev = null;
+  return `<div class="lqb-head"><span class="eyebrow">${icon('trophy')}Leaderboard</span><span class="lqb-part">${label}</span></div>
+    <div class="lqb-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(meter * 100)}"><span style="transform:scaleX(${meter.toFixed(3)})"></span></div>
+    <ol class="lqb-list">${rows.length ? rows.map((r, k) => {
+      if (r.score !== prev) { rank = k + 1; prev = r.score; }
+      const d = q.state === 'reveal' ? q.delta[r.pid] : undefined;
+      const status = q.state === 'lobby' ? '' : inQ ? (r.now ? '<span class="ans yes" title="Answered">✓</span>' : '<span class="ans wait" title="Thinking…">…</span>') : `<span class="ans count" title="Questions answered">${r.answered}/${asked}</span>`;
+      return `<li data-pid="${esc(r.pid)}" class="${r.now && inQ ? 'answered' : ''}${!r.online ? ' away' : ''}${rank === 1 && r.score > 0 ? ' lead' : ''}"><span class="rank">${r.score > 0 ? rank : '–'}</span><span class="dot" style="background:${colorHex(r.p?.color)}"></span><span class="nm">${esc(displayName(r.p, q.nameMode))}</span>${d ? `<span class="delta">+${d}</span>` : ''}${status}<b class="pts mono">${r.score.toLocaleString()}</b></li>`;
+    }).join('') : '<li class="empty-li">Waiting for students to join…</li>'}</ol>`;
+}
+function revealInsights(q, item) {
+  const resp = Object.entries(q.responses);
+  if (!resp.length) return '';
+  const wrong = resp.filter(([, r]) => r.c !== item.answer);
+  const counts = item.options.map((_, k) => resp.filter(([, r]) => r.c === k).length);
+  let topWrong = -1; counts.forEach((c, k) => { if (k !== item.answer && c > 0 && (topWrong < 0 || c > counts[topWrong])) topWrong = k; });
+  const conf = resp.map(([pid]) => confOf(pid, q.i)).filter(v => v !== undefined);
+  const sureWrong = wrong.filter(([pid]) => confOf(pid, q.i) === 2).length;
+  const unsureRight = resp.filter(([pid, r]) => r.c === item.answer && confOf(pid, q.i) === 0).length;
+  const parts = [];
+  if (topWrong >= 0) parts.push(`<div class="ins"><span class="eyebrow">Most common wrong answer · ${optLetter(item, topWrong)} (${counts[topWrong]})</span><p>${esc(item.feedback?.[topWrong] || item.options[topWrong])}</p></div>`);
+  if (q.conf && conf.length) parts.push(`<div class="ins"><span class="eyebrow">Confidence</span><p>${CONF_LABELS.map((l, k) => `${conf.filter(v => v === k).length} ${l.toLowerCase()}`).join(' · ')}${sureWrong ? `<br><b class="warn-t">${sureWrong} certain but incorrect</b> — a misconception worth reteaching.` : ''}${unsureRight ? `<br>${unsureRight} right but guessing — worth a quick recap.` : ''}</p></div>`);
+  if (item.reflect) parts.push(`<div class="ins"><span class="eyebrow">Turn and talk</span><p>${esc(item.reflect)}</p></div>`);
+  return parts.length ? `<div class="insights">${parts.join('')}</div>` : '';
+}
+function flipCapture(ov) { const m = new Map(); ov.querySelectorAll('.lqb-list li[data-pid]').forEach(li => m.set(li.dataset.pid, li.getBoundingClientRect().top)); return m; }
+function flipPlay(ov, before) {
+  if (!before.size || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  ov.querySelectorAll('.lqb-list li[data-pid]').forEach(li => {
+    const t = before.get(li.dataset.pid); if (t === undefined) { li.classList.add('enter'); return; }
+    const dy = t - li.getBoundingClientRect().top; if (Math.abs(dy) < 1) return;
+    li.style.transform = `translateY(${dy}px)`; li.style.transition = 'none';
+    requestAnimationFrame(() => { li.style.transition = 'transform .5s cubic-bezier(.2,.8,.2,1)'; li.style.transform = ''; });
+  });
 }
 async function renderLiveQuiz() {
   const q = LIVE.q, ov = $('#liveq'); if (!q || !ov) return;
+  if (q.state === 'celebrate') { if (!ov.classList.contains('celebrating')) renderCelebrateScreen(ov, q); return; }
+  ov.classList.remove('celebrating'); stopCelebration();
   const n = onlineCount(), url = joinUrl(LIVE.code, true);
   const people = Object.entries(LIVE.people).filter(([, p]) => p.online !== false);
-  const top = `<div class="present-top"><span class="count">${q.state === 'lobby' ? 'Live quiz · lobby' : q.state === 'ended' ? 'Results' : `Question ${q.i + 1} of ${q.qs.length}`} · ${n} connected</span><button class="btn sm" id="lq-close">${icon('close')}Close</button></div>`;
+  const stateLabel = { lobby: 'Live quiz · lobby', reflect: 'Exit ticket', ended: 'Review' }[q.state] || `Question ${q.i + 1} of ${q.qs.length}`;
+  const top = `<div class="present-top"><span class="count">${stateLabel} · ${n} connected · code <b class="mono">${LIVE.code}</b></span><button class="btn sm" id="lq-close">${icon('close')}Close</button></div>`;
   let body = '', nav = '';
   if (q.state === 'lobby') {
     body = `<div class="lobby"><div class="qr-wrap big">${await qrSvg(url)}</div>
       <div class="lobby-info"><span class="eyebrow">Join at</span><div class="share-url mono">${esc(shortUrl(url))}</div><span class="eyebrow">Code</span><div class="qr-code mono">${LIVE.code}</div>
-      <p class="present-explain">${q.nameMode === 'ask' ? 'Students type their name when they join.' : 'Each student is given a color-and-animal name.'} ${q.duration ? `${q.duration} seconds per question.` : 'No time limit.'} ${q.qs.length} questions.</p></div></div>
-      <ul class="names">${people.map(([, p]) => `<li style="--c:${colorHex(p.color)}">${esc(displayName(p, q.nameMode))}</li>`).join('') || '<li class="muted-li">Waiting for students…</li>'}</ul>`;
+      <p class="present-explain">${q.nameMode === 'ask' ? 'Students type their name when they join.' : 'Each student is given a color-and-animal name.'} ${q.duration ? `${q.duration} seconds per question.` : 'No time limit.'} ${q.qs.length} questions${q.reflection ? ', then a short reflection' : ''}.</p></div></div>
+      ${q.showBoard ? '' : `<ul class="names">${people.map(([, p]) => `<li style="--c:${colorHex(p.color)}">${esc(displayName(p, q.nameMode))}</li>`).join('') || '<li class="muted-li">Waiting for students…</li>'}</ul>`}`;
     nav = `<button class="btn primary" id="lq-start" ${n ? '' : 'disabled'}>Start quiz</button>`;
   } else if (q.state === 'question' || q.state === 'reveal') {
     const item = q.qs[q.i], resp = Object.values(q.responses), total = Math.max(1, resp.length);
@@ -2660,41 +3485,227 @@ async function renderLiveQuiz() {
     body = `${q.duration && !rv ? `<div class="lq-timer"><span id="lq-time" class="mono">${q.duration}</span><div class="lq-track"><div id="lq-bar"></div></div></div>` : ''}
       <h2 class="present-stem">${esc(item.stem)}</h2>
       <div class="present-opts ${item.type === 'tf' ? 'tf' : ''}">${item.options.map((o, k) => `<div class="p-opt ${rv ? (k === item.answer ? 'correct' : 'dim') : ''}" style="--oc:${OPT_COLORS[k]}"><span class="L">${optLetter(item, k)}</span><span class="grow">${esc(o)}</span>${rv ? `<span class="bar-count mono">${counts[k]}</span><span class="bar" style="width:${Math.round(counts[k] / total * 100)}%"></span>` : ''}</div>`).join('')}</div>
-      ${rv ? `${item.explanation ? `<p class="present-explain">${esc(item.explanation)}</p>` : ''}<p class="present-explain"><b>${resp.length ? Math.round(counts[item.answer] / resp.length * 100) : 0}% correct</b> · ${resp.length} answered</p>${q.showBoard && Object.keys(q.scores).length ? `<ol class="board">${boardRows(q, 5)}</ol>` : ''}`
-        : `<p class="present-explain"><b>${resp.length}</b> of ${n} answered</p>`}`;
-    nav = rv ? (q.i < q.qs.length - 1 ? `<button class="btn primary" id="lq-next">Next question</button>` : `<button class="btn primary" id="lq-end">See results</button>`) : `<button class="btn" id="lq-reveal">Reveal answer now</button>`;
+      ${rv ? `<p class="present-explain"><b>${resp.length ? Math.round(counts[item.answer] / resp.length * 100) : 0}% correct</b> · ${resp.length} answered${item.explanation ? ` · ${esc(item.explanation)}` : ''}</p>${revealInsights(q, item)}`
+        : `<p class="present-explain"><b>${resp.length}</b> of ${n} answered${q.conf ? ' · students also rate how sure they are' : ''}</p>`}`;
+    const last = q.i >= q.qs.length - 1;
+    nav = rv ? (!last ? `<button class="btn primary" id="lq-next">Next question</button>` : q.reflection ? `<button class="btn primary" id="lq-reflect">Exit ticket</button>` : `<button class="btn primary" id="lq-end">Review results</button>`) : `<button class="btn" id="lq-reveal">Reveal answer now</button>`;
+  } else if (q.state === 'reflect') {
+    const refl = Object.values(LIVE.people).map(p => p.reflect).filter(r => r && String(r).trim());
+    body = `<span class="eyebrow">Reflect on your learning</span><h2 class="present-stem">${esc(q.reflection)}</h2>
+      <p class="present-explain"><b>${refl.length}</b> of ${n} reflections in · shown without names</p>
+      <ul class="reflections">${refl.slice(-24).reverse().map(r => `<li>${esc(String(r).slice(0, 280))}</li>`).join('') || '<li class="muted-li">Students are writing…</li>'}</ul>`;
+    nav = `<button class="btn primary" id="lq-end">Review results</button>`;
   } else if (q.state === 'ended') {
-    const rows = q.qs.map((item, i) => { const r = Object.values(q.results[i] || {}); const pct = r.length ? Math.round(r.filter(x => x.c === item.answer).length / r.length * 100) : 0; return `<li><span class="mono">${pad(i + 1)}</span><span class="grow">${esc(item.stem.slice(0, 90))}${item.stem.length > 90 ? '…' : ''}</span><span class="pct-track"><span style="width:${pct}%"></span></span><b class="mono">${pct}%</b></li>`; }).join('');
-    const all = Object.values(q.results).flatMap((res, i) => Object.values(res).map(r => r.c === q.qs[+Object.keys(q.results)[i]]?.answer));
+    const rows = q.qs.map((item, i) => {
+      const res = Object.entries(q.results[i] || {}); const pct = res.length ? Math.round(res.filter(([, x]) => x.c === item.answer).length / res.length * 100) : 0;
+      const sure = res.filter(([pid, x]) => x.c !== item.answer && confOf(pid, i) === 2).length;
+      return `<li><span class="mono">${pad(i + 1)}</span><span class="grow">${esc(item.stem.slice(0, 90))}${item.stem.length > 90 ? '…' : ''}${sure ? ` <span class="flag" title="Students who were certain but wrong">⚠ ${sure} certain but wrong</span>` : ''}</span><span class="pct-track"><span style="width:${pct}%;${pct < 60 ? 'background:#f0b84a' : ''}"></span></span><b class="mono">${pct}%</b></li>`;
+    }).join('');
+    const all = Object.entries(q.results).flatMap(([i, res]) => Object.values(res || {}).map(r => r.c === q.qs[+i]?.answer));
     const avg = all.length ? Math.round(all.filter(Boolean).length / all.length * 100) : 0;
-    body = `<h2 class="present-stem">Class average: ${avg}% correct</h2><ul class="qstats">${rows}</ul>${q.showBoard ? `<ol class="board">${boardRows(q, 10)}</ol>` : ''}<p class="present-explain">Results are saved with this lecture. Download them for your gradebook or to plan reteaching.</p>`;
-    nav = `<button class="btn primary" id="lq-csv">${icon('down')}Download results (.csv)</button><button class="btn" id="lq-again">Run again</button>`;
+    const reteach = q.qs.map((item, i) => { const r = Object.values(q.results[i] || {}); return { i, pct: r.length ? r.filter(x => x.c === item.answer).length / r.length : 1 }; }).filter(x => x.pct < .6).map(x => x.i + 1);
+    body = `<h2 class="present-stem">Class average: ${avg}% correct</h2>
+      ${reteach.length ? `<p class="present-explain">Consider revisiting question${reteach.length > 1 ? 's' : ''} ${reteach.join(', ')} — fewer than 60% of the class chose the best answer.</p>` : `<p class="present-explain">Every question was answered correctly by most of the class.</p>`}
+      <ul class="qstats">${rows}</ul><p class="present-explain small">Results, confidence ratings and reflections are saved with this lecture. Download them for your gradebook or to plan reteaching.</p>`;
+    nav = `<button class="btn primary" id="lq-celebrate">${icon('trophy')}Celebrate the winner</button><button class="btn" id="lq-csv">${icon('down')}Download results (.csv)</button><button class="btn" id="lq-again">Run again</button>`;
   }
-  ov.innerHTML = `${top}<div class="present-body">${body}</div><div class="present-nav">${nav}</div>`;
+  const before = flipCapture(ov);
+  ov.innerHTML = `${top}<div class="lq-layout ${q.showBoard ? 'with-board' : ''}"><div class="present-body ${q.state === 'reveal' ? 'rv' : ''}">${body}</div>${q.showBoard ? `<aside class="lq-board" aria-label="Live leaderboard">${boardHtml(q)}</aside>` : ''}</div><div class="present-nav">${nav}</div>`;
+  flipPlay(ov, before);
   $('#lq-close', ov).onclick = () => closeLiveQuiz();
   const b = id => $(id, ov);
   if (b('#lq-start')) b('#lq-start').onclick = () => askQuestion(0);
   if (b('#lq-reveal')) b('#lq-reveal').onclick = reveal;
   if (b('#lq-next')) b('#lq-next').onclick = () => askQuestion(q.i + 1);
+  if (b('#lq-reflect')) b('#lq-reflect').onclick = startReflection;
   if (b('#lq-end')) b('#lq-end').onclick = endQuiz;
+  if (b('#lq-celebrate')) b('#lq-celebrate').onclick = celebrate;
   if (b('#lq-csv')) b('#lq-csv').onclick = () => saveFile(slug(S.lecture.title) + '-quiz-results.csv', quizResultsCsv(q), 'text/csv');
   if (b('#lq-again')) b('#lq-again').onclick = () => { closeLiveQuiz(true); openLiveQuiz(); };
   updateCountdown();
 }
+async function renderCelebrateScreen(ov, q) {
+  ov.classList.add('celebrating');
+  const { winners, runners } = q.podium || podium(q);
+  const w = winners[0];
+  const correct = w ? q.qs.filter((item, i) => q.results[i]?.[w.pid]?.c === item.answer).length : 0;
+  const sub = w ? `${w.score.toLocaleString()} points · ${correct} of ${q.qs.length} correct` : 'Thanks for taking part in today’s quiz.';
+  ov.innerHTML = `<div class="cele-host" id="cele-host"></div><div class="cele-actions"><button class="btn sm" id="lq-back">Back to review</button><button class="btn sm" id="lq-close">${icon('close')}Close</button></div>`;
+  $('#lq-back', ov).onclick = async () => { q.state = 'ended'; stopCelebration(); await LIVE.ref.child('quiz/state').set('ended').catch(() => {}); renderLiveQuiz(); };
+  $('#lq-close', ov).onclick = () => closeLiveQuiz();
+  await mountCelebration($('#cele-host', ov), { winners, runners, plaque: S.lecture.course || 'Live quiz champion', subtitle: sub });
+}
 function quizResultsCsv(q) {
-  const head = ['Participant', 'Score', 'Correct', ...q.qs.map((_, i) => `Q${i + 1}`)];
-  const ids = new Set(Object.values(q.results).flatMap(r => Object.keys(r)));
+  const head = ['Participant', 'Score', 'Correct', ...q.qs.flatMap((_, i) => [`Q${i + 1}`, `Q${i + 1} confidence`]), 'Reflection'];
+  const ids = new Set([...Object.values(q.results).flatMap(r => Object.keys(r || {})), ...Object.keys(LIVE.people).filter(pid => LIVE.people[pid]?.reflect)]);
   const rows = [...ids].map(pid => {
     const p = LIVE.people[pid]; let correct = 0;
-    const cells = q.qs.map((item, i) => { const r = q.results[i]?.[pid]; if (!r) return ''; if (r.c === item.answer) correct++; return `${optLetter(item, r.c)}${r.c === item.answer ? ' ✓' : ''}`; });
-    return [displayName(p, q.nameMode), q.scores[pid] || 0, `${correct}/${q.qs.length}`, ...cells];
+    const cells = q.qs.flatMap((item, i) => { const r = q.results[i]?.[pid]; if (!r) return ['', '']; if (r.c === item.answer) correct++; const c = confOf(pid, i); return [`${optLetter(item, r.c)}${r.c === item.answer ? ' ✓' : ''}`, c === undefined ? '' : CONF_LABELS[c]]; });
+    return [displayName(p, q.nameMode), q.scores[pid] || 0, `${correct}/${q.qs.length}`, ...cells, p?.reflect || ''];
   }).sort((a, b) => b[1] - a[1]);
-  const key = ['Answer key', '', '', ...q.qs.map(item => optLetter(item, item.answer))];
+  const key = ['Answer key', '', '', ...q.qs.flatMap(item => [optLetter(item, item.answer), ''])];
   return '﻿' + [head, key, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
 }
 
+/* ================= Celebration screen: gold trophy, flames, smoke and graffiti =================
+   Used on the presenter's screen at the end of a live quiz review and, in a lighter version, on students' devices. */
+let graffitiFontsP = null;
+function loadGraffitiFonts() {
+  if (!graffitiFontsP) {
+    const l = document.createElement('link'); l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=Rubik+Wet+Paint&family=Permanent+Marker&display=swap';
+    document.head.appendChild(l);
+    graffitiFontsP = Promise.race([
+      Promise.all([document.fonts?.load('64px "Rubik Wet Paint"', 'CHAMPION'), document.fonts?.load('32px "Permanent Marker"', 'Legend')]).catch(() => {}),
+      new Promise(r => setTimeout(r, 1500))
+    ]);
+  }
+  return graffitiFontsP;
+}
+function nameLines(name) {
+  const n = String(name || '').trim() || 'Champion';
+  if (n.length <= 13 || !n.includes(' ')) return [n];
+  const mid = n.length / 2; let best = -1;
+  for (let i = 0; i < n.length; i++) if (n[i] === ' ' && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  return best < 0 ? [n] : [n.slice(0, best), n.slice(best + 1)];
+}
+function trophySvg(name, plaque) {
+  const lines = nameLines(name);
+  const longest = Math.max(...lines.map(l => l.length));
+  const fs = Math.max(13, Math.min(34, 150 / (0.6 * longest)));
+  const y0 = lines.length === 1 ? 132 : 118;
+  const text = (attrs) => lines.map((l, i) => `<text x="150" y="${y0 + i * fs * 1.08}" ${attrs} font-size="${fs.toFixed(1)}" text-anchor="middle" font-family="'Permanent Marker','Atkinson Hyperlegible',system-ui,sans-serif"${l.length > 14 ? ` textLength="${Math.min(170, l.length * fs * .58).toFixed(0)}" lengthAdjust="spacingAndGlyphs"` : ''}>${esc(l)}</text>`).join('');
+  const pl = String(plaque || 'Live quiz champion').slice(0, 34);
+  return `<svg class="trophy" viewBox="0 0 300 360" role="img" aria-label="Gold trophy engraved with ${esc(name)}">
+  <defs>
+    <linearGradient id="tg-gold" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#8a5a00"/><stop offset=".18" stop-color="#ffd85a"/><stop offset=".34" stop-color="#fff6c8"/><stop offset=".5" stop-color="#f5bf2a"/><stop offset=".78" stop-color="#b57a06"/><stop offset="1" stop-color="#ffd860"/></linearGradient>
+    <linearGradient id="tg-gold-v" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff2b0"/><stop offset=".5" stop-color="#e6a91a"/><stop offset="1" stop-color="#8a5a00"/></linearGradient>
+    <linearGradient id="tg-base" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3b2a20"/><stop offset="1" stop-color="#1c130e"/></linearGradient>
+    <radialGradient id="tg-glow" cx=".5" cy=".42" r=".55"><stop offset="0" stop-color="#ffd85a" stop-opacity=".55"/><stop offset="1" stop-color="#ffd85a" stop-opacity="0"/></radialGradient>
+  </defs>
+  <circle cx="150" cy="150" r="150" fill="url(#tg-glow)"/>
+  <path d="M66 72 C14 66 14 150 84 160" fill="none" stroke="url(#tg-gold-v)" stroke-width="15" stroke-linecap="round"/>
+  <path d="M234 72 C286 66 286 150 216 160" fill="none" stroke="url(#tg-gold-v)" stroke-width="15" stroke-linecap="round"/>
+  <path d="M58 48 C58 150 96 202 150 207 C204 202 242 150 242 48 Z" fill="url(#tg-gold)"/>
+  <ellipse cx="150" cy="48" rx="92" ry="14" fill="#ffe58a"/><ellipse cx="150" cy="50" rx="80" ry="9" fill="#9a6400" opacity=".55"/>
+  <path d="M82 66 C80 120 98 166 128 188" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" opacity=".38"/>
+  <path d="M150 72 l7 14 15 2 -11 10 3 15 -14 -7 -14 7 3 -15 -11 -10 15 -2z" fill="#9a6400" opacity=".85"/>
+  <g>${text('fill="#fff3b0" opacity=".9" dx="1" dy="1.4"')}${text('fill="#6b4300"')}</g>
+  <path d="M136 207 L164 207 L172 250 L128 250 Z" fill="url(#tg-gold)"/>
+  <ellipse cx="150" cy="252" rx="32" ry="9" fill="url(#tg-gold-v)"/>
+  <path d="M96 262 L204 262 L214 300 L86 300 Z" fill="url(#tg-gold)"/>
+  <rect x="70" y="298" width="160" height="34" rx="6" fill="url(#tg-base)"/>
+  <rect x="88" y="305" width="124" height="20" rx="3" fill="url(#tg-gold)"/>
+  <text x="150" y="319.5" font-size="${pl.length > 22 ? 8.5 : 10}" text-anchor="middle" fill="#5a3700" font-family="'Atkinson Hyperlegible',system-ui,sans-serif" font-weight="700" letter-spacing=".6">${esc(pl.toUpperCase())}</text>
+</svg>`;
+}
+const CROWN = `<svg class="cele-crown" viewBox="0 0 120 70" aria-hidden="true"><path d="M8 60 L14 18 L38 42 L60 8 L82 42 L106 18 L112 60 Z" fill="none" stroke="#f2cb52" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/><circle cx="14" cy="16" r="5" fill="#ff3ea5"/><circle cx="60" cy="7" r="6" fill="#2de2e6"/><circle cx="106" cy="16" r="5" fill="#b6ff3b"/></svg>`;
+const TAGS = [
+  { t: 'CHAMPION', c: '#ff3ea5', s: '#2de2e6', x: 50, y: 7, r: -4, z: 1.55, big: true },
+  { t: 'LEGEND', c: '#b6ff3b', s: '#5b2cff', x: 13, y: 22, r: -13, z: 1 },
+  { t: '#1', c: '#ff8a00', s: '#ffef3b', x: 87, y: 20, r: 11, z: 1.6 },
+  { t: 'ON FIRE', c: '#2de2e6', s: '#ff3ea5', x: 14, y: 60, r: 7, z: .9 },
+  { t: 'BIG BRAIN', c: '#ffef3b', s: '#ff3ea5', x: 86, y: 58, r: -8, z: .85 },
+  { t: 'GG', c: '#ff6b6b', s: '#2de2e6', x: 30, y: 40, r: -18, z: .8, wide: true },
+  { t: 'WOW', c: '#c38bff', s: '#b6ff3b', x: 72, y: 42, r: 14, z: .75, wide: true }
+];
+function celebrationHtml({ winners = [], runners = [], plaque = '', subtitle = '', compact = false, mine = false }) {
+  const names = winners.map(w => w.name);
+  const champ = names.length > 1 ? names.join(' & ') : (names[0] || 'Our class');
+  const head = names.length ? (mine ? 'You won!' : names.length > 1 ? 'Co-champions!' : 'Congratulations!') : 'Great effort, everyone!';
+  const tags = (compact ? TAGS.filter(t => !t.wide).slice(0, 4) : TAGS).map((g, i) => `<span class="tag${g.big ? ' big' : ''}" style="--x:${compact ? Math.round(50 + (g.x - 50) * .62) : g.x}%;--y:${g.y}%;--r:${g.r}deg;--z:${g.z};--c:${g.c};--s:${g.s};--d:${(0.35 + i * 0.22).toFixed(2)}s">${esc(g.t)}</span>`).join('');
+  const splats = Array.from({ length: compact ? 10 : 22 }, (_, i) => { const c = ['#ff3ea5', '#2de2e6', '#b6ff3b', '#ff8a00', '#ffef3b', '#c38bff'][i % 6]; return `<i style="--x:${(Math.random() * 96 + 2).toFixed(1)}%;--y:${(Math.random() * 70 + 2).toFixed(1)}%;--c:${c};--sz:${(Math.random() * 46 + 14).toFixed(0)}px;--d:${(0.2 + Math.random() * 1.6).toFixed(2)}s"></i>`; }).join('');
+  return `<div class="cele${compact ? ' compact' : ''}" role="region" aria-label="Celebration">
+    <div class="cele-wall"></div>
+    <div class="cele-splats" aria-hidden="true">${splats}</div>
+    <div class="cele-tags" aria-hidden="true">${tags}</div>
+    <canvas class="cele-fire" aria-hidden="true"></canvas>
+    <div class="cele-center">
+      ${CROWN}
+      <div class="cele-trophy">${trophySvg(champ, plaque)}</div>
+      <h1 class="cele-head" aria-live="polite">${esc(head)}${names.length && !mine ? `<span>${esc(champ)}</span>` : ''}</h1>
+      ${subtitle ? `<p class="cele-sub">${esc(subtitle)}</p>` : ''}
+      ${runners.length ? `<ol class="cele-podium">${runners.map((r, i) => `<li><span class="medal m${i + 2}">${i + 2}</span><span class="grow">${esc(r.name)}</span><b class="mono">${(r.score || 0).toLocaleString()}</b></li>`).join('')}</ol>` : ''}
+    </div>
+  </div>`;
+}
+/* Particle fire + smoke on a canvas: flame "tongues" lick up from emitters along the bottom edge (taller at the sides, so the
+   trophy is framed by fire), smoke curls off the tips, and embers float up. Returns a stop() function. */
+function startFire(canvas, { intensity = 1 } = {}) {
+  const ctx = canvas.getContext('2d'); if (!ctx) return () => {};
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W = 0, H = 0, dpr = 1, raf = 0, last = performance.now(), alive = true, clock = 0;
+  const sprite = (r, g, b, a = 1, soft = .45) => {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d');
+    const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, `rgba(${r},${g},${b},${a})`); gr.addColorStop(soft, `rgba(${r},${g},${b},${a * .5})`); gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return c;
+  };
+  const FL = [sprite(255, 212, 110), sprite(255, 160, 36), sprite(244, 96, 18), sprite(150, 34, 8)];
+  const SM = sprite(120, 112, 106, .9, .6), EM = sprite(255, 214, 120);
+  const flames = [], smoke = [], embers = [];
+  let emitters = [];
+  const resize = () => {
+    dpr = Math.min(2, window.devicePixelRatio || 1); W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = Math.max(1, W * dpr); canvas.height = Math.max(1, H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const n = Math.max(6, Math.ceil(W / 64));
+    emitters = Array.from({ length: n }, (_, i) => { const x = (i + .5) * W / n, e = Math.min(x, W - x) / W; return { x, ph: Math.random() * 6.3, sp: .8 + Math.random() * 1.4, boost: e < .18 ? 1.9 : e < .3 ? 1.35 : 1 }; });
+  };
+  resize(); const ro = 'ResizeObserver' in window ? new ResizeObserver(resize) : null; ro?.observe(canvas);
+  const base = () => Math.max(70, H * .2);
+  const spawn = dt => {
+    for (const em of emitters) {
+      const h = base() * em.boost * (0.7 + 0.45 * Math.sin(clock * em.sp * 2.2 + em.ph) + 0.2 * Math.sin(clock * 5.3 + em.ph * 2));
+      const k = 70 * intensity * dt; let m = Math.floor(k) + (Math.random() < k % 1 ? 1 : 0);
+      while (m--) {
+        const life = .55 + Math.random() * .5;
+        flames.push({ x: em.x + (Math.random() + Math.random() - 1) * 26, y: H + 6, tx: em.x, vy: -Math.max(40, h) / life, life: 0, max: life, size: (30 + Math.random() * 26) * Math.min(1.25, em.boost), w: Math.random() * 6.3 });
+      }
+      if (Math.random() < 1.4 * intensity * dt * em.boost) smoke.push({ x: em.x + (Math.random() - .5) * 40, y: H - h * (0.85 + Math.random() * .3), vx: (Math.random() - .5) * 16, vy: -(22 + Math.random() * 26), life: 0, max: 4 + Math.random() * 3, size: 70 + Math.random() * 70, ph: Math.random() * 6 });
+      if (Math.random() < 2.2 * intensity * dt * em.boost) embers.push({ x: em.x + (Math.random() - .5) * 30, y: H - h * Math.random() * .7, vx: (Math.random() - .5) * 40, vy: -(90 + Math.random() * 170), life: 0, max: 1.4 + Math.random() * 2, ph: Math.random() * 6 });
+    }
+  };
+  const step = dt => {
+    clock += dt; spawn(dt);
+    for (const a of [flames, smoke, embers]) for (let i = a.length - 1; i >= 0; i--) { const p = a[i]; p.life += dt; if (p.life >= p.max) a.splice(i, 1); }
+    for (const p of flames) { const t = p.life / p.max; p.x += ((p.tx - p.x) * 2.2 + Math.sin(clock * 7 + p.w) * 22 * t) * dt; p.y += p.vy * dt; }
+    for (const p of smoke) { p.x += (p.vx + Math.sin(p.life * 1.2 + p.ph) * 12) * dt; p.y += p.vy * dt; p.size += 26 * dt; }
+    for (const p of embers) { p.x += (p.vx + Math.sin(p.life * 6 + p.ph) * 34) * dt; p.y += p.vy * dt; p.vy *= .995; }
+  };
+  const draw = () => {
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+    for (const p of smoke) { const t = p.life / p.max; ctx.globalAlpha = Math.sin(Math.PI * t) * .3; ctx.drawImage(SM, p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); }
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createLinearGradient(0, H, 0, H - base() * 1.6); g.addColorStop(0, 'rgba(255,120,20,.35)'); g.addColorStop(1, 'rgba(255,120,20,0)');
+    ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(0, H - base() * 1.6, W, base() * 1.6);
+    for (const p of flames) {
+      const t = p.life / p.max, spr = FL[Math.min(3, Math.floor(t * 4.2))];
+      const s = p.size * (1 - t * .78);
+      ctx.globalAlpha = Math.pow(1 - t, .7) * .42;
+      ctx.drawImage(spr, p.x - s / 2, p.y - s * .8, s, s * 1.6);
+    }
+    for (const p of embers) { const t = p.life / p.max; ctx.globalAlpha = 1 - t; ctx.drawImage(EM, p.x - 3, p.y - 3, 6, 6); }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  };
+  if (reduced) { for (let i = 0; i < 180; i++) step(1 / 60); draw(); return () => { ro?.disconnect(); }; }
+  const loop = now => { if (!alive) return; const dt = Math.min(.05, (now - last) / 1000); last = now; step(dt); draw(); raf = requestAnimationFrame(loop); };
+  raf = requestAnimationFrame(loop);
+  return () => { alive = false; cancelAnimationFrame(raf); ro?.disconnect(); };
+}
+let celeStop = null;
+async function mountCelebration(host, opts) {
+  stopCelebration();
+  await loadGraffitiFonts();
+  host.innerHTML = celebrationHtml(opts);
+  const cv = $('.cele-fire', host);
+  celeStop = startFire(cv, { intensity: opts.compact ? .6 : 1 });
+  requestAnimationFrame(() => host.querySelector('.cele')?.classList.add('go'));
+}
+function stopCelebration() { if (celeStop) { celeStop(); celeStop = null; } }
+
 /* ================= Participant view (?join=CODE) — no account needed ================= */
-const P = { code: '', ref: null, me: null, uid: null, session: {}, caps: new Map(), interim: '', quiz: null, reveals: {}, myAnswers: {}, scores: {}, tab: 'captions', lang: 'off', size: 2, follow: true, localTr: new Map(), timer: null, raf: 0, ended: false };
+const P = { code: '', ref: null, me: null, uid: null, session: {}, caps: new Map(), interim: '', quiz: null, reveals: {}, myAnswers: {}, myConf: {}, scores: {}, reflected: false, tab: 'captions', lang: 'off', size: 2, follow: true, localTr: new Map(), timer: null, raf: 0, ended: false };
 const PSIZES = [1.05, 1.25, 1.5, 1.8, 2.2, 2.7];
 const pSave = (k, v) => { try { localStorage.setItem('didasko-p-' + k, typeof v === 'string' ? v : JSON.stringify(v)); } catch { /* private mode */ } };
 const pLoad = (k, d) => { try { const v = localStorage.getItem('didasko-p-' + k); return v === null ? d : (/^[[{"\d]/.test(v) ? JSON.parse(v) : v); } catch { return d; } };
@@ -2757,7 +3768,7 @@ async function joinSession() {
   P.ref.child('interim').on('value', s => { P.interim = s.val()?.text || ''; schedulePCaps(); });
   P.ref.child('quiz').on('value', s => onPQuiz(s.val()));
   P.ref.child('reveal').on('value', s => { P.reveals = s.val() || {}; renderPQuiz(); });
-  P.ref.child('scores/' + P.uid).on('value', s => { P.myScore = s.val() || 0; renderPQuiz(); });
+  P.ref.child('scores').on('value', s => { P.scores = s.val() || {}; P.myScore = P.scores[P.uid] || 0; if (P.quiz?.state === 'ended' || P.quiz?.state === 'reveal') renderPQuiz(); });
 }
 function renderPShell() {
   $('#participant').innerHTML = `
@@ -2835,6 +3846,9 @@ function renderPCaps() {
 function onPQuiz(q) {
   const prev = P.quiz;
   P.quiz = q;
+  if (q?.state === 'lobby' && prev?.state !== 'lobby') { P.myAnswers = {}; P.myConf = {}; P.reflected = false; }
+  if (q?.state !== 'celebrate') closePCelebration();
+  if (q?.state === 'reflect' && prev?.state !== 'reflect' && P.tab !== 'quiz') setPTab('quiz');
   if (q && (q.state === 'lobby' || q.state === 'question') && (!prev || prev.state !== q.state || prev.index !== q.index)) {
     if (P.tab !== 'quiz') { setPTab('quiz'); }
     if (q.state === 'question' && navigator.vibrate) navigator.vibrate(60);
@@ -2847,6 +3861,26 @@ async function pAnswer(k) {
   P.myAnswers[q.index] = k; renderPQuiz();
   try { await P.ref.child(`responses/${q.index}/${P.uid}`).set({ c: k, ms: Math.max(0, serverNow() - (q.startedAt || serverNow())) }); }
   catch { delete P.myAnswers[q.index]; toast('That answer didn’t go through — time may be up.'); renderPQuiz(); }
+}
+function pConfidence(k) {
+  const q = P.quiz; if (!q || P.myAnswers[q.index] === undefined) return;
+  P.myConf[q.index] = k; renderPQuiz();
+  P.ref.child(`participants/${P.uid}/conf/${q.index}`).set(k).catch(() => {});
+}
+function pRank() {
+  const sc = P.scores || {}, mine = sc[P.uid] || 0;
+  return { rank: 1 + Object.values(sc).filter(v => v > mine).length, of: Math.max(Object.keys(sc).length, 1) };
+}
+function closePCelebration() { const o = $('#p-cele'); if (o) { stopCelebration(); o.remove(); } }
+async function showPCelebration(q) {
+  if ($('#p-cele')) return;
+  const o = document.createElement('div'); o.id = 'p-cele'; o.className = 'p-cele';
+  o.innerHTML = '<div class="cele-host"></div><div class="cele-actions"><button class="btn sm" id="p-cele-close">Close</button></div>';
+  document.body.appendChild(o);
+  $('#p-cele-close').onclick = () => { P.celeDismissed = true; closePCelebration(); };
+  const winners = q.winners || [], mine = winners.some(w => w.pid === P.uid);
+  if (navigator.vibrate) navigator.vibrate(mine ? [80, 60, 80, 60, 200] : 60);
+  await mountCelebration($('.cele-host', o), { winners, runners: q.runners || [], compact: true, mine, plaque: P.session.title?.slice(0, 30) || 'Live quiz champion', subtitle: mine ? `${(winners.find(w => w.pid === P.uid)?.score || 0).toLocaleString()} points — top of the class!` : winners.length ? `${(winners[0].score || 0).toLocaleString()} points` : '' });
 }
 async function pTranslateQuiz(q) {
   if (P.lang === 'off' || !('Translator' in self) || !q?.q) return;
@@ -2871,10 +3905,20 @@ function renderPQuiz() {
     return;
   }
   if (q.state === 'lobby') { box.innerHTML = `<div class="p-empty">${meChip}<h2>You’re in!</h2><p>The quiz will start soon. ${q.total} questions${q.duration ? `, ${q.duration} seconds each` : ''}.</p></div>`; return; }
-  if (q.state === 'ended') {
+  if (q.state === 'reflect') {
+    if (P.reflected) { box.innerHTML = `<div class="p-empty">${meChip}<h2>Thanks for reflecting</h2><p>Your teacher will share the results in a moment.</p></div>`; return; }
+    if ($('#p-reflect-form', box)) return; // keep what the student is typing
+    box.innerHTML = `<form class="p-name p-reflect" id="p-reflect-form"><span class="eyebrow">Exit ticket</span><h2>${esc(q.prompt || DEFAULT_REFLECTION)}</h2><p>Your teacher sees reflections without names on the board.</p><textarea id="p-reflect-in" maxlength="280" rows="4" placeholder="Type your reflection…" aria-label="Your reflection"></textarea><button class="btn primary" type="submit">Send reflection</button></form>`;
+    $('#p-reflect-form').onsubmit = e => { e.preventDefault(); const v = $('#p-reflect-in').value.trim().slice(0, 280); if (!v) return; P.reflected = true; P.ref.child(`participants/${P.uid}/reflect`).set(v).catch(() => toast('That didn’t send — try again.')); renderPQuiz(); };
+    return;
+  }
+  if (q.state === 'ended' || q.state === 'celebrate') {
     const n = q.total || 0; let correct = 0;
     for (let i = 0; i < n; i++) if (P.reveals[i] && P.myAnswers[i] === P.reveals[i].answer) correct++;
-    box.innerHTML = `<div class="p-empty">${meChip}<h2>Quiz complete</h2><p class="p-score"><b>${correct}</b> of ${n} correct${q.showBoard ? ` · ${P.myScore || 0} points` : ''}</p><p>Thanks for taking part. Your teacher has your results.</p></div>`; return;
+    const { rank, of } = pRank();
+    box.innerHTML = `<div class="p-empty">${meChip}<h2>Quiz complete</h2><p class="p-score"><b>${correct}</b> of ${n} correct${q.showBoard ? ` · ${(P.myScore || 0).toLocaleString()} points · #${rank} of ${of}` : ''}</p><p>Thanks for taking part. Your teacher has your results.</p></div>`;
+    if (q.state === 'celebrate' && !P.celeDismissed) showPCelebration(q);
+    return;
   }
   const item = q.q || { stem: '', options: [] }, mine = P.myAnswers[q.index], rv = q.state === 'reveal' ? P.reveals[q.index] : null;
   pTranslateQuiz(q);
@@ -2887,9 +3931,12 @@ function renderPQuiz() {
       const cls = rv ? (k === rv.answer ? 'correct' : k === mine ? 'wrong' : 'dim') : (mine === k ? 'picked' : mine !== undefined ? 'dim' : '');
       return `<button class="p-opt ${cls}" data-k="${k}" style="--oc:${OPT_COLORS[k]}" ${mine !== undefined || rv ? 'disabled' : ''}><span class="L">${optLetter(item, k)}</span><span class="grow">${esc(o)}${trq?.options?.[k] ? `<small dir="auto">${esc(trq.options[k])}</small>` : ''}</span></button>`;
     }).join('')}</div>
-    <p class="p-status-line">${rv ? (mine === undefined ? 'No answer this time.' : mine === rv.answer ? '✓ Correct!' : '✗ Not this time.') + (rv.explanation ? ` ${esc(rv.explanation)}` : '') : mine !== undefined ? 'Answer locked in. Waiting for the others…' : 'Tap your answer.'}</p>
+    ${!rv && mine !== undefined && q.conf ? `<div class="p-conf"><span class="eyebrow">How sure are you?</span><div class="p-conf-btns">${CONF_LABELS.map((l, k) => `<button class="btn sm ${P.myConf[q.index] === k ? 'on' : ''}" data-conf="${k}" aria-pressed="${P.myConf[q.index] === k}">${esc(l)}</button>`).join('')}</div></div>` : ''}
+    <p class="p-status-line">${rv ? (mine === undefined ? 'No answer this time.' : mine === rv.answer ? '✓ Correct!' : '✗ Not this time.') : mine !== undefined ? 'Answer locked in. Waiting for the others…' : 'Tap your answer.'}</p>
+    ${rv ? `${mine !== undefined && rv.feedback?.[mine] ? `<div class="p-fb ${mine === rv.answer ? 'ok' : 'no'}">${esc(rv.feedback[mine])}</div>` : rv.explanation ? `<div class="p-fb">${esc(rv.explanation)}</div>` : ''}${rv.reflect ? `<div class="p-fb think"><span class="eyebrow">Think about it</span> ${esc(rv.reflect)}</div>` : ''}` : ''}
   </div>`;
   $$('.p-opt', box).forEach(b => b.onclick = () => pAnswer(+b.dataset.k));
+  $$('[data-conf]', box).forEach(b => b.onclick = () => pConfidence(+b.dataset.conf));
   if (q.duration && !rv) {
     const tick = () => {
       const rem = Math.max(0, (q.startedAt || 0) + q.duration * 1000 - serverNow());

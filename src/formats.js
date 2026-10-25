@@ -1,0 +1,560 @@
+/* ================= Notes output formats =================
+   APA journal article (narrative) · MLA journal article · outline overview · children's picture book · anything else the teacher describes.
+   Every format is written from the same transcript + materials; only the prompt, the renderer and the exports differ. */
+const STYLE_ALIAS = { study: 'apa', cornell: 'apa', handout: 'apa' };
+const STYLES = ['apa', 'mla', 'outline', 'kids', 'other'];
+const styleKey = s => STYLE_ALIAS[s] || (STYLES.includes(s) ? s : 'apa');
+const STYLE_LABEL = { apa: 'APA journal article', mla: 'MLA journal article', outline: 'Outline overview', kids: 'Children’s picture book', other: 'Custom output' };
+function styleHint(k) {
+  if (k === 'apa') return 'A cleaned-up narrative laid out like a journal article: abstract, keywords, sections written in full paragraphs, APA 7 in-text citations and References.';
+  if (k === 'mla') return 'An MLA 9 paper: heading block, centered title, narrative paragraphs with (Author) citations, and a Works Cited list.';
+  if (k === 'outline') return 'A quick bulleted overview — main ideas, supporting details and key terms — that’s easy to skim before a test.';
+  if (k === 'kids') {
+    const ip = imageProvider();
+    return aiReady() ? `The lecture retold as an 8–10 page picture book for ages 6–9. ${ip ? `Pictures are painted by ${ip === 'gemini' ? 'Gemini' : 'OpenAI'} (${esc(imageModel())}).` : `Pictures are drawn as illustrations by ${esc(prov().label.replace(/ \(.*\)$/, ''))}. For painted pictures, choose Gemini or ChatGPT in Settings.`}` : 'Picture books need an AI model. Choose one in Settings.';
+  }
+  return aiReady() ? 'Describe the output you want and Didasko writes it from the lecture and your files.' : 'Custom outputs need an AI model. Choose one in Settings.';
+}
+function renderNotesStyleUi() {
+  const k = styleKey($('#notes-style').value);
+  $('#notes-custom-wrap').hidden = k !== 'other';
+  $('#notes-style-hint').innerHTML = styleHint(k);
+  $('#notes-audience').disabled = k === 'kids';
+  renderNotesCite();
+}
+function syncNotesStyle(L) {
+  $('#notes-style').value = styleKey(L.notes?.style || S.settings.notesStyle || 'apa');
+  $('#notes-custom').value = L.notes?.custom || S.settings.notesCustom || '';
+  renderNotesStyleUi();
+}
+
+/* ---- MLA 9 citations ---- */
+const MLA_MONTHS = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'June', 'July', 'Aug.', 'Sept.', 'Oct.', 'Nov.', 'Dec.'];
+const mlaDate = ts => { const d = new Date(ts); return `${d.getDate()} ${MLA_MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
+const mlaLongDate = ts => { const d = new Date(ts); return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
+function mlaInvert(n) {
+  n = cleanName(n); if (!n || isOrg(n) || n.includes(',')) return n;
+  const p = n.split(/\s+/); if (p.length === 1) return n;
+  const last = p.pop(); return `${last}, ${p.join(' ')}`;
+}
+function mlaAuthors(names) {
+  const a = splitNames(names).map(cleanName).filter(Boolean);
+  if (!a.length) return '';
+  if (a.length === 1) return mlaInvert(a[0]);
+  if (a.length === 2) return `${mlaInvert(a[0])}, and ${a[1]}`;
+  return `${mlaInvert(a[0])}, et al.`;
+}
+function mlaInTextName(names) {
+  const a = splitNames(names).map(surname).filter(Boolean);
+  if (!a.length) return '';
+  if (a.length === 1) return a[0];
+  if (a.length === 2) return `${a[0]} and ${a[1]}`;
+  return `${a[0]} et al.`;
+}
+const MLA_QUOTED = new Set(['article', 'chapter', 'webpage']);
+const mlaLectureInText = L => `(${mlaInTextName([lecturerOf(L)]) || L.course || 'Lecture'})`;
+function mlaFileInText(f) {
+  const c = fileCite(f), who = mlaInTextName(c.authors);
+  if (who) return `(${who})`;
+  const short = c.title.split(/\s+/).slice(0, 4).join(' ');
+  return MLA_QUOTED.has(c.kind) ? `(“${short}”)` : `(*${short}*)`;
+}
+const mlaTitleDot = t => /[.?!]$/.test(t) ? t : t + '.';
+function mlaFileRef(f, titleOverride) {
+  const c = fileCite(f), t = (titleOverride || c.title).trim(), au = mlaAuthors(c.authors);
+  const quoted = MLA_QUOTED.has(c.kind);
+  let r = au ? endDot(au) + ' ' : '';
+  r += quoted ? `“${mlaTitleDot(t)}” ` : `*${t}*${/[?!]$/.test(t) ? '' : '.'} `;
+  const tail = [quoted && c.source ? `*${c.source}*` : c.source, c.year && c.year !== 'n.d.' ? c.year : ''].filter(Boolean).join(', ');
+  if (tail) r += endDot(tail) + ' ';
+  if (c.url) r += endDot(c.url.replace(/^https?:\/\//, '')) + ' ';
+  const desc = { slides: 'PowerPoint presentation', image: 'Photograph', dataset: 'Data set', transcript: 'Transcript' }[c.kind];
+  if (desc) r += desc + '.';
+  return r.trim();
+}
+function mlaLectureRef(L, title) {
+  const lec = lecturerOf(L);
+  const where = [L.course, mlaDate(L.createdAt), L.institution].filter(Boolean).join(', ');
+  return `${lec ? endDot(mlaAuthors([lec])) + ' ' : ''}“${mlaTitleDot(title || L.title)}” ${endDot(where)} Lecture.`;
+}
+function worksCited(L) {
+  const n = L.notes || {}, titles = n.titles || {};
+  const refs = [mlaLectureRef(L, n.lectureTitle), ...citedFiles(L).map(f => mlaFileRef(f, titles[f.id]))];
+  const key = r => r.replace(/[*“”"]/g, '').toLowerCase();
+  return [...new Set(refs)].sort((a, b) => key(a).localeCompare(key(b)));
+}
+function composeMla(L) {
+  const sb = splitBody(L.notes?.md || '');
+  const lec = lecturerOf(L), author = (L.author || S.settings.author || '').trim();
+  const writer = author || lec;
+  const head = [writer || 'Lecture notes', author && lec && author !== lec ? lec : (L.institution || S.settings.institution || ''), L.course, mlaLongDate(L.createdAt)].filter(Boolean);
+  return { title: sb.title || L.title, head, body: sb.body, refs: worksCited(L), running: surname(writer || '') || '' };
+}
+
+/* ---- Renderers ---- */
+function mlaHtml(L) {
+  const c = composeMla(L);
+  return `<article class="mla">
+    ${c.running ? `<div class="mla-run">${esc(c.running)} 1</div>` : ''}
+    <div class="mla-head">${c.head.map(h => `<p>${esc(h)}</p>`).join('')}</div>
+    <h1 class="mla-title">${inl(c.title)}</h1>
+    <div class="mla-body">${mdToHtml(c.body)}</div>
+    <section class="mla-wc"><h2>Works Cited</h2>${c.refs.map(r => `<p class="mla-ref">${inl(r)}</p>`).join('')}</section>
+  </article>`;
+}
+function plainDocHtml(L) {
+  const k = styleKey(L.notes?.style), md = L.notes?.md || '';
+  const meta = [STYLE_LABEL[k], L.course, fmtDate(L.createdAt), lecturerOf(L)].filter(Boolean).join(' · ');
+  return `<article class="nd nd-${k}"><p class="nd-kicker">${esc(meta)}</p>${mdToHtml(md)}
+    <section class="nd-src"><h2>Sources</h2>${referenceList(L).map(r => `<p class="apa-ref">${inl(r)}</p>`).join('')}</section></article>`;
+}
+function bookImgSrc(p) { return p?.img || ''; }
+function bookHtml(L, { editable = true, busy = false } = {}) {
+  const b = L.notes?.book; if (!b) return '';
+  const art = (p, i) => {
+    const src = bookImgSrc(p);
+    if (src) return `<img src="${esc(src)}" alt="${esc(p.picture || 'Illustration')}" loading="lazy">`;
+    return `<div class="book-ph">${busy || p?.drawing ? '<span class="spinner"></span><span>Drawing…</span>' : `<span>${esc(p?.picture || 'Picture')}</span>`}</div>`;
+  };
+  const lec = lecturerOf(L);
+  return `<div class="book">
+    <section class="book-page book-cover"><div class="book-art">${art(b.cover || {}, -1)}</div>
+      <div class="book-cap"><h1 class="book-title">${esc(b.title || L.title)}</h1><p class="book-by">${esc(['A picture book', lec ? `based on a lecture by ${lec}` : 'based on a lecture', L.course].filter(Boolean).join(' · '))}</p></div>
+      ${editable ? `<div class="book-tools"><button class="btn sm" data-redraw="-1">${icon('spark')}Redraw</button></div>` : ''}</section>
+    ${b.pages.map((p, i) => `<section class="book-page" data-page="${i}"><div class="book-art">${art(p, i)}</div>
+      <div class="book-cap"><p class="book-text" ${editable ? 'contenteditable="true" spellcheck="true"' : ''} data-page-text="${i}">${esc(p.text)}</p></div>
+      <div class="book-foot"><span class="book-num">${i + 1}</span>${editable ? `<button class="btn sm ghost" data-redraw="${i}">${icon('spark')}Redraw picture</button>` : ''}</div></section>`).join('')}
+    ${b.glossary?.length ? `<section class="book-page book-words"><div class="book-cap"><h2>Words to know</h2><dl>${b.glossary.map(g => `<div><dt>${esc(g.word)}</dt><dd>${esc(g.meaning)}</dd></div>`).join('')}</dl>
+      ${b.wonder ? `<h2>Wonder together</h2><p>${esc(b.wonder)}</p>` : ''}<p class="book-src">${inl(lectureRef(L, L.notes?.lectureTitle))}</p></div></section>` : ''}
+  </div>`;
+}
+function notesDocHtml(L, opts) {
+  const k = styleKey(L.notes?.style);
+  ensureJournalCss(); ensureFormatCss();
+  if (k === 'apa') return apaHtml(L);
+  if (k === 'mla') return mlaHtml(L);
+  if (k === 'kids') return bookHtml(L, opts);
+  return plainDocHtml(L);
+}
+function renderNotes() {
+  const L = S.lecture, doc = $('#notes-doc'), ed = $('#notes-editor');
+  const k = styleKey(L.notes?.style);
+  const has = !!(L.notes?.md || L.notes?.book);
+  renderNotesCite();
+  $('#notes-tools').style.visibility = has ? '' : 'hidden';
+  $('#notes-edit').hidden = k === 'kids';
+  $('#notes-generate span').textContent = has ? 'Regenerate' : 'Generate';
+  $('#notes-edit span').textContent = S.ui.notesEdit ? 'Done' : 'Edit';
+  $$('#notes-export [data-exp="docx"]').forEach(b => { b.lastChild.textContent = k === 'kids' ? 'Word picture book (.docx)' : 'Word document (.docx)'; });
+  if (S.ui.notesEdit && has && k !== 'kids') { ed.hidden = false; doc.hidden = true; ed.value = L.notes.md; return; }
+  ed.hidden = true; doc.hidden = false;
+  doc.className = has ? `apa notes-${k}` : 'doc';
+  if (has) { doc.innerHTML = notesDocHtml(L); return; }
+  const n = speechSegs(L).length;
+  doc.innerHTML = `<div class="empty"><h3>${n ? 'Ready to write' : 'No notes yet'}</h3><p>${n ? `${n} transcript lines and ${citedFiles(L).length} lecture files are ready. Choose an output above — an APA or MLA article, a bulleted outline, a children’s picture book, or anything else you describe — and tap Generate.` : 'Start captions on the Live tab, or import a transcript, and Didasko will turn it into polished notes in the format you choose.'}</p></div>`;
+}
+
+/* ---- Prompts ---- */
+function apaSystem({ aud, lang, sources }) {
+  return `You are an expert science editor who turns raw lecture transcripts into a polished, narrative article written and structured like a scientific journal article, using APA 7th edition style.
+The transcript comes from live speech recognition: it may lack punctuation and contain misheard words, filler words and false starts. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Do not add facts that are not supported by the transcript or the materials; where the recording is unclear, write "(unclear in recording)".
+Lines marked ★KEY POINT were flagged by the instructor as important: every one must appear in the article, and the most important belong in the abstract. Lines like "== TOPIC: … ==" are section breaks the instructor set: use them as Level 1 headings.
+Write for ${AUDIENCE[aud]}, in ${lang}, in the formal, precise register of a journal article: third person, past tense for what the lecturer said (e.g. "Shippee explained that…") and present tense for established facts, each supported by a citation.
+
+Write the whole article as connected prose. Do NOT use bulleted lists, numbered lists, tables, bold run-in labels, Q&A, "Key Terms" or "Review Questions" sections. Explain ideas in developed paragraphs, each with a topic sentence, supporting detail and examples from the lecture, and transitions that show how ideas connect. Bold a key term only the first time it is defined.
+
+Output GitHub-flavored Markdown in exactly this order:
+1. "# Title: Subtitle" — a concise, descriptive APA title in title case, with a subtitle after a colon.
+2. "## Abstract" followed by one paragraph of 150–220 words that states the lecture's purpose, its main points and their significance.
+3. A line "*Keywords:* " followed by 5–8 keywords, lowercase except proper nouns, separated by commas.
+4. The body, using APA heading levels: "##" = Level 1, "###" = Level 2 (only when a section clearly has parts), headings in title case.
+   - "## Introduction": one or two paragraphs on the background, why the topic matters, and what the lecture covered.
+   - One "##" section per major topic, in lecture order, each with two to four well-developed paragraphs.
+   - "## Conclusion": one or two paragraphs that synthesize the main ideas and their implications, and note what comes next if the lecture says so.
+
+Citations (APA 7 in-text): cite the sources below using exactly the in-text forms given, at the end of the sentence or paragraph they support. Cite the lecture at least once per Level 1 section. Cite a material wherever its content is used. Do not cite anything else and do not write a References section — it is added automatically.
+${sources}
+
+After the article, output exactly one final line and nothing after it:
+<!--didasko {"lectureTitle":"<the lecture's title in APA sentence case>","titles":{"F1":"<title of F1 in APA sentence case>"}}-->
+Include every F-number listed above in "titles".`;
+}
+function mlaSystem({ aud, lang, sources }) {
+  return `You are an expert editor who turns raw lecture transcripts into a polished narrative article in MLA style (MLA Handbook, 9th edition).
+The transcript comes from live speech recognition: it may lack punctuation and contain misheard words, filler words and false starts. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Do not add facts that are not supported by the transcript or the materials.
+Lines marked ★KEY POINT were flagged by the instructor as important: every one must appear in the article. Lines like "== TOPIC: … ==" are section breaks the instructor set.
+Write for ${AUDIENCE[aud]}, in ${lang}, in a clear academic register: present tense when discussing what the lecture argues ("Rivera explains that…"), with an introduction that states the lecture's central idea as a thesis.
+
+Write the whole article as connected prose: no bulleted or numbered lists, no tables, no bold labels. Use developed paragraphs with topic sentences and transitions.
+
+Output GitHub-flavored Markdown in exactly this order:
+1. "# Title" — an informative title in MLA title case (a subtitle after a colon is fine). Do not write a name, date or course heading — the app adds it.
+2. An introductory paragraph with no heading.
+3. One "##" section per major topic in lecture order (headings in title case), each with two to four paragraphs.
+4. "## Conclusion" with one or two paragraphs.
+
+Citations (MLA 9 in-text): cite the sources below using exactly the forms given, placed before the sentence's final punctuation, e.g. "…from water (Rivera)." For a direct quotation from the lecture add the timestamp, e.g. (Rivera 00:12:40). Do not use page numbers unless the material shows them. Do not cite anything else and do not write a Works Cited list — it is added automatically.
+${sources}
+
+After the article, output exactly one final line and nothing after it:
+<!--didasko {"lectureTitle":"<the lecture's title in MLA title case>","titles":{"F1":"<title of F1 in MLA title case>"}}-->
+Include every F-number listed above in "titles".`;
+}
+function outlineSystem({ aud, lang }) {
+  return `You turn raw lecture transcripts into a crisp, skimmable outline for ${AUDIENCE[aud]}, written in ${lang}.
+The transcript comes from speech recognition: fix obvious recognition errors silently and drop filler. Do not add facts that are not in the transcript or the materials. Lines marked ★KEY POINT were flagged by the instructor: include every one and start its bullet with "★ ". Lines like "== TOPIC: … ==" are the instructor's section breaks.
+Output GitHub-flavored Markdown in exactly this order:
+1. "# Title" — the lecture's topic.
+2. One sentence in italics summarizing the whole lecture.
+3. "## Big Picture" — two or three bullets on why this matters.
+4. One "##" heading per major topic in lecture order. Under each, nested "-" bullets: main idea → supporting details → examples, at most three levels deep. Short phrases, not paragraphs. Bold each key term the first time it appears.
+5. "## Key Terms" — bullets in the form "**Term** — plain-language meaning".
+6. "## Takeaways" — three to five bullets a student should remember.
+No citations, no introduction or conclusion paragraphs, nothing after the Takeaways.`;
+}
+function customSystem({ aud, lang, custom, sources }) {
+  return `You turn a lecture transcript (and any lecture materials) into exactly the output a teacher asks for.
+The teacher's request: «${custom}»
+Rules:
+- Produce that output and nothing else: no preface, no notes about what you did.
+- Write in ${lang}, for ${AUDIENCE[aud]} unless the request says otherwise.
+- The transcript comes from speech recognition: fix obvious recognition errors silently. Use only facts supported by the transcript or the materials.
+- Use GitHub-flavored Markdown (headings, lists, tables, bold) wherever it suits the requested format. Start with a "# " title.
+- If the requested format normally cites sources, cite them with these APA in-text forms:
+${sources}`;
+}
+function kidsSystem({ lang }) {
+  return `You are an award-winning children's picture-book author and a careful teacher. You retell a lecture as a short, warm picture book for children aged 6 to 9, written in ${lang}.
+Rules:
+- 8 to 10 pages. Each page has 1 to 3 short sentences (at most 40 words) with simple, vivid words. Read-aloud rhythm is welcome; rhyme is optional.
+- Keep the science or subject accurate: simplify, but never say anything false. Explain the lecture's key ideas in the order that makes them easiest to understand, through a friendly main character on a small adventure.
+- Page 1 introduces the character and the question; the last page recaps the big idea and ends on a sense of wonder.
+- For each page, describe the illustration concretely (who, where, what is happening, colors) in one or two sentences. Pictures contain no words, letters or numbers.
+- Describe the main character once, visually, so every picture can show them the same way, and give one art-style description for the whole book.
+- Add 3 to 6 "words to know" with child-friendly meanings, and one "wonder together" question a grown-up can ask.
+- The transcript comes from speech recognition; ignore recognition errors. Use only ideas from the transcript and materials.
+Reply with JSON only in this shape:
+{"title":"","character":"","style":"","cover":"<cover illustration description>","pages":[{"text":"","picture":""}],"glossary":[{"word":"","meaning":""}],"wonder":"","lectureTitle":"<the lecture's title in APA sentence case>"}`;
+}
+
+/* ---- Generate ---- */
+async function generateNotes() {
+  const L = S.lecture;
+  if (!speechSegs(L).length) { toast('Record, type or import a transcript first.'); return; }
+  const style = styleKey($('#notes-style').value), aud = $('#notes-audience').value, lv = $('#notes-lang').value;
+  const lang = lv === 'src' ? srcName(S.settings.srcLang) : tgtName(lv);
+  const useFiles = $('#notes-use-files').checked;
+  const custom = $('#notes-custom').value.trim();
+  if ((style === 'apa' || style === 'mla') && !lecturerOf(L)) { openLectureSheet(true); toast('Add the lecturer’s name so the article can cite the lecture.', 4000); return; }
+  if (style === 'other' && !custom) { $('#notes-custom').focus(); toast('Describe the output you’re looking for.'); return; }
+  if (!aiReady()) {
+    if (style === 'kids' || style === 'other') { toast(`${style === 'kids' ? 'Picture books' : 'Custom outputs'} need an AI model. Choose one in Settings.`, 4500); openSettings(); return; }
+    L.notes = { md: style === 'outline' ? buildLocalOutline(L, useFiles) : buildLocalNarrative(L, useFiles, style), style, local: true, at: Date.now() };
+    saveSoon(); S.ui.notesEdit = false; renderNotes(); toast('Notes organized on this device'); return;
+  }
+  notesCtl = new AbortController();
+  setNotesBusy(true, 'Checking sources…');
+  const files = useFiles ? citedFiles(L) : [];
+  if (style === 'apa' || style === 'mla' || style === 'other') for (const f of files) if (f.text && !f.cite?.checked && !(f.cite?.authors)) await detectCitation(f, { quiet: true });
+  const mat = useFiles ? materials('useNotes') : { text: '', images: [], names: [] };
+  const lecT = mlaInTextName([lecturerOf(L)]) || L.course || 'Lecture';
+  const sources = style === 'mla'
+    ? [`- LECTURE — the transcript itself. Cite as ${mlaLectureInText(L)}; for a quotation (${lecT} 00:12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${mlaFileInText(f)}.`)].join('\n')
+    : [`- LECTURE — the transcript itself. Cite as ${lectureInText(L)}. For a direct quotation add the timestamp, e.g. (${inTextAuthors([lecturerOf(L)]) || lecT}, ${yearOf(L.createdAt)}, 12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${fileInText(f)}.`)].join('\n');
+  const opts = { aud, lang, sources, custom };
+  const system = { apa: apaSystem, mla: mlaSystem, outline: outlineSystem, other: customSystem, kids: kidsSystem }[style](opts);
+  const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
+  if (style === 'kids') return generateKidsBook(L, { system, user, images: mat.images, lang });
+  setNotesBusy(true, 'Reading the transcript…');
+  const prev = L.notes;
+  let latest = '';
+  const show = t => { L.notes = { ...(L.notes || {}), style, md: stripFences(t.split('<!--didasko')[0]) }; delete L.notes.book; const d = $('#notes-doc'); d.className = `apa notes-${style}`; d.innerHTML = notesDocHtml(L); };
+  try {
+    const out = await callAI({
+      system, user, images: mat.images, maxTokens: 10000, signal: notesCtl.signal,
+      onText: t => { latest = t; $('#notes-status-text').textContent = 'Writing…'; if (!notesRAF) notesRAF = requestAnimationFrame(() => { notesRAF = 0; show(latest); }); }
+    });
+    const [body, meta] = out.split('<!--didasko');
+    let extra = {};
+    try { extra = JSON.parse((meta || '').replace(/-->[\s\S]*$/, '').trim() || '{}'); } catch { extra = {}; }
+    const titles = {};
+    files.forEach((f, i) => { const t = extra.titles?.['F' + (i + 1)]; if (t) titles[f.id] = String(t).trim(); });
+    const md = stripFences(body);
+    L.notes = { md, style, at: Date.now(), lang, custom: style === 'other' ? custom : undefined, lectureTitle: (extra.lectureTitle || '').trim() || null, titles, keywords: splitBody(md).keywords.split(/,\s*/).filter(Boolean) };
+    toast(`${STYLE_LABEL[style]} ready`);
+  } catch (e) {
+    if (notesCtl?.signal.aborted) { if (latest) L.notes = { md: stripFences(latest.split('<!--didasko')[0]), style, at: Date.now(), partial: true }; else L.notes = prev; toast('Stopped'); }
+    else { L.notes = prev; toast(e.message === 'NO_AI' ? 'Choose an AI model in Settings first.' : e.message, 5000); }
+  } finally { notesCtl = null; setNotesBusy(false); saveSoon(); renderNotes(); }
+}
+
+/* ---- Children's book ---- */
+const BOOK_ART = 'Warm, friendly children’s picture-book illustration, soft gouache and colored-pencil texture, bright but gentle colors, simple shapes, expressive faces, plenty of space, no text, letters or numbers in the image.';
+function pagePrompt(b, p, cover) {
+  return `${b.style || BOOK_ART} Main character: ${b.character || 'a curious, friendly child'}. ${cover ? `Book cover for “${b.title}”: ${p.picture || 'the main character, smiling, ready for an adventure'}` : `Scene: ${p.picture}`} Square composition. Do not include any words, letters, numbers or captions.`;
+}
+async function drawBookPicture(b, p, cover, signal) {
+  const prompt = pagePrompt(b, p, cover);
+  if (imageProvider() && !b.svgOnly) {
+    try { return await shrinkImage(await aiImage(prompt, signal), 768); }
+    catch (e) {
+      if (signal?.aborted) throw e;
+      b.svgOnly = true;
+      toast(`Couldn’t paint pictures with ${imageModel()}: ${e.message.replace(/^.*?: /, '')} Drawing illustrations instead.`, 6000);
+    }
+  }
+  return aiSvgPicture(prompt, signal);
+}
+async function aiSvgPicture(prompt, signal) {
+  const out = await callAI({
+    signal, maxTokens: 6000,
+    system: 'You are an illustrator who draws charming, simple children’s-book pictures as SVG code. Reply with one complete <svg> element only: viewBox="0 0 800 800", flat filled shapes with soft rounded forms, a bright friendly palette, a full background (sky, ground or room), a clear focal subject, and expressive simple faces. No text, letters or numbers. No script, image or foreignObject elements, external links or CSS imports. Keep it under 12 KB.',
+    user: prompt
+  });
+  return sanitizeSvg(out);
+}
+function sanitizeSvg(raw) {
+  const m = String(raw || '').match(/<svg[\s\S]*<\/svg>/i); if (!m) throw new Error('The AI didn’t return a picture.');
+  const doc = new DOMParser().parseFromString(m[0], 'image/svg+xml');
+  const svg = doc.documentElement;
+  if (!svg || svg.nodeName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) throw new Error('The picture couldn’t be read.');
+  doc.querySelectorAll('script,foreignObject,image,iframe,object,embed,a,style').forEach(n => n.remove());
+  doc.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(a => { const n = a.name.toLowerCase(), v = a.value.trim().toLowerCase(); if (n.startsWith('on') || ((n === 'href' || n === 'xlink:href') && !v.startsWith('#')) || v.includes('javascript:') || (v.includes('url(') && !/url\(\s*#/.test(v))) el.removeAttribute(a.name); });
+  });
+  if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', '0 0 800 800');
+  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+}
+function loadImg(src) { return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Image could not be loaded')); im.src = src; }); }
+async function shrinkImage(src, max = 768, mime = 'image/jpeg') {
+  const im = await loadImg(src);
+  const k = Math.min(1, max / Math.max(im.naturalWidth || max, im.naturalHeight || max));
+  const c = document.createElement('canvas'); c.width = Math.round((im.naturalWidth || max) * k); c.height = Math.round((im.naturalHeight || max) * k);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+  return c.toDataURL(mime, 0.84);
+}
+async function generateKidsBook(L, { system, user, images, lang }) {
+  setNotesBusy(true, 'Writing the story…');
+  const prev = L.notes;
+  try {
+    const out = await callAI({ system, user, images, json: true, maxTokens: 6000, signal: notesCtl.signal, onText: t => { const k = (t.match(/"text"\s*:/g) || []).length; $('#notes-status-text').textContent = k ? `Writing page ${k}…` : 'Writing the story…'; } });
+    const j = parseJson(out);
+    const pages = (j.pages || []).map(p => ({ text: String(p.text || '').trim(), picture: String(p.picture || '').trim() })).filter(p => p.text).slice(0, 12);
+    if (pages.length < 3) throw new Error('The AI didn’t return a usable story. Try again.');
+    const book = { title: String(j.title || L.title).trim(), character: String(j.character || '').trim(), style: String(j.style || '').trim(), cover: { picture: String(j.cover || '').trim() }, pages, glossary: (j.glossary || []).filter(g => g?.word).slice(0, 8).map(g => ({ word: String(g.word), meaning: String(g.meaning || '') })), wonder: String(j.wonder || '').trim() };
+    L.notes = { style: 'kids', book, md: bookMarkdown(L, book), at: Date.now(), lang, lectureTitle: String(j.lectureTitle || '').trim() || null, titles: {} };
+    saveSoon(); renderNotes();
+    await drawAllPictures(L, book, notesCtl.signal);
+    toast('Picture book ready');
+  } catch (e) {
+    if (notesCtl?.signal.aborted) { toast('Stopped'); if (!L.notes?.book) L.notes = prev; }
+    else { if (!L.notes?.book) L.notes = prev; toast(e.message === 'NO_AI' ? 'Choose an AI model in Settings first.' : e.message, 5000); }
+  } finally { notesCtl = null; setNotesBusy(false); if (L.notes?.book) L.notes.md = bookMarkdown(L, L.notes.book); saveSoon(); renderNotes(); }
+}
+async function drawAllPictures(L, book, signal) {
+  const jobs = [{ p: book.cover, cover: true }, ...book.pages.map(p => ({ p, cover: false }))].filter(j => !j.p.img);
+  let done = 0; const total = jobs.length;
+  const status = () => { $('#notes-status').hidden = false; $('#notes-status-text').textContent = `Drawing picture ${Math.min(done + 1, total)} of ${total}…`; };
+  status();
+  const worker = async () => {
+    while (jobs.length) {
+      if (signal?.aborted) return;
+      const j = jobs.shift(); j.p.drawing = true; rerenderBook(L);
+      try { j.p.img = await drawBookPicture(book, j.p, j.cover, signal); }
+      catch (e) { if (signal?.aborted) return; j.p.error = e.message; }
+      finally { delete j.p.drawing; done++; status(); saveSoon(); rerenderBook(L); }
+    }
+  };
+  await Promise.all([worker(), worker()]);
+}
+function rerenderBook(L) { if (S.lecture === L && S.view === 'notes' && S.ui.notesTab === 'notes') { const d = $('#notes-doc'); d.hidden = false; d.className = 'apa notes-kids'; d.innerHTML = bookHtml(L); } }
+async function redrawPicture(i) {
+  const L = S.lecture, b = L.notes?.book; if (!b) return;
+  if (!aiReady()) { toast('Choose an AI model in Settings to draw pictures.'); return; }
+  const p = i < 0 ? b.cover : b.pages[i]; if (!p || p.drawing) return;
+  delete b.svgOnly; p.drawing = true; delete p.img; rerenderBook(L);
+  try { p.img = await drawBookPicture(b, p, i < 0); toast('New picture ready'); }
+  catch (e) { toast(e.message, 4000); }
+  finally { delete p.drawing; saveSoon(); rerenderBook(L); }
+}
+function bookMarkdown(L, b) {
+  return [`# ${b.title}`, '', `*A picture book based on a lecture${lecturerOf(L) ? ` by ${lecturerOf(L)}` : ''}${L.course ? ` · ${L.course}` : ''}*`, '',
+    ...b.pages.flatMap((p, i) => [`## Page ${i + 1}`, '', p.text, '', `*Picture: ${p.picture}*`, '']),
+    ...(b.glossary?.length ? ['## Words to know', '', ...b.glossary.map(g => `- **${g.word}** — ${g.meaning}`), ''] : []),
+    ...(b.wonder ? ['## Wonder together', '', b.wonder, ''] : [])].join('\n');
+}
+
+/* ---- On-device fallbacks (no AI) ---- */
+function lectureSections(L) {
+  const sections = []; let cur = null, count = 0;
+  const hasTopics = L.segments.some(x => x.kind === 'topic');
+  for (const s of L.segments) {
+    if (s.kind === 'topic') { cur = { title: s.text, items: [] }; sections.push(cur); count = 0; continue; }
+    if (!cur || (!hasTopics && count >= 6)) { cur = { title: null, start: s.t, items: [] }; sections.push(cur); count = 0; }
+    cur.items.push(s); cur.end = s.t; count++;
+  }
+  return sections.filter(x => x.items.length);
+}
+function buildLocalNarrative(L, useFiles, style) {
+  const segs = speechSegs(L), mla = style === 'mla';
+  const all = segs.map(s => s.text).join('. ');
+  const kws = keyTerms(all, 7);
+  const cite = mla ? mlaLectureInText(L) : lectureInText(L);
+  const para = items => { const sents = items.flatMap(s => sentencesOf(s.text).map(cleanSpoken)).filter(t => words(t) > 3); const out = []; for (let i = 0; i < sents.length; i += 4) out.push(sents.slice(i, i + 4).join(' ').replace(/\.$/, '') + ` ${cite}.`); return out.join('\n\n'); };
+  const keys = segs.filter(s => s.key).map(s => cleanSpoken(s.text));
+  let md = `# ${L.title}\n\n`;
+  if (!mla) md += `## Abstract\n${(keys.length ? keys : sentencesOf(all).map(cleanSpoken)).slice(0, 5).join(' ').replace(/\.$/, '')} ${cite}.\n\n*Keywords:* ${kws.join(', ')}\n\n## Introduction\n`;
+  md += `> Organized on this device without AI. Choose an AI model in Settings for a fully written article.\n\nThis lecture${L.course ? `, part of ${L.course},` : ''} addressed ${kws.slice(0, 3).join(', ')}${keys.length ? `, and the lecturer emphasized that ${keys[0].charAt(0).toLowerCase() + keys[0].slice(1).replace(/\.$/, '')}` : ''} ${cite}.\n\n`;
+  lectureSections(L).forEach((sec, i) => { md += `## ${sec.title || `Part ${i + 1}`}\n${para(sec.items)}\n\n`; });
+  md += `## Conclusion\nTaken together, the lecture connected ${kws.slice(0, 4).join(', ')} ${cite}.\n`;
+  const fs = useFiles ? citedFiles(L) : [];
+  if (fs.length) md += `\nThe lecture materials ${fs.map(f => `${mla ? mlaFileInText(f) : fileInText(f)}`).join(', ')} provide further detail.\n`;
+  return md;
+}
+function buildLocalOutline(L, useFiles) {
+  const segs = speechSegs(L);
+  const kws = keyTerms(segs.map(s => s.text).join('. '), 8);
+  let md = `# ${L.title}\n\n*Organized on this device without AI — key ideas in lecture order.*\n\n`;
+  const keys = segs.filter(s => s.key);
+  if (keys.length) md += `## Big Picture\n${keys.map(s => `- ★ ${cleanSpoken(s.text)}`).join('\n')}\n\n`;
+  lectureSections(L).forEach((sec, i) => {
+    md += `## ${sec.title || `Part ${i + 1} (${fmtClock(sec.start)}–${fmtClock(sec.end)})`}\n`;
+    sec.items.forEach(s => sentencesOf(s.text).map(cleanSpoken).filter(t => words(t) > 3).forEach(t => { md += `- ${s.key ? '★ ' : ''}${t}\n`; }));
+    md += '\n';
+  });
+  md += `## Key Terms\n${kws.map(k => `- **${k}**`).join('\n')}\n`;
+  const fs = useFiles ? citedFiles(L) : [];
+  if (fs.length) md += `\n## Lecture Materials\n${fs.map(f => `- **${fileCite(f).title}** — ${f.text ? f.text.split(/\s+/).slice(0, 24).join(' ') + '…' : 'image'}`).join('\n')}\n`;
+  return md;
+}
+
+/* ---- Exports ---- */
+const MLA_CSS = `
+.mla{background:#fff;color:#111;max-width:8.5in;margin:0 auto;padding:clamp(22px,7vw,1in);font:1.02rem/2 "Times New Roman",Tinos,Times,serif;box-shadow:0 1px 4px rgba(0,0,0,.12);border-radius:3px;overflow-wrap:anywhere;position:relative}
+.mla p{margin:0}
+.mla-run{text-align:right;margin-bottom:.2em}
+.mla-head p{text-indent:0}
+.mla-title{font-weight:400;font-size:1em;line-height:2;font-family:inherit;text-align:center;margin:0;border:0;padding:0;color:inherit;text-wrap:balance}
+.mla-body p{text-indent:.5in}
+.mla-body h2{font-weight:700;font-size:1em;line-height:2;font-family:inherit;margin:0;text-align:left;border:0;padding:0;color:inherit}
+.mla-body h3{font-style:italic;font-weight:400;font-size:1em;line-height:2;font-family:inherit;margin:0}
+.mla-body blockquote{margin:0 0 0 .5in;padding:0;border:0;background:none}
+.mla-body blockquote p{text-indent:0}
+.mla-body ul,.mla-body ol{margin:0;padding-left:.5in}
+.mla-wc{margin-top:2em}
+.mla-wc h2{font-weight:400;font-size:1em;line-height:2;font-family:inherit;text-align:center;margin:0;border:0;padding:0;color:inherit}
+.mla-ref{padding-left:.5in;text-indent:-.5in}
+.mla a{color:inherit}
+@media print{.mla{box-shadow:none;max-width:none;padding:0;font-size:12pt}.mla-wc{break-before:page}}`;
+const ND_CSS = `
+.nd{background:#fff;color:#15201c;max-width:820px;margin:0 auto;padding:clamp(20px,5vw,52px);border-radius:12px;border:1px solid #d6dfdb;font:1.02rem/1.65 Literata,Georgia,serif;overflow-wrap:anywhere}
+.nd-kicker{margin:0 0 .6em;font:700 .74rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:#1d6b57}
+.nd h1{font-size:1.8rem;line-height:1.2;margin:0 0 .4em;text-wrap:balance}
+.nd h2{font:700 1.15rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;margin:1.6em 0 .5em;padding-bottom:.3em;border-bottom:1px solid #d6dfdb;color:#1d6b57}
+.nd h3{font:700 1.02rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;margin:1.2em 0 .3em}
+.nd p,.nd ul,.nd ol{margin:.5em 0}
+.nd li{margin:.2em 0}
+.nd ul ul,.nd ol ol,.nd ul ol,.nd ol ul{margin:.15em 0}
+.nd blockquote{margin:1em 0;padding:.6em 1em;border-left:3px solid #f2cb52;background:#f6f8f7;border-radius:0 8px 8px 0}
+.nd table{border-collapse:collapse;font:.92rem/1.45 "Atkinson Hyperlegible",system-ui,sans-serif;min-width:100%}
+.nd th,.nd td{border:1px solid #d6dfdb;padding:7px 9px;text-align:left;vertical-align:top}
+.nd th{background:#f6f8f7}
+.nd-src{margin-top:2.2em;font-size:.86rem;color:#4a5853}
+.nd-src h2{font-size:.8rem;letter-spacing:.09em;text-transform:uppercase;color:#5a6963}
+.nd-src .apa-ref{padding-left:2em;text-indent:-2em;margin:.3em 0}
+.nd a{color:inherit}
+@media print{.nd{border:0;padding:0;max-width:none}}`;
+const BOOK_CSS = `
+.book{display:grid;gap:18px;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));font-family:Literata,Georgia,serif}
+.book-page{background:#fffdf6;color:#2b2218;border-radius:18px;border:1px solid #eadfc8;box-shadow:0 2px 10px rgba(60,40,10,.08);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.book-art{aspect-ratio:1/1;background:#f3ead6;display:grid;place-items:center;overflow:hidden}
+.book-art img{width:100%;height:100%;object-fit:cover;display:block}
+.book-ph{display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;padding:24px;text-align:center;color:#8a7a5c;font:italic .9rem/1.4 Literata,Georgia,serif}
+.book-cap{padding:16px 20px 8px;flex:1}
+.book-text{margin:0;font-size:1.22rem;line-height:1.5;text-wrap:pretty;outline:none;border-radius:6px}
+.book-text:focus{background:#fff4cf}
+.book-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 12px 12px 20px}
+.book-num{font:700 .9rem/1 "Atkinson Hyperlegible",system-ui,sans-serif;color:#b59a63}
+.book-cover{background:#173a30;color:#fdf6e3;border-color:#173a30}
+.book-cover .book-art{background:#0f2a22}
+.book-title{margin:0;font:700 1.8rem/1.15 Literata,Georgia,serif;text-wrap:balance;color:#f2cb52}
+.book-by{margin:.4em 0 0;font:.9rem/1.4 "Atkinson Hyperlegible",system-ui,sans-serif;opacity:.85}
+.book-tools{position:absolute;top:10px;right:10px}
+.book-words h2{margin:0 0 .4em;font:700 1.2rem/1.2 Literata,Georgia,serif;color:#1d6b57}
+.book-words h2:not(:first-child){margin-top:1em}
+.book-words dl{margin:0;display:grid;gap:8px}
+.book-words dt{font-weight:700}
+.book-words dd{margin:0 0 0 .2em;color:#5c4f3b}
+.book-src{margin-top:1.4em;font:.78rem/1.4 "Atkinson Hyperlegible",system-ui,sans-serif;color:#8a7a5c;padding-left:1.6em;text-indent:-1.6em}
+.book .btn{background:rgba(255,255,255,.85);border-color:#e0d4b8;color:#2b2218}
+@media print{.book{display:block}.book-page{break-inside:avoid;break-after:page;box-shadow:none;border:0;max-width:6.5in;margin:0 auto}.book-tools,.book-foot .btn{display:none}}`;
+function ensureFormatCss() { if (!document.getElementById('fmt-css')) { const st = document.createElement('style'); st.id = 'fmt-css'; st.textContent = MLA_CSS + ND_CSS + BOOK_CSS; document.head.appendChild(st); } }
+function standaloneHtml(L) {
+  const k = styleKey(L.notes?.style);
+  if (k === 'apa') return apaStandalone(L);
+  const title = k === 'mla' ? composeMla(L).title : k === 'kids' ? L.notes.book.title : (splitBody(L.notes.md).title || L.title);
+  const css = k === 'mla' ? MLA_CSS : k === 'kids' ? BOOK_CSS : ND_CSS;
+  const body = k === 'mla' ? mlaHtml(L) : k === 'kids' ? bookHtml(L, { editable: false }) : plainDocHtml(L);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,700;1,7..72,400&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>body{margin:0;background:${k === 'kids' ? '#f4efe3' : '#e6e8e7'};padding:24px 12px}${css}</style></head><body>${body}</body></html>`;
+}
+function formatMarkdown(L) {
+  const k = styleKey(L.notes?.style);
+  if (k === 'apa') return apaMarkdown(L);
+  if (k === 'mla') { const c = composeMla(L); return [...c.head.map(h => h + '  '), '', `# ${c.title}`, '', c.body, '', '## Works Cited', '', c.refs.join('\n\n')].join('\n').replace(/\n{3,}/g, '\n\n'); }
+  if (k === 'kids') return bookMarkdown(L, L.notes.book) + `\n\n---\n\n${lectureRef(L, L.notes?.lectureTitle)}\n`;
+  return `${L.notes.md}\n\n## Sources\n\n${referenceList(L).join('\n\n')}\n`;
+}
+function mlaDocBlocks(L) {
+  const c = composeMla(L), B = [];
+  c.head.forEach(h => B.push({ type: 'p', style: 'NoIndent', runs: [{ text: h }] }));
+  B.push({ type: 'p', style: 'MlaTitle', runs: parseInline(c.title) });
+  parseMd(c.body).forEach(b => B.push(b.type === 'h' ? { ...b, level: 2 } : b));
+  B.push({ type: 'pagebreak' }, { type: 'p', style: 'MlaTitle', runs: [{ text: 'Works Cited' }] });
+  c.refs.forEach(r => B.push({ type: 'ref', text: r }));
+  return { blocks: B, running: c.running };
+}
+function plainDocBlocks(L) {
+  const B = [{ type: 'p', runs: [{ text: [STYLE_LABEL[styleKey(L.notes.style)], L.course, fmtDate(L.createdAt), lecturerOf(L)].filter(Boolean).join(' · '), i: true }] }, ...parseMd(L.notes.md)];
+  B.push({ type: 'h', level: 2, text: 'Sources' }); referenceList(L).forEach(r => B.push({ type: 'ref', text: r }));
+  return B;
+}
+async function bookDocBlocks(L) {
+  const b = L.notes.book, B = [];
+  const img = async p => { if (!p?.img) return null; try { const png = /^data:image\/svg/.test(p.img) ? await shrinkImage(p.img, 900, 'image/png') : await shrinkImage(p.img, 900); return { type: 'image', src: png, wIn: 5.6, hIn: 5.6 }; } catch { return null; } };
+  const cov = await img(b.cover); if (cov) B.push(cov);
+  B.push({ type: 'p', style: 'BookTitle', runs: [{ text: b.title }] }, { type: 'p', style: 'BookBy', runs: [{ text: `A picture book based on a lecture${lecturerOf(L) ? ` by ${lecturerOf(L)}` : ''}${L.course ? ` · ${L.course}` : ''}` }] });
+  for (const [i, p] of b.pages.entries()) {
+    B.push({ type: 'pagebreak' });
+    const im = await img(p); if (im) B.push(im);
+    B.push({ type: 'p', style: 'BookText', runs: [{ text: p.text }] }, { type: 'p', style: 'BookBy', runs: [{ text: String(i + 1) }] });
+  }
+  if (b.glossary?.length || b.wonder) {
+    B.push({ type: 'pagebreak' });
+    if (b.glossary?.length) { B.push({ type: 'h', level: 2, text: 'Words to know' }); b.glossary.forEach(g => B.push({ type: 'p', runs: [{ text: g.word + ' — ', b: true }, { text: g.meaning }] })); }
+    if (b.wonder) B.push({ type: 'h', level: 2, text: 'Wonder together' }, { type: 'p', runs: [{ text: b.wonder }] });
+    B.push({ type: 'ref', text: lectureRef(L, L.notes?.lectureTitle) });
+  }
+  return B;
+}
+async function exportNotes(t) {
+  const L = S.lecture, name = slug(L.title), k = styleKey(L.notes?.style);
+  if (t === 'transcript') return saveFile(name + '-transcript.txt', L.segments.map(s => s.kind === 'topic' ? `\n## ${s.text}\n` : `[${fmtClock(s.t)}] ${s.key ? '★ ' : ''}${s.text}${target() && s.tr?.[target()] ? `\n         ${s.tr[target()]}` : ''}`).join('\n'), 'text/plain');
+  if (!L.notes?.md && !L.notes?.book) { toast('Generate notes first.'); return; }
+  const suffix = { apa: 'apa', mla: 'mla', outline: 'outline', kids: 'picture-book', other: 'notes' }[k];
+  if (t === 'docx') {
+    if (k === 'apa') { const d = apaDocBlocks(L); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeApa(L).fullTitle, { journal: true, runningHead: d.runningHead, footer: d.footer })); }
+    if (k === 'mla') { const d = mlaDocBlocks(L); return saveFile(`${name}-${suffix}.docx`, await buildDocx(d.blocks, composeMla(L).title, { mla: true, runningHead: d.running, footer: '' })); }
+    if (k === 'kids') { toast('Preparing pictures…'); return saveFile(`${name}-${suffix}.docx`, await buildDocx(await bookDocBlocks(L), L.notes.book.title, { footer: L.notes.book.title })); }
+    return saveFile(`${name}-${suffix}.docx`, await buildDocx(plainDocBlocks(L), splitBody(L.notes.md).title || L.title));
+  }
+  if (t === 'html') return saveFile(`${name}-${suffix}.html`, standaloneHtml(L), 'text/html');
+  if (t === 'md') return saveFile(`${name}-${suffix}.md`, formatMarkdown(L), 'text/markdown');
+  if (t === 'print') {
+    const css = k === 'apa' ? JOURNAL_CSS.replace(/\.jr/g, '#print-root .jr') : (k === 'mla' ? MLA_CSS : k === 'kids' ? BOOK_CSS : ND_CSS);
+    return printHtml(`<style>${css}</style>${k === 'kids' ? bookHtml(L, { editable: false }) : notesDocHtml(L)}`);
+  }
+  if (t === 'copy') return copyText(mdToText(formatMarkdown(L)));
+}
