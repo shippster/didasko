@@ -803,6 +803,8 @@ function buildLocalQuiz(L, useFiles, n, qtype = 'mc') {
   return qs;
 }
 function renderQuiz() {
+  if (!$('#quiz-std details')) renderStandards();
+  const ns = $('#notes-subject'); if (ns && ns.value !== subjectOf(S.lecture)) ns.value = subjectOf(S.lecture);
   const Q = S.lecture.quiz, list = $('#quiz-list');
   const n = Q?.questions?.length || 0;
   $('#quiz-bar').hidden = !n || quizBusy;

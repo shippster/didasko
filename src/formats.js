@@ -122,6 +122,7 @@ function notesDocHtml(L, opts) {
   return plainDocHtml(L);
 }
 function renderNotes() {
+  { const ns = $('#notes-subject'); if (ns && S.lecture && ns.value !== subjectOf(S.lecture)) ns.value = subjectOf(S.lecture); }
   const L = S.lecture, doc = $('#notes-doc'), ed = $('#notes-editor');
   const k = styleKey(L.notes?.style);
   const has = !!(L.notes?.md || L.notes?.book);

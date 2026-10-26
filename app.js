@@ -806,6 +806,8 @@ function buildLocalQuiz(L, useFiles, n, qtype = 'mc') {
   return qs;
 }
 function renderQuiz() {
+  if (!$('#quiz-std details')) renderStandards();
+  const ns = $('#notes-subject'); if (ns && ns.value !== subjectOf(S.lecture)) ns.value = subjectOf(S.lecture);
   const Q = S.lecture.quiz, list = $('#quiz-list');
   const n = Q?.questions?.length || 0;
   $('#quiz-bar').hidden = !n || quizBusy;
@@ -2411,6 +2413,7 @@ function notesDocHtml(L, opts) {
   return plainDocHtml(L);
 }
 function renderNotes() {
+  { const ns = $('#notes-subject'); if (ns && S.lecture && ns.value !== subjectOf(S.lecture)) ns.value = subjectOf(S.lecture); }
   const L = S.lecture, doc = $('#notes-doc'), ed = $('#notes-editor');
   const k = styleKey(L.notes?.style);
   const has = !!(L.notes?.md || L.notes?.book);
