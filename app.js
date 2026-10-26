@@ -1927,7 +1927,7 @@ function splitBody(md) {
 /* ---- Compose the article. Layout modeled on a single-column research journal (e.g. Springer):
    running header, bold title, authors joined by "·", run-in Abstract and Keywords, numbered sections
    (1 Introduction, 1.1 …), justified body, first-page author footnote, small hanging-indent references. ---- */
-const JOURNAL = 'Didasko Lecture Notes', JOURNAL_SHORT = 'Didasko Lect Notes';
+const JOURNAL = 'Didasko Lecture Notes', JOURNAL_SHORT = 'Didasko Lecture Notes';
 const UNNUMBERED = /^(abstract|references|works cited|keywords|acknowledg)/i;
 function numberHeadings(md) {
   let a = 0, b = 0, c = 0;
@@ -3686,7 +3686,7 @@ function renderHome() {
     </section>
     <p class="home-foot small muted">Students join from your QR code — no account needed. Have a code yourself? <a class="linklike" href="?join=">Join a session</a></p>`;
   renderHomeList();
-  $('#home-new').onclick = openNewLectureSheet;
+  $('#home-new').onclick = () => openNewLectureSheet();
   const r = $('#home-resume'); if (r) r.onclick = () => showView('live');
   const gl = $('#home-golive'); if (gl) gl.onclick = () => showView('live');
   $('#home-q').oninput = e => { S.ui.homeQ = e.target.value; renderHomeList(); };
@@ -3709,7 +3709,7 @@ function openNewLectureSheet(startFrom) {
   const replaces = locked && (speechSegs(L).length || L.notes);
   const courses = [...new Set(homeLectures().map(m => m.course).filter(Boolean))];
   const canCaption = SR && !IS_ARTIFACT;
-  let mode = startFrom || (canCaption ? 'live' : 'recording');
+  let mode = typeof startFrom === 'string' ? startFrom : (canCaption ? 'live' : 'recording');
   const MODES = [['live', 'Live lecture', 'mic'], ['recording', 'Recording', 'upload'], ['video', 'YouTube video', 'play'], ['paper', 'Paper or reading', 'notes']];
   openSheet('New lecture', `
     <div class="field"><span>Start from</span><div class="seg start-from" role="group" aria-label="Start from">${MODES.map(([k, l, i]) => `<button type="button" data-mode="${k}" aria-pressed="${k === mode}">${icon(i)}${l}</button>`).join('')}</div></div>

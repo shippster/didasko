@@ -116,7 +116,7 @@ function splitBody(md) {
 /* ---- Compose the article. Layout modeled on a single-column research journal (e.g. Springer):
    running header, bold title, authors joined by "·", run-in Abstract and Keywords, numbered sections
    (1 Introduction, 1.1 …), justified body, first-page author footnote, small hanging-indent references. ---- */
-const JOURNAL = 'Didasko Lecture Notes', JOURNAL_SHORT = 'Didasko Lect Notes';
+const JOURNAL = 'Didasko Lecture Notes', JOURNAL_SHORT = 'Didasko Lecture Notes';
 const UNNUMBERED = /^(abstract|references|works cited|keywords|acknowledg)/i;
 function numberHeadings(md) {
   let a = 0, b = 0, c = 0;

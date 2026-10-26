@@ -796,3 +796,5 @@ body.p-mode::before { background: var(--stage); }
 .std-box details[open]>summary::before{transform:rotate(90deg)}
 .std-box{border-top:1px solid var(--line);padding-top:12px}
 .chip.std{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.std-box details[open] > * + * { margin-top: 12px; }
+.std-box details .grid-2 { margin-top: 12px !important; }
