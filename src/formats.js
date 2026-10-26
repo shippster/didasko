@@ -6,9 +6,9 @@ const STYLES = ['apa', 'mla', 'outline', 'kids', 'other'];
 const styleKey = s => STYLE_ALIAS[s] || (STYLES.includes(s) ? s : 'apa');
 const STYLE_LABEL = { apa: 'APA journal article', mla: 'MLA journal article', outline: 'Outline overview', kids: 'Children’s picture book', other: 'Custom output' };
 function styleHint(k) {
-  if (k === 'apa') return 'A research-journal article: the lecture reorganized by theme (not in speaking order), each idea unpacked, with abstract, keywords, numbered sections, a discussion, APA 7 citations and References.';
-  if (k === 'mla') return 'The same research-journal article, with MLA 9 (Author) citations and a Works Cited list.';
-  if (k === 'outline') return 'A quick bulleted overview — main ideas, supporting details and key terms — that’s easy to skim before a test.';
+  if (k === 'apa') return `A research-journal article: the lecture’s own content reorganized by theme (not in speaking order) into clean prose, with abstract, keywords, numbered sections, APA 7 citations and References. Nothing is added beyond the transcript and your files.${isMath(S.lecture) ? ' Math: worked problems are shown step by step.' : ''}`;
+  if (k === 'mla') return `The same research-journal article, with MLA 9 (Author) citations and a Works Cited list. Nothing is added beyond the transcript and your files.${isMath(S.lecture) ? ' Math: worked problems are shown step by step.' : ''}`;
+  if (k === 'outline') return `A quick bulleted overview — main ideas, supporting details and key terms — that’s easy to skim before a test.${isMath(S.lecture) ? ' Math: worked problems are shown step by step.' : ''}`;
   if (k === 'kids') {
     const ip = imageProvider();
     return aiReady() ? `The lecture retold as an 8–10 page picture book for ages 6–9. ${ip ? `Pictures are painted by ${ip === 'gemini' ? 'Gemini' : 'OpenAI'} (${esc(imageModel())}).` : `Pictures are drawn as illustrations by ${esc(prov().label.replace(/ \(.*\)$/, ''))}. For painted pictures, choose Gemini or ChatGPT in Settings.`}` : 'Picture books need an AI model. Choose one in Settings.';
@@ -25,7 +25,8 @@ function renderNotesStyleUi() {
 function syncNotesStyle(L) {
   $('#notes-style').value = styleKey(L.notes?.style || S.settings.notesStyle || 'apa');
   $('#notes-custom').value = L.notes?.custom || S.settings.notesCustom || '';
-  renderNotesStyleUi();
+  const ns = $('#notes-subject'); if (ns) { if (!ns.options.length) ns.innerHTML = subjectOptions(''); ns.value = subjectOf(L); }
+  renderNotesStyleUi(); renderStandards();
 }
 
 /* ---- MLA 9 citations ---- */
@@ -146,7 +147,14 @@ function renderNotes() {
 /* ---- Journal articles (APA and MLA) are written in two passes:
    1) plan: read the whole transcript and reorganize it into themes, with the definitions, examples and evidence each needs;
    2) write: a fully unpacked article from that plan, structured like a research-journal paper rather than in speaking order. ---- */
-const CLEANUP = 'The transcript comes from speech recognition: it may lack punctuation and contain misheard words, filler words, false starts and digressions. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Use only facts supported by the transcript or the materials.';
+const CLEANUP = 'The transcript comes from speech recognition: it may lack punctuation and contain misheard words, filler words, false starts and digressions. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word.';
+/* Notes must stay faithful: organize and clarify the sources, never extend them. */
+const FIDELITY = `FIDELITY — the most important rule. Your job is to organize and clearly present what the sources contain, not to add to it.
+- Every statement must come from the transcript or the materials. Do not add facts, definitions, examples, analogies, statistics, background, history, research, implications, applications, opinions or conclusions that the sources do not state — even if they are true and would help.
+- Do not expand, expound on or "unpack" an idea beyond what the speaker or the materials said. If the lecturer mentioned something briefly, present it briefly. Define a term only if the sources define it, and use their definition.
+- You may: reorder and group content by theme; merge repeated points; rewrite speech into clear, complete, grammatical sentences; add headings and short transitions that only signpost what comes next; and summarize. Transitions must not introduce new claims.
+- Keep the speaker's meaning, emphasis and level of certainty. Never resolve an ambiguity by guessing; leave out what you cannot understand.
+- If the sources are short, the output is short. Never pad to reach a length.`;
 function journalPlanSystem({ aud, lang }) {
   return `You are the senior editor of an academic journal. You are planning an article that turns a lecture (its transcript and any course materials) into a well-organized journal article for ${AUDIENCE[aud]}, written in ${lang}.
 ${CLEANUP}
@@ -155,37 +163,40 @@ Read the ENTIRE transcript and all materials before planning. Lectures wander: t
 - Work out the lecture's central question and its main argument (thesis).
 - Group everything that belongs together, wherever in the transcript it was said, into 3 to 6 major themes.
 - Order the themes for a reader: background and key definitions first, then the core concepts, mechanisms or frameworks, then applications and examples, then implications, challenges or debates.
-- Within each theme plan 2 to 4 subsections. For each, list the points to make, the concepts that must be defined, the lecturer's examples, evidence or data, any material (F1, F2 …) that supports it, and the transcript timestamps it draws on.
-- Note tensions, misconceptions, limitations and open questions the lecture raised, for a Discussion section.
+- Within each theme plan as many subsections as the content needs (often 1 to 4). For each, list only the points the sources actually make, the definitions the sources give, the lecturer's own examples, evidence or data, any material (F1, F2 …) that supports it, and the transcript timestamps it draws on.
+- Under "discussion", list only connections, tensions, limitations or open questions that the lecturer or the materials themselves raised; leave it empty if there are none. Do not add your own.
 - Every line marked ★KEY POINT must be placed somewhere in the plan.
+- Plan nothing that is not in the sources.
+${FIDELITY}
 Reply with JSON only:
 {"title":"","subtitle":"","thesis":"","keywords":[""],"introduction":{"context":"","problem":"","purpose":""},"sections":[{"heading":"","purpose":"","subsections":[{"heading":"","points":[""],"define":[""],"examples":[""],"materials":["F1"],"timestamps":["12:40"]}]}],"discussion":[""],"conclusion":[""]}`;
 }
-function journalSystem({ aud, lang, sources, mla }) {
+function journalSystem({ aud, lang, sources, mla, target }) {
   const cite = mla
     ? `Citations (MLA 9 in-text): cite the sources below using exactly the forms given, placed before the sentence's final punctuation, e.g. "…from water (Rivera)." For a direct quotation from the lecture add the timestamp, e.g. (Rivera 00:12:40). Do not use page numbers unless the material shows them. Do not write a Works Cited list — it is added automatically.`
     : `Citations (APA 7 in-text): cite the sources below using exactly the in-text forms given, as parenthetical citations at the end of the sentence they support or as narrative citations ("Rivera (2026) argued that…"). For a direct quotation add the timestamp. Do not write a References section — it is added automatically.`;
-  return `You are an expert academic writer and editor. You write a polished research-journal article from a lecture, following the editor's plan you are given. The article should read like a peer-reviewed paper in a journal such as Education and Information Technologies: it organizes ideas thematically, unpacks each one fully, and synthesizes rather than summarizing the lecture in order.
+  return `You are an expert academic editor. You turn a lecture into a well-organized article in the format of a research-journal paper, following the editor's plan you are given. It organizes the lecture's ideas thematically instead of in speaking order, and it presents them in clear academic prose — but it contains only what the lecture and its materials say.
 ${CLEANUP}
+${FIDELITY}
 Write for ${AUDIENCE[aud]}, in ${lang}, in a formal, precise academic register: third person; ${mla ? 'present tense when discussing what the lecture argues ("Rivera explains that…")' : 'past tense for what the lecturer said ("Rivera explained that…")'} and present tense for established facts.
 
 How to write it:
 - Follow the plan's structure and order, not the order of the transcript. If the source is an interview or discussion, write about the ideas and attribute them to the person who expressed them; do not narrate the conversation.
 - Never copy transcript fragments verbatim; rewrite speech into clear, complete sentences. Quote directly only for a short, memorable phrase.
-- Unpack every idea. Define each key concept when it first appears, explain how and why it works, give the lecturer's examples and evidence, connect it to the materials, and say why it matters. Never just list what the lecturer said.
-- Each major section opens with a short framing paragraph that tells the reader what the section covers and how it connects to the article's argument. Each subsection has two to four developed paragraphs of four to seven sentences, with a clear topic sentence and transitions. End subsections with a sentence that links to the next idea.
+- Present each idea completely and in the lecturer's own terms: include the explanation, examples and evidence the lecturer gave and what the materials say about it — and nothing more. Write connected paragraphs rather than lists of what the lecturer said.
+- A major section may open with one sentence saying what it covers. Paragraphs have clear topic sentences; use as many as the content needs and no more.
 - Write in connected prose. Use a numbered list only where the lecture itself set out a defined set of items (for example stages, factors or criteria); introduce it with a full sentence, give each item a short explanation, and use at most two such lists in the whole article. Use a table only if it genuinely clarifies a comparison; put "**Table N**" on its own line and the table title in italic title case on the next line.
 - Bold a key term only the first time it is defined. No bold run-in labels, no Q&A, no "Key Terms" or "Review Questions" sections.
-- Length: about 1,200 words for every 15 minutes of lecture, between 1,500 and 4,500 words in total (shorter if the source is short).
+- Length follows the sources: present all of their content once, clearly. As a guide, ${target || 'keep it concise'}. Shorter is fine; never lengthen by elaboration.
 
 Output GitHub-flavored Markdown in exactly this order:
 1. "# Title: Subtitle" — a concise, informative ${mla ? 'MLA title-case' : 'APA title-case'} title with a subtitle after a colon.
-2. "## Abstract" — one paragraph of 150–250 words: the topic and why it matters, the article's purpose, the main themes in the order they appear, and the key implication.
+2. "## Abstract" — one paragraph of 100–200 words summarizing the topic and the main themes as the lecture presented them.
 3. A line "*Keywords:* " with 4–6 keywords or short phrases separated by commas.
-4. "## Introduction" — three or four paragraphs: the context and background; the problem or question that makes the topic important; the purpose of the article; and a final roadmap sentence that names the sections that follow.
+4. "## Introduction" — one or two paragraphs: the topic, the context and purpose as the lecturer stated them, and a final roadmap sentence naming the sections that follow. Add no outside background.
 5. One "##" section per theme in the plan, each with "###" subsections. Do not number headings — the app numbers them.
-6. "## Discussion" — synthesize across the themes: how the ideas relate, what they mean for students and practice, the misconceptions, limitations or open questions the lecture raised.
-7. "## Conclusion" — one or two paragraphs restating the thesis in light of the article and noting what comes next if the lecture says so.
+6. "## Discussion" — ONLY if the lecture or materials themselves drew connections between the themes or raised implications, limitations or open questions: present those. Otherwise leave this section out entirely.
+7. "## Conclusion" — one short paragraph restating the lecture's main points and noting what comes next only if the lecture says so.
 
 ${cite} Cite the lecture in every major section, and a material wherever its content is used. Do not cite anything else.
 ${sources}
@@ -202,10 +213,11 @@ The transcript comes from speech recognition: fix obvious recognition errors sil
 Output GitHub-flavored Markdown in exactly this order:
 1. "# Title" — the lecture's topic.
 2. One sentence in italics summarizing the whole lecture.
-3. "## Big Picture" — two or three bullets on why this matters.
+3. "## Big Picture" — two or three bullets on the lecture's main message, as the lecturer framed it.
 4. One "##" heading per major topic in lecture order. Under each, nested "-" bullets: main idea → supporting details → examples, at most three levels deep. Short phrases, not paragraphs. Bold each key term the first time it appears.
-5. "## Key Terms" — bullets in the form "**Term** — plain-language meaning".
-6. "## Takeaways" — three to five bullets a student should remember.
+5. "## Key Terms" — bullets in the form "**Term** — meaning", using only meanings the sources give (leave out terms the sources don't explain).
+6. "## Takeaways" — three to five bullets restating the lecture's most important points.
+Do not add anything the transcript or materials don't say.
 No citations, no introduction or conclusion paragraphs, nothing after the Takeaways.`;
 }
 function customSystem({ aud, lang, custom, sources }) {
@@ -214,7 +226,8 @@ The teacher's request: «${custom}»
 Rules:
 - Produce that output and nothing else: no preface, no notes about what you did.
 - Write in ${lang}, for ${AUDIENCE[aud]} unless the request says otherwise.
-- The transcript comes from speech recognition: fix obvious recognition errors silently. Use only facts supported by the transcript or the materials.
+- The transcript comes from speech recognition: fix obvious recognition errors silently.
+- Use only content from the transcript and materials. Organize and rephrase it as the format needs, but do not extend, elaborate on or add to it unless the teacher's request explicitly asks for that.
 - Use GitHub-flavored Markdown (headings, lists, tables, bold) wherever it suits the requested format. Start with a "# " title.
 - If the requested format normally cites sources, cite them with these APA in-text forms:
 ${sources}`;
@@ -260,8 +273,12 @@ async function generateNotes() {
   const sources = !live ? files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${style === 'mla' ? mlaFileInText(f) : fileInText(f)}.`).join('\n') : style === 'mla'
     ? [`- LECTURE — the transcript itself. Cite as ${mlaLectureInText(L)}; for a quotation (${lecT} 00:12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${mlaFileInText(f)}.`)].join('\n')
     : [`- LECTURE — the transcript itself. Cite as ${lectureInText(L)}. For a direct quotation add the timestamp, e.g. (${inTextAuthors([lecturerOf(L)]) || lecT}, ${yearOf(L.createdAt)}, 12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${fileInText(f)}.`)].join('\n');
-  const opts = { aud, lang, sources, custom };
+  const srcWords = (live ? speechWords(L) : 0) + Math.round((mat.text || '').split(/\s+/).length * 0.5);
+  const tw = Math.max(250, Math.min(4500, Math.round(srcWords * 0.6 / 50) * 50));
+  const target = `about ${tw.toLocaleString()} words or fewer (the sources contain about ${srcWords.toLocaleString()} words of usable content)`;
+  const opts = { aud, lang, sources, custom, target };
   const system = { apa: apaSystem, mla: mlaSystem, outline: outlineSystem, other: customSystem, kids: kidsSystem }[style](opts)
+    + (isMath(L) && style !== 'kids' ? '\n' + MATH_RULES + (style === 'outline' ? '\nIn the outline, put each worked example under its topic: the "**Worked example**" line as a bullet, then the steps and $$ … $$ equation lines unindented below it.' : '') : '')
     + (live ? (L.source?.kind ? `\nThe transcript comes from a ${L.source.kind === 'video' ? 'video' : 'recording'}${L.source.title ? ` titled “${L.source.title}”` : ''}, transcribed automatically.` : '')
       : '\nIMPORTANT: there is no lecture transcript for this session. Build the whole output from the materials alone. Do not mention or cite a lecture or lecturer; where the instructions above say to cite the lecture, cite the materials instead. In the abstract and introduction, describe the material’s topic rather than a lecture.');
   const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${live ? transcriptForPrompt(L) : '(none — use the materials only)'}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
@@ -271,7 +288,7 @@ async function generateNotes() {
   if (style === 'apa' || style === 'mla') {
     setNotesBusy(true, 'Reading the whole lecture and planning the article…');
     try {
-      const planText = await callAI({ system: journalPlanSystem(opts), user, images: mat.images, maxTokens: 6000, json: true, signal: notesCtl.signal,
+      const planText = await callAI({ system: journalPlanSystem(opts) + (isMath(L) ? '\nThis is a mathematics lecture: for every problem the lecturer worked through, record the problem and every step in order (with the equation after each step) under "examples", so the writer can show it step by step.' : ''), user, images: mat.images, maxTokens: 6000, json: true, signal: notesCtl.signal,
         onText: t => { const k = (t.match(/"heading"\s*:/g) || []).length; if (k) $('#notes-status-text').textContent = `Planning the article… ${k} section${k === 1 ? '' : 's'} so far`; } });
       const plan = parseJson(planText);
       if (Array.isArray(plan.sections) && plan.sections.length) userMsg = `${user}\n\n<editor_plan>\n${JSON.stringify(plan, null, 1)}\n</editor_plan>\n\nWrite the article now, following the editor's plan.`;
@@ -441,6 +458,10 @@ function buildLocalOutline(L, useFiles) {
 
 /* ---- Exports ---- */
 const ND_CSS = `
+.eq{text-align:center;margin:.5em 0 .9em;font-family:'STIX Two Text','Cambria Math','Times New Roman',serif;font-size:1.12em;line-height:1.6;overflow-x:auto}
+.eq i{font-style:italic}.eq .frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 .12em;font-size:.92em;line-height:1.15}
+.eq .frac>span:first-child{border-bottom:1px solid currentColor;padding:0 .2em}.eq .frac>span:last-child{padding:0 .2em}
+.eq .sqrt>span{border-top:1px solid currentColor;padding:0 .15em}.eq sup,.eq sub{font-size:.7em}
 .nd{background:#fff;color:#15201c;max-width:820px;margin:0 auto;padding:clamp(20px,5vw,52px);border-radius:12px;border:1px solid #d6dfdb;font:1.02rem/1.65 Literata,Georgia,serif;overflow-wrap:anywhere}
 .nd-kicker{margin:0 0 .6em;font:700 .74rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:#1d6b57}
 .nd h1{font-size:1.8rem;line-height:1.2;margin:0 0 .4em;text-wrap:balance}

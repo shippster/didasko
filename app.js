@@ -73,7 +73,7 @@ const store = (() => {
 
 /* ================= State ================= */
 const guessSrc = () => { const n = navigator.language || 'en-US'; return (SRC_LANGS.find(l => l[0] === n) || SRC_LANGS.find(l => l[0].startsWith(n.split('-')[0])) || SRC_LANGS[0])[0]; };
-const DEFAULT_SETTINGS = { srcLang: guessSrc(), tgtLang: 'off', engine: 'auto', capStep: 3, capMode: 'both', theme: 'system', lastLecture: null, lecturer: '', institution: '', ai: null };
+const DEFAULT_SETTINGS = { srcLang: guessSrc(), tgtLang: 'off', engine: 'auto', capStep: 3, capMode: 'both', theme: 'system', lastLecture: null, myName: '', institution: '', ai: null };
 const S = {
   settings: { ...DEFAULT_SETTINGS }, index: [], lecture: null, view: 'home',
   rec: { running: false, interim: '', interimTr: '', startedAt: 0, pendingKey: false },
@@ -216,6 +216,29 @@ function runsHtml(runs) {
   }).join('');
 }
 const inl = s => runsHtml(parseInline(s));
+/* ---- Equations: "$$ … $$" lines hold simple LaTeX; shown as formatted math in HTML and as Unicode text in Word. ---- */
+const TEX_SYM = { cdot: '·', times: '×', div: '÷', pm: '±', mp: '∓', leq: '≤', le: '≤', geq: '≥', ge: '≥', neq: '≠', ne: '≠', approx: '≈', equiv: '≡', pi: 'π', theta: 'θ', alpha: 'α', beta: 'β', gamma: 'γ', lambda: 'λ', mu: 'μ', sigma: 'σ', Sigma: 'Σ', Delta: 'Δ', delta: 'δ', infty: '∞', to: '→', rightarrow: '→', Rightarrow: '⇒', implies: '⇒', iff: '⇔', degree: '°', circ: '°', angle: '∠', perp: '⊥', parallel: '∥', in: '∈', sum: 'Σ', int: '∫', ldots: '…', cdots: '⋯', dots: '…', quad: '  ', qquad: '    ' };
+const SUP = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '+': '⁺', '-': '⁻', '−': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', n: 'ⁿ', i: 'ⁱ', x: 'ˣ' };
+const SUB = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉', '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎', n: 'ₙ', i: 'ᵢ', x: 'ₓ', k: 'ₖ' };
+const BR = '\\{((?:[^{}]|\\{[^{}]*\\})*)\\}';
+function texBase(s) {
+  return String(s).replace(/\\(?:text|mathrm|mathbf|operatorname)\s*\{([^{}]*)\}/g, '$1').replace(/\\left|\\right|\\displaystyle/g, '').replace(/\\[,;:!]/g, ' ')
+    .replace(/\\([A-Za-z]+)/g, (m, w) => TEX_SYM[w] !== undefined ? TEX_SYM[w] : m).replace(/(\d)\s*\*\s*(\d)/g, '$1 × $2').replace(/(^|[^<>])-(?=[\s\d(a-zA-Z])/g, '$1−');
+}
+function eqText(s) {
+  let t = texBase(s), prev;
+  do { prev = t; t = t.replace(new RegExp('\\\\[dt]?frac\\s*' + BR + '\\s*' + BR), (m, a, b) => `${/^(\d+(\.\d+)?|[A-Za-z])$/.test(a) ? a : `(${a})`}/${/^(\d+(\.\d+)?|[A-Za-z])$/.test(b) ? b : `(${b})`}`).replace(new RegExp('\\\\sqrt\\s*' + BR), (m, a) => /^(\d+(\.\d+)?|[A-Za-z])$/.test(a) ? `√${a}` : `√(${a})`); } while (t !== prev);
+  t = t.replace(new RegExp('\\^' + BR, 'g'), (m, a) => [...a].every(c => SUP[c]) ? [...a].map(c => SUP[c]).join('') : `^(${a})`).replace(/\^([\w+−-])/g, (m, a) => SUP[a] || '^' + a)
+    .replace(new RegExp('_' + BR, 'g'), (m, a) => [...a].every(c => SUB[c]) ? [...a].map(c => SUB[c]).join('') : `_(${a})`).replace(/_(\w)/g, (m, a) => SUB[a] || '_' + a);
+  return t.replace(/[{}]/g, '').replace(/\\/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+function eqHtml(s) {
+  let t = esc(texBase(s)), prev;
+  do { prev = t; t = t.replace(new RegExp('\\\\[dt]?frac\\s*' + BR + '\\s*' + BR), '<span class="frac"><span>$1</span><span>$2</span></span>').replace(new RegExp('\\\\sqrt\\s*' + BR), '<span class="sqrt">√<span>$1</span></span>'); } while (t !== prev);
+  t = t.replace(new RegExp('\\^' + BR, 'g'), '<sup>$1</sup>').replace(/\^([\w+−-])/g, '<sup>$1</sup>').replace(new RegExp('_' + BR, 'g'), '<sub>$1</sub>').replace(/_(\w)/g, '<sub>$1</sub>');
+  t = t.replace(/[{}]/g, '').replace(/\\/g, '');
+  return t.replace(/(^|[^\w&#;<>/])([a-zA-Z])(?![\w;=">])/g, '$1<i>$2</i>');
+}
 function parseMd(src) {
   const lines = String(src || '').replace(/\r/g, '').split('\n');
   const blocks = []; let para = []; let i = 0;
@@ -225,6 +248,8 @@ function parseMd(src) {
     const line = lines[i]; let m;
     if (/^\s*```/.test(line)) { flush(); const buf = []; i++; while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]); i++; blocks.push({ type: 'code', text: buf.join('\n') }); continue; }
     if (!line.trim()) { flush(); i++; continue; }
+    if ((m = line.match(/^\s*\$\$(.+?)\$\$\s*$/))) { flush(); blocks.push({ type: 'eq', text: m[1].trim() }); i++; continue; }
+    if (/^\s*\$\$\s*$/.test(line)) { flush(); const buf = []; i++; while (i < lines.length && !/^\s*\$\$\s*$/.test(lines[i])) buf.push(lines[i++].trim()); i++; buf.join(' ').split(/\\\\/).map(x => x.replace(/&/g, '').trim()).filter(Boolean).forEach(x => blocks.push({ type: 'eq', text: x })); continue; }
     if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { flush(); blocks.push({ type: 'h', level: m[1].length, text: m[2].replace(/\s+#+\s*$/, '') }); i++; continue; }
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { flush(); blocks.push({ type: 'hr' }); i++; continue; }
     if (/^\s*>/.test(line)) { flush(); const buf = []; while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, '')); blocks.push({ type: 'quote', text: buf.join(' ') }); continue; }
@@ -271,6 +296,7 @@ function mdToHtml(src) {
       case 'p': return `<p>${inl(b.text)}</p>`;
       case 'hr': return '<hr>';
       case 'quote': return `<blockquote>${inl(b.text)}</blockquote>`;
+      case 'eq': return `<div class="eq" role="math" aria-label="${esc(eqText(b.text))}">${eqHtml(b.text)}</div>`;
       case 'code': return `<pre><code>${esc(b.text)}</code></pre>`;
       case 'list': return listHtml(b.items);
       case 'table': return `<div class="table-wrap"><table><thead><tr>${b.head.map(c => `<th>${inl(c)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(r => `<tr>${b.head.map((_, k) => `<td>${inl(r[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
@@ -283,6 +309,7 @@ const mdToText = src => parseMd(src).map(b => {
   if (b.type === 'list') return b.items.map(x => '  '.repeat(x.level) + (x.ordered ? '• ' : '– ') + strip(x.text)).join('\n');
   if (b.type === 'table') return [b.head, ...b.rows].map(r => r.map(strip).join(' | ')).join('\n');
   if (b.type === 'hr') return '—';
+  if (b.type === 'eq') return '    ' + eqText(b.text);
   if (b.type === 'h') return strip(b.text).toUpperCase();
   return strip(b.text || '');
 }).join('\n\n');
@@ -678,15 +705,15 @@ ${TYPE_RULES[qtype] || TYPE_RULES.mc}
 - Each wrong option is a plausible misconception or partial understanding a real student would hold — not a joke or an obviously wrong choice. Never "all of the above" or "none of the above". Keep options similar in length and grammar so the answer can't be guessed from form.
 - Stems are self-contained, clear and fair; no trick wording or double negatives.
 - Base every question only on the transcript and the materials. The transcript comes from speech recognition, so ignore obvious recognition errors.
-- Cover the lecture's most important ideas${mat.text ? ', and include some questions that draw on the materials' : ''}.${keyFocus ? '\n- Every line marked ★KEY POINT must be assessed by at least one question.' : ''}
+- Cover the lecture's most important ideas${mat.text ? ', and include some questions that draw on the materials' : ''}.${keyFocus ? '\n- Every line marked ★KEY POINT must be assessed by at least one question.' : ''}${isMath(L) ? MATH_QUIZ : ''}${standardsForPrompt(L)}
 For each question return:
 "type"; "stem"; "options" (array of strings, no letter prefixes); "answer" (index of the correct option);
 "feedback" (array, one string per option, same order, 1–2 sentences each: for the correct option say why it is right; for each wrong option name the misconception it reveals and give a hint that moves the student toward the right idea — specific, kind, and without simply restating the answer);
 "explanation" (1–2 sentences the teacher can say after revealing the answer);
 "reflect" (one short open reflection or turn-and-talk prompt that asks students to explain their reasoning or connect the idea to something new);
-"source" (a transcript timestamp like "Lecture 12:40", or the material's file name); "level" (Understand, Apply, Analyze or Evaluate).
+"source" (a transcript timestamp like "Lecture 12:40", or the material's file name); "level" (Understand, Apply, Analyze or Evaluate)${standardsList(L).length ? '; "standard" (the code of the standard it assesses)' : ''}.
 Also return "reflection": one exit-ticket question for the end of the quiz that asks students to reflect on their own learning about today's topic.
-Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"feedback":["","","",""],"explanation":"","reflect":"","source":"","level":""}],"reflection":""}`;
+Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"feedback":["","","",""],"explanation":"","reflect":"","source":"","level":""${standardsList(L).length ? ',"standard":""' : ''}}],"reflection":""}`;
   const noTr = !speechSegs(L).length;
   const user = `${lectureHeader(L)}\n\n<transcript>\n${noTr ? '(none — write every question from the materials)' : transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`;
   if (noTr) system += '\nThere is no lecture transcript for this session: base every question on the materials, and use the material’s file name as "source".';
@@ -713,7 +740,7 @@ function normalizeQuestions(arr) {
     let answer = Number.isInteger(q.answer) ? q.answer : typeof q.answer === 'boolean' ? (q.answer ? 0 : 1) : /^(true|t)$/i.test(String(q.answer)) ? 0 : /^(false|f)$/i.test(String(q.answer)) ? 1 : 'ABCD'.indexOf(String(q.answer || '').trim().toUpperCase()[0]);
     const fb = Array.isArray(q.feedback) ? q.feedback.map(x => String(x || '').trim()) : [];
     const feedback = options.map((_, k) => fb[k] || '');
-    return { id: q.id || uid(), type: tf ? 'tf' : 'mc', stem: String(q.stem || '').trim(), options, answer, feedback, explanation: String(q.explanation || '').trim(), reflect: String(q.reflect || '').trim(), source: String(q.source || '').trim(), level: String(q.level || '').trim() };
+    return { id: q.id || uid(), type: tf ? 'tf' : 'mc', stem: String(q.stem || '').trim(), options, answer, feedback, explanation: String(q.explanation || '').trim(), reflect: String(q.reflect || '').trim(), source: String(q.source || '').trim(), level: String(q.level || '').trim(), standard: String(q.standard || '').trim().slice(0, 80) };
   }).filter(q => q.stem && q.options.length === (q.type === 'tf' ? 2 : 4) && q.answer >= 0 && q.answer < q.options.length);
 }
 const optLetter = (q, k) => q.type === 'tf' ? (k ? 'F' : 'T') : 'ABCD'[k];
@@ -803,7 +830,7 @@ function renderQuiz() {
       }).join('')}</div>
       ${showAns && q.explanation ? `<div class="q-explain">${esc(q.explanation)}</div>` : ''}
       ${showAns && q.reflect ? `<div class="q-reflect"><span class="eyebrow">Reflect</span><span ${teacher ? 'contenteditable="true" data-f="reflect"' : ''}>${esc(q.reflect)}</span></div>` : ''}
-      ${teacher ? `<div class="q-foot">${q.level ? `<span class="chip accent">${esc(q.level)}</span>` : ''}${q.source ? `<span class="chip">${esc(q.source)}</span>` : ''}<span class="grow"></span><button class="btn sm ghost danger" data-del>${icon('trash')}Remove</button></div>` : ''}
+      ${teacher ? `<div class="q-foot">${q.level ? `<span class="chip accent">${esc(q.level)}</span>` : ''}${q.standard ? `<span class="chip std" title="${esc((standardsList(S.lecture).find(s => s.code === q.standard) || {}).text || 'Standard')}">${icon('star')}${esc(q.standard)}</span>` : ''}${q.source ? `<span class="chip">${esc(q.source)}</span>` : ''}<span class="grow"></span><button class="btn sm ghost danger" data-del>${icon('trash')}Remove</button></div>` : ''}
     </div>`;
   }).join('') + `<div class="q-card q-exit"><div class="q-head"><span class="q-num">${icon('spark')}</span><div class="grow"><span class="eyebrow">Exit ticket · asked at the end of a live quiz</span><div class="q-stem" ${teacher ? 'contenteditable="true"' : ''} data-f="reflection">${esc(Q.reflection || DEFAULT_REFLECTION)}</div></div></div></div>`;
 }
@@ -821,7 +848,10 @@ function quizStudentBlocks(L, qs, key) {
     const ex = L.quiz?.reflection || DEFAULT_REFLECTION;
     b.push({ type: 'h', level: 2, text: 'Exit ticket' }, { type: 'p', runs: [{ text: ex }] }, { type: 'p', runs: [{ text: '______________________________________________________________\n______________________________________________________________' }] });
   } else {
-    b.push({ type: 'table', head: ['#', 'Answer', 'Why', 'Source'], rows: qs.map((q, i) => [String(i + 1), q.type === 'tf' ? q.options[q.answer] : `${'ABCD'[q.answer]} — ${q.options[q.answer]}`, q.explanation, q.source || '']) });
+    const hasStd = qs.some(q => q.standard);
+    b.push({ type: 'table', head: ['#', 'Answer', 'Why', ...(hasStd ? ['Standard'] : []), 'Source'], rows: qs.map((q, i) => [String(i + 1), q.type === 'tf' ? q.options[q.answer] : `${'ABCD'[q.answer]} — ${q.options[q.answer]}`, q.explanation, ...(hasStd ? [q.standard || ''] : []), q.source || '']) });
+    const stds = standardsList(L);
+    if (hasStd && stds.length) { b.push({ type: 'h', level: 2, text: 'Standards assessed' }); stds.forEach(s => { const n = qs.map((q, i) => q.standard === (s.code || s.text) || q.standard === stdLabel(s) ? i + 1 : 0).filter(Boolean); b.push({ type: 'p', runs: [{ text: s.code ? s.code + ' — ' : '', b: true }, { text: s.text + (n.length ? `  (questions ${n.join(', ')})` : '  (not assessed)') }] }); }); }
     b.push({ type: 'h', level: 2, text: 'What each wrong answer tells you' });
     qs.forEach((q, i) => {
       const wrong = q.options.map((o, k) => k !== q.answer && q.feedback?.[k] ? `${optLetter(q, k)}: ${q.feedback[k]}` : '').filter(Boolean);
@@ -834,21 +864,21 @@ function quizText(qs) { return qs.map((q, i) => `${i + 1}. ${q.stem}\n${q.option
 function giftEsc(s) { return String(s).replace(/([~=#{}:\\])/g, '\\$1'); }
 function quizGift(L, qs) {
   return `// ${L.title} — formative check generated by Didasko\n// ${fmtDate(L.createdAt)}\n\n` + qs.map((q, i) =>
-    `// ${q.level || 'Question'}${q.source ? ' · ' + q.source : ''}${q.reflect ? `\n// Reflect: ${q.reflect}` : ''}\n::Q${i + 1}:: ${giftEsc(q.stem)} ` + (q.type === 'tf'
+    `// ${q.level || 'Question'}${q.standard ? ' · ' + q.standard : ''}${q.source ? ' · ' + q.source : ''}${q.reflect ? `\n// Reflect: ${q.reflect}` : ''}\n::Q${i + 1}:: ${giftEsc(q.stem)} ` + (q.type === 'tf'
       ? `{${q.answer === 0 ? 'TRUE' : 'FALSE'}${q.feedback?.[1 - q.answer] ? '#' + giftEsc(q.feedback[1 - q.answer]) : q.explanation ? '#' + giftEsc(q.explanation) : ''}${q.feedback?.[q.answer] ? '#' + giftEsc(q.feedback[q.answer]) : q.explanation ? '#' + giftEsc(q.explanation) : ''}}`
       : `{\n${q.options.map((o, k) => `${k === q.answer ? '=' : '~'}${giftEsc(o)}${q.feedback?.[k] ? '#' + giftEsc(q.feedback[k]) : k === q.answer && q.explanation ? '#' + giftEsc(q.explanation) : ''}`).join('\n')}\n}`)).join('\n\n')
     + `\n\n// Exit ticket\n::Exit ticket:: ${giftEsc(L.quiz?.reflection || DEFAULT_REFLECTION)} {}\n`;
 }
 function csvCell(s) { s = String(s ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 function quizCsv(qs) {
-  const rows = [['Type', 'Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct', 'Feedback A', 'Feedback B', 'Feedback C', 'Feedback D', 'Explanation', 'Reflection prompt', 'Level', 'Source']];
+  const rows = [['Type', 'Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct', 'Feedback A', 'Feedback B', 'Feedback C', 'Feedback D', 'Explanation', 'Reflection prompt', 'Level', 'Standard', 'Source']];
   const pad4 = a => [...a, ...Array(4 - a.length).fill('')];
-  qs.forEach(q => rows.push([q.type === 'tf' ? 'True/False' : 'Multiple choice', q.stem, ...pad4(q.options), q.type === 'tf' ? q.options[q.answer] : 'ABCD'[q.answer], ...pad4(q.feedback || []), q.explanation, q.reflect || '', q.level, q.source]));
+  qs.forEach(q => rows.push([q.type === 'tf' ? 'True/False' : 'Multiple choice', q.stem, ...pad4(q.options), q.type === 'tf' ? q.options[q.answer] : 'ABCD'[q.answer], ...pad4(q.feedback || []), q.explanation, q.reflect || '', q.level, q.standard || '', q.source]));
   return '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
 }
 function quizPrintHtml(L, qs, key) {
   const head = `<h1>${key ? 'Answer key — ' : ''}${esc(L.title)}</h1><p><em>${esc([L.course, fmtDate(L.createdAt)].filter(Boolean).join(' · '))}</em></p>`;
-  if (key) return head + `<table><thead><tr><th>#</th><th>Answer</th><th>Why</th><th>What wrong answers tell you</th></tr></thead><tbody>${qs.map((q, i) => `<tr><td>${i + 1}</td><td>${q.type === 'tf' ? esc(q.options[q.answer]) : `${'ABCD'[q.answer]} — ${esc(q.options[q.answer])}`}</td><td>${esc(q.explanation)}</td><td>${q.options.map((o, k) => k !== q.answer && q.feedback?.[k] ? `<b>${optLetter(q, k)}</b> ${esc(q.feedback[k])}` : '').filter(Boolean).join('<br>')}</td></tr>`).join('')}</tbody></table>`;
+  if (key) return head + `<table><thead><tr><th>#</th><th>Answer</th><th>Why</th><th>What wrong answers tell you</th></tr></thead><tbody>${qs.map((q, i) => `<tr><td>${i + 1}${q.standard ? `<br><small>${esc(q.standard)}</small>` : ''}</td><td>${q.type === 'tf' ? esc(q.options[q.answer]) : `${'ABCD'[q.answer]} — ${esc(q.options[q.answer])}`}</td><td>${esc(q.explanation)}</td><td>${q.options.map((o, k) => k !== q.answer && q.feedback?.[k] ? `<b>${optLetter(q, k)}</b> ${esc(q.feedback[k])}` : '').filter(Boolean).join('<br>')}</td></tr>`).join('')}</tbody></table>`;
   return head + `<div class="pname"><span>Name: ____________________________</span><span>Date: ____________</span></div>` + qs.map((q, i) => `<div class="pq"><strong>${i + 1}. ${esc(q.stem)}</strong>${q.type === 'tf' ? `<p>☐ True &nbsp;&nbsp; ☐ False</p>` : `<ol>${q.options.map(o => `<li>${esc(o)}</li>`).join('')}</ol>`}<p class="pconf">How sure are you? ☐ Guessing ☐ Fairly sure ☐ Certain</p>${q.reflect ? `<p class="preflect"><em>Reflect:</em> ${esc(q.reflect)}<br>_______________________________________________________</p>` : ''}</div>`).join('')
     + `<div class="pq"><strong>Exit ticket</strong><p>${esc(L.quiz?.reflection || DEFAULT_REFLECTION)}</p><p>_______________________________________________________<br>_______________________________________________________</p></div>`;
 }
@@ -1079,6 +1109,7 @@ function bind() {
   ['#quiz-type', '#quiz-timer', '#quiz-names', '#quiz-level'].forEach(id => { const v = S.settings[id.slice(1)]; if (v != null && $(id).querySelector(`option[value="${v}"]`)) $(id).value = v; $(id).onchange = e => { S.settings[id.slice(1)] = e.target.value; saveSettings(); }; });
   [['#quiz-board', 'quizBoard'], ['#quiz-conf', 'quizConf'], ['#quiz-reflect', 'quizReflect']].forEach(([id, k]) => { if (S.settings[k] != null) $(id).checked = !!S.settings[k]; $(id).onchange = e => { S.settings[k] = e.target.checked; saveSettings(); }; });
   $('#notes-style').onchange = () => { S.settings.notesStyle = $('#notes-style').value; saveSettings(); renderNotesStyleUi(); };
+  $('#notes-subject').innerHTML = subjectOptions(''); $('#notes-subject').onchange = e => setSubject(e.target.value);
   $('#notes-custom').oninput = e => { S.settings.notesCustom = e.target.value; saveSettings(); };
   $('#font-up').onclick = () => { S.settings.capStep = Math.min(CAP_SIZES.length - 1, S.settings.capStep + 1); saveSettings(); renderStageMeta(); };
   $('#font-down').onclick = () => { S.settings.capStep = Math.max(0, S.settings.capStep - 1); saveSettings(); renderStageMeta(); };
@@ -1359,6 +1390,7 @@ The light-dependent reactions are best understood as an energy-conversion pathwa
 async function boot() {
   const saved = (await store.get('settings')) || {};
   S.settings = { ...DEFAULT_SETTINGS, ...saved };
+  if (!S.settings.myName && saved.lecturer) S.settings.myName = saved.lecturer; // older versions kept the user's name here
   const ai = saved.ai || {};
   S.settings.ai = { ...DEFAULT_AI, ...ai, keys: { ...(ai.keys || {}) }, models: { ...(ai.models || {}) }, lists: { ...(ai.lists || {}) }, bases: { ...(ai.bases || {}) }, azure: { ...DEFAULT_AI.azure, ...(ai.azure || {}) } };
   if (!saved.ai && IS_ARTIFACT) S.settings.ai.provider = 'account';
@@ -1846,7 +1878,15 @@ function fileInText(f) {
   const short = c.title.split(/\s+/).slice(0, 4).join(' ');
   return c.kind === 'article' ? `(“${short}”, ${c.year})` : `(*${short}*, ${c.year})`;
 }
-const lecturerOf = L => (L.lecturer || S.settings.lecturer || '').trim();
+/* The person using Didasko: the signed-in account's name, or (signed out) the name they typed once. */
+function myName() {
+  const u = typeof CLOUD !== 'undefined' && CLOUD.user && !CLOUD.user.isAnonymous ? CLOUD.user : null;
+  if (u) return (u.displayName || (u.email || '').split('@')[0] || '').trim();
+  return (S.settings.myName || '').trim();
+}
+/* The notes' author: the signed-in person unless this lecture names someone else. */
+const authorOf = L => (L.author || '').trim() || myName();
+const lecturerOf = L => (L.lecturer || (L.source || L.sample ? '' : myName()) || '').trim();
 const isVideoSrc = L => L.source?.kind === 'video' && !!L.source.url;
 const lectureYear = L => (isVideoSrc(L) && L.source.year) || yearOf(L.createdAt);
 function lectureInText(L) { const w = inTextAuthors([lecturerOf(L)]) || L.course || (isVideoSrc(L) ? L.source.title?.split(/\s+/).slice(0, 4).join(' ') : '') || 'Lecture'; return `(${w}, ${lectureYear(L)})`; }
@@ -1902,7 +1942,7 @@ function composeJournal(L, mla) {
   const sb = splitBody(L.notes?.md || '');
   const full = sb.title || L.title;
   const [t, ...sub] = full.split(/:\s+/);
-  const lecturer = lecturerOf(L), author = (L.author || S.settings.author || '').trim();
+  const lecturer = lecturerOf(L), author = authorOf(L);
   const running = full.replace(/:.*$/, '');
   const src = L.source || {};
   return {
@@ -1957,6 +1997,10 @@ function journalStandalone(L, mla) {
 }
 const apaStandalone = L => journalStandalone(L, false);
 const JOURNAL_CSS = `
+.eq{text-align:center;margin:.5em 0 .9em;font-family:'STIX Two Text','Cambria Math','Times New Roman',serif;font-size:1.12em;line-height:1.6;overflow-x:auto}
+.eq i{font-style:italic}.eq .frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 .12em;font-size:.92em;line-height:1.15}
+.eq .frac>span:first-child{border-bottom:1px solid currentColor;padding:0 .2em}.eq .frac>span:last-child{padding:0 .2em}
+.eq .sqrt>span{border-top:1px solid currentColor;padding:0 .15em}.eq sup,.eq sub{font-size:.7em}
 .jr{--jr-ink:#141414;--jr-mute:#4d4d4d;--jr-rule:#1a1a1a;--jr-link:#1f4e8c;--jr-soft:#f4f4f2;background:#fff;color:var(--jr-ink);max-width:7.4in;margin:0 auto;padding:clamp(22px,6vw,.85in) clamp(18px,6.5vw,1in) clamp(22px,5vw,.7in);font:16.5px/1.52 "STIX Two Text","Times New Roman",Tinos,Times,serif;box-shadow:0 1px 4px rgba(0,0,0,.14);border-radius:2px;overflow-wrap:anywhere;text-rendering:optimizeLegibility}
 .jr *{box-sizing:border-box}
 .jr-run{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;font-size:12.5px;line-height:1.4;padding-bottom:7px;border-bottom:1px solid var(--jr-rule);margin-bottom:clamp(26px,5vw,44px)}
@@ -2155,6 +2199,7 @@ async function buildDocx(blocks, title, opts = {}) {
       case 'section': return `<w:p><w:pPr><w:sectPr>${refs}${b.continuous ? '<w:type w:val="continuous"/>' : ''}${page}<w:cols w:num="${b.cols || 1}" w:space="400"/></w:sectPr></w:pPr></w:p>`;
       case 'ref': return para(docxRuns(runs), '<w:pStyle w:val="Reference"/>');
       case 'quote': return para(docxRuns(runs, jr ? {} : { i: true }), '<w:pStyle w:val="Quote"/>');
+      case 'eq': return para(`<w:r><w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr><w:t xml:space="preserve">${xe(eqText(b.text))}</w:t></w:r>`, '<w:jc w:val="center"/><w:ind w:firstLine="0"/><w:spacing w:before="60" w:after="120"/><w:keepLines/>');
       case 'code': return para(docxRuns([{ text: b.text, code: true }]), '<w:ind w:firstLine="0"/>');
       case 'hr': return para('', '<w:ind w:firstLine="0"/><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="999999"/></w:pBdr>');
       case 'pagebreak': return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
@@ -2250,9 +2295,9 @@ const STYLES = ['apa', 'mla', 'outline', 'kids', 'other'];
 const styleKey = s => STYLE_ALIAS[s] || (STYLES.includes(s) ? s : 'apa');
 const STYLE_LABEL = { apa: 'APA journal article', mla: 'MLA journal article', outline: 'Outline overview', kids: 'Children’s picture book', other: 'Custom output' };
 function styleHint(k) {
-  if (k === 'apa') return 'A research-journal article: the lecture reorganized by theme (not in speaking order), each idea unpacked, with abstract, keywords, numbered sections, a discussion, APA 7 citations and References.';
-  if (k === 'mla') return 'The same research-journal article, with MLA 9 (Author) citations and a Works Cited list.';
-  if (k === 'outline') return 'A quick bulleted overview — main ideas, supporting details and key terms — that’s easy to skim before a test.';
+  if (k === 'apa') return `A research-journal article: the lecture’s own content reorganized by theme (not in speaking order) into clean prose, with abstract, keywords, numbered sections, APA 7 citations and References. Nothing is added beyond the transcript and your files.${isMath(S.lecture) ? ' Math: worked problems are shown step by step.' : ''}`;
+  if (k === 'mla') return `The same research-journal article, with MLA 9 (Author) citations and a Works Cited list. Nothing is added beyond the transcript and your files.${isMath(S.lecture) ? ' Math: worked problems are shown step by step.' : ''}`;
+  if (k === 'outline') return `A quick bulleted overview — main ideas, supporting details and key terms — that’s easy to skim before a test.${isMath(S.lecture) ? ' Math: worked problems are shown step by step.' : ''}`;
   if (k === 'kids') {
     const ip = imageProvider();
     return aiReady() ? `The lecture retold as an 8–10 page picture book for ages 6–9. ${ip ? `Pictures are painted by ${ip === 'gemini' ? 'Gemini' : 'OpenAI'} (${esc(imageModel())}).` : `Pictures are drawn as illustrations by ${esc(prov().label.replace(/ \(.*\)$/, ''))}. For painted pictures, choose Gemini or ChatGPT in Settings.`}` : 'Picture books need an AI model. Choose one in Settings.';
@@ -2269,7 +2314,8 @@ function renderNotesStyleUi() {
 function syncNotesStyle(L) {
   $('#notes-style').value = styleKey(L.notes?.style || S.settings.notesStyle || 'apa');
   $('#notes-custom').value = L.notes?.custom || S.settings.notesCustom || '';
-  renderNotesStyleUi();
+  const ns = $('#notes-subject'); if (ns) { if (!ns.options.length) ns.innerHTML = subjectOptions(''); ns.value = subjectOf(L); }
+  renderNotesStyleUi(); renderStandards();
 }
 
 /* ---- MLA 9 citations ---- */
@@ -2390,7 +2436,14 @@ function renderNotes() {
 /* ---- Journal articles (APA and MLA) are written in two passes:
    1) plan: read the whole transcript and reorganize it into themes, with the definitions, examples and evidence each needs;
    2) write: a fully unpacked article from that plan, structured like a research-journal paper rather than in speaking order. ---- */
-const CLEANUP = 'The transcript comes from speech recognition: it may lack punctuation and contain misheard words, filler words, false starts and digressions. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word. Use only facts supported by the transcript or the materials.';
+const CLEANUP = 'The transcript comes from speech recognition: it may lack punctuation and contain misheard words, filler words, false starts and digressions. Clean these up silently. When a misheard word is obvious from context or from the materials, use the correct word.';
+/* Notes must stay faithful: organize and clarify the sources, never extend them. */
+const FIDELITY = `FIDELITY — the most important rule. Your job is to organize and clearly present what the sources contain, not to add to it.
+- Every statement must come from the transcript or the materials. Do not add facts, definitions, examples, analogies, statistics, background, history, research, implications, applications, opinions or conclusions that the sources do not state — even if they are true and would help.
+- Do not expand, expound on or "unpack" an idea beyond what the speaker or the materials said. If the lecturer mentioned something briefly, present it briefly. Define a term only if the sources define it, and use their definition.
+- You may: reorder and group content by theme; merge repeated points; rewrite speech into clear, complete, grammatical sentences; add headings and short transitions that only signpost what comes next; and summarize. Transitions must not introduce new claims.
+- Keep the speaker's meaning, emphasis and level of certainty. Never resolve an ambiguity by guessing; leave out what you cannot understand.
+- If the sources are short, the output is short. Never pad to reach a length.`;
 function journalPlanSystem({ aud, lang }) {
   return `You are the senior editor of an academic journal. You are planning an article that turns a lecture (its transcript and any course materials) into a well-organized journal article for ${AUDIENCE[aud]}, written in ${lang}.
 ${CLEANUP}
@@ -2399,37 +2452,40 @@ Read the ENTIRE transcript and all materials before planning. Lectures wander: t
 - Work out the lecture's central question and its main argument (thesis).
 - Group everything that belongs together, wherever in the transcript it was said, into 3 to 6 major themes.
 - Order the themes for a reader: background and key definitions first, then the core concepts, mechanisms or frameworks, then applications and examples, then implications, challenges or debates.
-- Within each theme plan 2 to 4 subsections. For each, list the points to make, the concepts that must be defined, the lecturer's examples, evidence or data, any material (F1, F2 …) that supports it, and the transcript timestamps it draws on.
-- Note tensions, misconceptions, limitations and open questions the lecture raised, for a Discussion section.
+- Within each theme plan as many subsections as the content needs (often 1 to 4). For each, list only the points the sources actually make, the definitions the sources give, the lecturer's own examples, evidence or data, any material (F1, F2 …) that supports it, and the transcript timestamps it draws on.
+- Under "discussion", list only connections, tensions, limitations or open questions that the lecturer or the materials themselves raised; leave it empty if there are none. Do not add your own.
 - Every line marked ★KEY POINT must be placed somewhere in the plan.
+- Plan nothing that is not in the sources.
+${FIDELITY}
 Reply with JSON only:
 {"title":"","subtitle":"","thesis":"","keywords":[""],"introduction":{"context":"","problem":"","purpose":""},"sections":[{"heading":"","purpose":"","subsections":[{"heading":"","points":[""],"define":[""],"examples":[""],"materials":["F1"],"timestamps":["12:40"]}]}],"discussion":[""],"conclusion":[""]}`;
 }
-function journalSystem({ aud, lang, sources, mla }) {
+function journalSystem({ aud, lang, sources, mla, target }) {
   const cite = mla
     ? `Citations (MLA 9 in-text): cite the sources below using exactly the forms given, placed before the sentence's final punctuation, e.g. "…from water (Rivera)." For a direct quotation from the lecture add the timestamp, e.g. (Rivera 00:12:40). Do not use page numbers unless the material shows them. Do not write a Works Cited list — it is added automatically.`
     : `Citations (APA 7 in-text): cite the sources below using exactly the in-text forms given, as parenthetical citations at the end of the sentence they support or as narrative citations ("Rivera (2026) argued that…"). For a direct quotation add the timestamp. Do not write a References section — it is added automatically.`;
-  return `You are an expert academic writer and editor. You write a polished research-journal article from a lecture, following the editor's plan you are given. The article should read like a peer-reviewed paper in a journal such as Education and Information Technologies: it organizes ideas thematically, unpacks each one fully, and synthesizes rather than summarizing the lecture in order.
+  return `You are an expert academic editor. You turn a lecture into a well-organized article in the format of a research-journal paper, following the editor's plan you are given. It organizes the lecture's ideas thematically instead of in speaking order, and it presents them in clear academic prose — but it contains only what the lecture and its materials say.
 ${CLEANUP}
+${FIDELITY}
 Write for ${AUDIENCE[aud]}, in ${lang}, in a formal, precise academic register: third person; ${mla ? 'present tense when discussing what the lecture argues ("Rivera explains that…")' : 'past tense for what the lecturer said ("Rivera explained that…")'} and present tense for established facts.
 
 How to write it:
 - Follow the plan's structure and order, not the order of the transcript. If the source is an interview or discussion, write about the ideas and attribute them to the person who expressed them; do not narrate the conversation.
 - Never copy transcript fragments verbatim; rewrite speech into clear, complete sentences. Quote directly only for a short, memorable phrase.
-- Unpack every idea. Define each key concept when it first appears, explain how and why it works, give the lecturer's examples and evidence, connect it to the materials, and say why it matters. Never just list what the lecturer said.
-- Each major section opens with a short framing paragraph that tells the reader what the section covers and how it connects to the article's argument. Each subsection has two to four developed paragraphs of four to seven sentences, with a clear topic sentence and transitions. End subsections with a sentence that links to the next idea.
+- Present each idea completely and in the lecturer's own terms: include the explanation, examples and evidence the lecturer gave and what the materials say about it — and nothing more. Write connected paragraphs rather than lists of what the lecturer said.
+- A major section may open with one sentence saying what it covers. Paragraphs have clear topic sentences; use as many as the content needs and no more.
 - Write in connected prose. Use a numbered list only where the lecture itself set out a defined set of items (for example stages, factors or criteria); introduce it with a full sentence, give each item a short explanation, and use at most two such lists in the whole article. Use a table only if it genuinely clarifies a comparison; put "**Table N**" on its own line and the table title in italic title case on the next line.
 - Bold a key term only the first time it is defined. No bold run-in labels, no Q&A, no "Key Terms" or "Review Questions" sections.
-- Length: about 1,200 words for every 15 minutes of lecture, between 1,500 and 4,500 words in total (shorter if the source is short).
+- Length follows the sources: present all of their content once, clearly. As a guide, ${target || 'keep it concise'}. Shorter is fine; never lengthen by elaboration.
 
 Output GitHub-flavored Markdown in exactly this order:
 1. "# Title: Subtitle" — a concise, informative ${mla ? 'MLA title-case' : 'APA title-case'} title with a subtitle after a colon.
-2. "## Abstract" — one paragraph of 150–250 words: the topic and why it matters, the article's purpose, the main themes in the order they appear, and the key implication.
+2. "## Abstract" — one paragraph of 100–200 words summarizing the topic and the main themes as the lecture presented them.
 3. A line "*Keywords:* " with 4–6 keywords or short phrases separated by commas.
-4. "## Introduction" — three or four paragraphs: the context and background; the problem or question that makes the topic important; the purpose of the article; and a final roadmap sentence that names the sections that follow.
+4. "## Introduction" — one or two paragraphs: the topic, the context and purpose as the lecturer stated them, and a final roadmap sentence naming the sections that follow. Add no outside background.
 5. One "##" section per theme in the plan, each with "###" subsections. Do not number headings — the app numbers them.
-6. "## Discussion" — synthesize across the themes: how the ideas relate, what they mean for students and practice, the misconceptions, limitations or open questions the lecture raised.
-7. "## Conclusion" — one or two paragraphs restating the thesis in light of the article and noting what comes next if the lecture says so.
+6. "## Discussion" — ONLY if the lecture or materials themselves drew connections between the themes or raised implications, limitations or open questions: present those. Otherwise leave this section out entirely.
+7. "## Conclusion" — one short paragraph restating the lecture's main points and noting what comes next only if the lecture says so.
 
 ${cite} Cite the lecture in every major section, and a material wherever its content is used. Do not cite anything else.
 ${sources}
@@ -2446,10 +2502,11 @@ The transcript comes from speech recognition: fix obvious recognition errors sil
 Output GitHub-flavored Markdown in exactly this order:
 1. "# Title" — the lecture's topic.
 2. One sentence in italics summarizing the whole lecture.
-3. "## Big Picture" — two or three bullets on why this matters.
+3. "## Big Picture" — two or three bullets on the lecture's main message, as the lecturer framed it.
 4. One "##" heading per major topic in lecture order. Under each, nested "-" bullets: main idea → supporting details → examples, at most three levels deep. Short phrases, not paragraphs. Bold each key term the first time it appears.
-5. "## Key Terms" — bullets in the form "**Term** — plain-language meaning".
-6. "## Takeaways" — three to five bullets a student should remember.
+5. "## Key Terms" — bullets in the form "**Term** — meaning", using only meanings the sources give (leave out terms the sources don't explain).
+6. "## Takeaways" — three to five bullets restating the lecture's most important points.
+Do not add anything the transcript or materials don't say.
 No citations, no introduction or conclusion paragraphs, nothing after the Takeaways.`;
 }
 function customSystem({ aud, lang, custom, sources }) {
@@ -2458,7 +2515,8 @@ The teacher's request: «${custom}»
 Rules:
 - Produce that output and nothing else: no preface, no notes about what you did.
 - Write in ${lang}, for ${AUDIENCE[aud]} unless the request says otherwise.
-- The transcript comes from speech recognition: fix obvious recognition errors silently. Use only facts supported by the transcript or the materials.
+- The transcript comes from speech recognition: fix obvious recognition errors silently.
+- Use only content from the transcript and materials. Organize and rephrase it as the format needs, but do not extend, elaborate on or add to it unless the teacher's request explicitly asks for that.
 - Use GitHub-flavored Markdown (headings, lists, tables, bold) wherever it suits the requested format. Start with a "# " title.
 - If the requested format normally cites sources, cite them with these APA in-text forms:
 ${sources}`;
@@ -2504,8 +2562,12 @@ async function generateNotes() {
   const sources = !live ? files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${style === 'mla' ? mlaFileInText(f) : fileInText(f)}.`).join('\n') : style === 'mla'
     ? [`- LECTURE — the transcript itself. Cite as ${mlaLectureInText(L)}; for a quotation (${lecT} 00:12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${mlaFileInText(f)}.`)].join('\n')
     : [`- LECTURE — the transcript itself. Cite as ${lectureInText(L)}. For a direct quotation add the timestamp, e.g. (${inTextAuthors([lecturerOf(L)]) || lecT}, ${yearOf(L.createdAt)}, 12:40).`, ...files.map((f, i) => `- F${i + 1} — material "${f.name}". Cite as ${fileInText(f)}.`)].join('\n');
-  const opts = { aud, lang, sources, custom };
+  const srcWords = (live ? speechWords(L) : 0) + Math.round((mat.text || '').split(/\s+/).length * 0.5);
+  const tw = Math.max(250, Math.min(4500, Math.round(srcWords * 0.6 / 50) * 50));
+  const target = `about ${tw.toLocaleString()} words or fewer (the sources contain about ${srcWords.toLocaleString()} words of usable content)`;
+  const opts = { aud, lang, sources, custom, target };
   const system = { apa: apaSystem, mla: mlaSystem, outline: outlineSystem, other: customSystem, kids: kidsSystem }[style](opts)
+    + (isMath(L) && style !== 'kids' ? '\n' + MATH_RULES + (style === 'outline' ? '\nIn the outline, put each worked example under its topic: the "**Worked example**" line as a bullet, then the steps and $$ … $$ equation lines unindented below it.' : '') : '')
     + (live ? (L.source?.kind ? `\nThe transcript comes from a ${L.source.kind === 'video' ? 'video' : 'recording'}${L.source.title ? ` titled “${L.source.title}”` : ''}, transcribed automatically.` : '')
       : '\nIMPORTANT: there is no lecture transcript for this session. Build the whole output from the materials alone. Do not mention or cite a lecture or lecturer; where the instructions above say to cite the lecture, cite the materials instead. In the abstract and introduction, describe the material’s topic rather than a lecture.');
   const user = `${lectureHeader(L)}\nLecturer: ${lecturerOf(L) || '(not given)'}\n\n<transcript>\n${live ? transcriptForPrompt(L) : '(none — use the materials only)'}\n</transcript>${mat.text ? `\n\n<materials>\n${files.map((f, i) => `F${i + 1} = ${f.name}`).join('\n')}\n${mat.text}\n</materials>` : ''}${mat.images.length ? `\n\nAttached images: ${mat.images.map(i => i.name).join(', ')} (photos or slides from the lecture).` : ''}`;
@@ -2515,7 +2577,7 @@ async function generateNotes() {
   if (style === 'apa' || style === 'mla') {
     setNotesBusy(true, 'Reading the whole lecture and planning the article…');
     try {
-      const planText = await callAI({ system: journalPlanSystem(opts), user, images: mat.images, maxTokens: 6000, json: true, signal: notesCtl.signal,
+      const planText = await callAI({ system: journalPlanSystem(opts) + (isMath(L) ? '\nThis is a mathematics lecture: for every problem the lecturer worked through, record the problem and every step in order (with the equation after each step) under "examples", so the writer can show it step by step.' : ''), user, images: mat.images, maxTokens: 6000, json: true, signal: notesCtl.signal,
         onText: t => { const k = (t.match(/"heading"\s*:/g) || []).length; if (k) $('#notes-status-text').textContent = `Planning the article… ${k} section${k === 1 ? '' : 's'} so far`; } });
       const plan = parseJson(planText);
       if (Array.isArray(plan.sections) && plan.sections.length) userMsg = `${user}\n\n<editor_plan>\n${JSON.stringify(plan, null, 1)}\n</editor_plan>\n\nWrite the article now, following the editor's plan.`;
@@ -2685,6 +2747,10 @@ function buildLocalOutline(L, useFiles) {
 
 /* ---- Exports ---- */
 const ND_CSS = `
+.eq{text-align:center;margin:.5em 0 .9em;font-family:'STIX Two Text','Cambria Math','Times New Roman',serif;font-size:1.12em;line-height:1.6;overflow-x:auto}
+.eq i{font-style:italic}.eq .frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 .12em;font-size:.92em;line-height:1.15}
+.eq .frac>span:first-child{border-bottom:1px solid currentColor;padding:0 .2em}.eq .frac>span:last-child{padding:0 .2em}
+.eq .sqrt>span{border-top:1px solid currentColor;padding:0 .15em}.eq sup,.eq sub{font-size:.7em}
 .nd{background:#fff;color:#15201c;max-width:820px;margin:0 auto;padding:clamp(20px,5vw,52px);border-radius:12px;border:1px solid #d6dfdb;font:1.02rem/1.65 Literata,Georgia,serif;overflow-wrap:anywhere}
 .nd-kicker{margin:0 0 .6em;font:700 .74rem/1.3 "Atkinson Hyperlegible",system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:#1d6b57}
 .nd h1{font-size:1.8rem;line-height:1.2;margin:0 0 .4em;text-wrap:balance}
@@ -2787,6 +2853,87 @@ async function exportNotes(t) {
   }
   if (t === 'copy') return copyText(mdToText(formatMarkdown(L)));
 }
+
+/* ================= Subject and state standards (per lecture, optional) =================
+   L.subject: '' | math | science | ela | social | other — "math" turns on step-by-step worked solutions in the notes.
+   L.standards: { state, grade, text } — one standard per line; when present the quiz is aligned to them. */
+const SUBJECTS = [['', 'General / not set'], ['math', 'Mathematics'], ['science', 'Science'], ['ela', 'English language arts'], ['social', 'Social studies / history'], ['other', 'Other subject']];
+const US_STATES = 'Alabama Alaska Arizona Arkansas California Colorado Connecticut Delaware Florida Georgia Hawaii Idaho Illinois Indiana Iowa Kansas Kentucky Louisiana Maine Maryland Massachusetts Michigan Minnesota Mississippi Missouri Montana Nebraska Nevada New_Hampshire New_Jersey New_Mexico New_York North_Carolina North_Dakota Ohio Oklahoma Oregon Pennsylvania Rhode_Island South_Carolina South_Dakota Tennessee Texas Utah Vermont Virginia Washington West_Virginia Wisconsin Wyoming'.split(' ').map(s => s.replace(/_/g, ' '));
+const STD_SETS = ['Common Core State Standards', 'Next Generation Science Standards (NGSS)', 'C3 Framework (social studies)', 'District or school standards'];
+const subjectOf = L => (L && L.subject) || '';
+const isMath = L => subjectOf(L) === 'math';
+const subjectOptions = v => SUBJECTS.map(([k, l]) => `<option value="${k}" ${k === (v || '') ? 'selected' : ''}>${esc(l)}</option>`).join('');
+function setSubject(v) {
+  const L = S.lecture; L.subject = v || ''; saveSoon();
+  $$('[data-subject-select]').forEach(el => { if (el.value !== L.subject) el.value = L.subject; });
+  renderNotesStyleUi(); renderStandards();
+}
+/* Parse "CODE — description" lines; a line without a separator is kept whole as the description. */
+function standardsList(L) {
+  const t = (L.standards && L.standards.text) || '';
+  return t.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 25).map(line => {
+    const m = line.match(/^([A-Za-z0-9][\w.\-–:/()]{0,40}?)\s*(?:—|–|-|:)\s+(.+)$/);
+    return m && /\d|[A-Z]{2,}/.test(m[1]) ? { code: m[1].replace(/[:\s]+$/, ''), text: m[2].trim() } : { code: '', text: line };
+  });
+}
+const stdLabel = s => s.code || (s.text.length > 40 ? s.text.slice(0, 38) + '…' : s.text);
+function standardsForPrompt(L) {
+  const list = standardsList(L); if (!list.length) return '';
+  const st = L.standards || {};
+  return `\n- Align the quiz to these ${[st.state, st.grade].filter(Boolean).join(', ') || ''} learning standards chosen by the teacher. Every question must assess one of them (spread the questions across all of them where the lecture supports it), and set "standard" to that standard's code exactly as written (or its short description when it has no code). Only assess what the lecture or materials actually taught toward each standard; if a standard was not covered, skip it rather than inventing content.
+Standards:
+${list.map(s => `  • ${s.code ? s.code + ' — ' : ''}${s.text}`).join('\n')}`;
+}
+function renderStandards() {
+  const box = $('#quiz-std'); if (!box || !S.lecture) return;
+  const L = S.lecture, st = L.standards || {}, list = standardsList(L);
+  const open = box.querySelector('details')?.open ?? !!list.length;
+  const opts = `<option value="">Choose…</option><optgroup label="Standard sets">${STD_SETS.map(s => `<option ${s === st.state ? 'selected' : ''}>${esc(s)}</option>`).join('')}</optgroup><optgroup label="States">${[...US_STATES, 'District of Columbia'].map(s => `<option ${s === st.state ? 'selected' : ''}>${esc(s)}</option>`).join('')}</optgroup>`;
+  box.innerHTML = `<details ${open ? 'open' : ''}><summary><span class="eyebrow">State standards (optional)</span>${list.length ? `<span class="chip ok">${list.length} standard${list.length > 1 ? 's' : ''} · questions aligned</span>` : '<span class="small muted">Align questions to the standards you teach</span>'}</summary>
+    <div class="grid-2 stack-sm" style="margin-top:10px">
+      <label class="field"><span>State or standard set</span><select id="std-state">${opts}</select></label>
+      <label class="field"><span>Grade or course level</span><input id="std-grade" value="${esc(st.grade || '')}" placeholder="e.g. Grade 7 · Algebra I" autocomplete="off"></label>
+      <label class="field"><span>Subject</span><select id="std-subject" data-subject-select>${subjectOptions(L.subject)}</select></label>
+    </div>
+    <label class="field"><span>Standards — one per line, code then description</span><textarea id="std-text" rows="4" placeholder="7.EE.B.4 — Use variables to represent quantities and construct simple equations to solve problems&#10;MS-LS1-6 — Construct a scientific explanation for the role of photosynthesis">${esc(st.text || '')}</textarea></label>
+    <div class="row"><button class="btn sm" id="std-suggest">${icon('spark')}Suggest from this lecture</button><span class="small muted" id="std-out">Each generated question is tagged with the standard it assesses. Paste standards from your state’s official site for exact wording.</span></div>
+  </details>`;
+  const save = () => { L.standards = { state: $('#std-state', box).value, grade: $('#std-grade', box).value.trim(), text: $('#std-text', box).value }; saveSoon(); const c = box.querySelector('summary'); const n = standardsList(L).length; c.lastElementChild.outerHTML = n ? `<span class="chip ok">${n} standard${n > 1 ? 's' : ''} · questions aligned</span>` : '<span class="small muted">Align questions to the standards you teach</span>'; };
+  $('#std-state', box).onchange = save; $('#std-grade', box).oninput = save; $('#std-text', box).oninput = save;
+  $('#std-subject', box).onchange = e => setSubject(e.target.value);
+  $('#std-suggest', box).onclick = suggestStandards;
+}
+async function suggestStandards() {
+  const L = S.lecture, box = $('#quiz-std'), out = $('#std-out', box), st = L.standards || {};
+  if (!st.state) { out.textContent = 'Choose a state or standard set first.'; $('#std-state', box).focus(); return; }
+  if (!speechSegs(L).length && !L.files.some(f => f.text)) { out.textContent = 'Record or add some lecture content first.'; return; }
+  if (!aiReady()) { openAiSetupSheet('Suggesting standards uses an AI model.', suggestStandards); return; }
+  const btn = $('#std-suggest', box); btn.disabled = true; out.textContent = 'Reading the lecture…';
+  try {
+    const mat = materials('useQuiz');
+    const text = await callAI({
+      json: true, maxTokens: 1500,
+      system: `You are a curriculum specialist in ${st.state}. From a lecture, you identify the official learning standards it addresses. Use ${st.state}${/standards|NGSS|Framework/i.test(st.state) ? '' : '’s currently adopted K-12 standards'} for ${SUBJECTS.find(s => s[0] === subjectOf(L))?.[1] || 'the lecture’s subject'}${st.grade ? `, ${st.grade}` : ''}. Give 2 to 6 standards the lecture clearly teaches toward, most relevant first, with the official code and a short description. Only list standards you are confident exist with that code; if unsure of a code, leave "code" empty. Reply with JSON only: {"standards":[{"code":"","text":""}]}`,
+      user: `${lectureHeader(L)}\n\n<transcript>\n${transcriptForPrompt(L).slice(0, 30000)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text.slice(0, 12000)}\n</materials>` : ''}`
+    });
+    const list = (parseJson(text).standards || []).filter(s => s && s.text).slice(0, 6);
+    if (!list.length) throw new Error('No matching standards were found. Add them yourself.');
+    const add = list.map(s => `${s.code ? String(s.code).trim() + ' — ' : ''}${String(s.text).trim()}`).join('\n');
+    L.standards = { ...st, text: [(st.text || '').trim(), add].filter(Boolean).join('\n') };
+    saveSoon(); renderStandards();
+    $('#std-out', $('#quiz-std')).textContent = 'Suggestions added. Check each code against your state’s official list before using them.';
+  } catch (e) { out.textContent = e.message === 'NO_AI' ? 'Connect an AI model first.' : e.message; btn.disabled = false; }
+}
+
+/* Worked solutions for mathematics lectures. Equations go on their own "$$ … $$" lines so every format can display them. */
+const MATH_RULES = `
+This is a MATHEMATICS lecture. Whenever the transcript or materials work through a problem, present it as a worked example the reader can follow step by step:
+- Start with a line "**Worked example: <short description>**", then state the problem exactly as given.
+- Then numbered steps, each as its own paragraph starting "**Step N.**" with a short reason in words (for example "Subtract 3 from both sides."), followed on the next line by the resulting equation on its own line written between double dollar signs, e.g. "$$2x = 8$$".
+- Write math in simple LaTeX inside the $$ … $$ lines only (\\frac{a}{b}, x^{2}, \\sqrt{x}, \\times, \\div, \\le, \\ge, \\neq, \\pi). In ordinary sentences write math as plain text (x², 3/4), never with single dollar signs.
+- End with "**Solution.**" and the answer, and "**Check.**" only if the lecturer checked it.
+- Show every algebraic step the lecturer performed, and make an implied step explicit only when it is pure arithmetic or algebra on the lecturer's own problem. Use only the problems, methods and numbers that appear in the transcript or materials — never invent new practice problems or alternative methods.`;
+const MATH_QUIZ = '\n- This is a mathematics lecture: include questions that ask students to choose the correct next step, find the error in a worked solution, or pick the right method — using the lecture\'s own problem types. Write math in plain text (x², √x, 3/4).';
 
 /* ================= Recordings and video links → transcript =================
    Lets a teacher start from an audio/video recording or a YouTube link instead of live captions.
@@ -3011,7 +3158,6 @@ async function onAuth(user) {
   if (uid === authUid) return;
   const was = authUid; authUid = uid;
   if (uid) {
-    if (!S.settings.lecturer && user.displayName) { S.settings.lecturer = user.displayName; saveSettings(); }
     await loadLibrary(uid, was === null);
   } else if (was) {
     await clearScope(was); CLOUD.scope = 'guest';
@@ -3238,9 +3384,10 @@ function openLectureSheet(focusLecturer) {
     <div class="grid-2 stack-sm">
       <label class="field"><span>Title</span><input id="lec-title" value="${esc(L.title)}" autocomplete="off"></label>
       <label class="field"><span>Course / section</span><input id="lec-course" value="${esc(L.course)}" placeholder="e.g. BIO 110: Introductory Biology" autocomplete="off"></label>
-      <label class="field"><span>Lecturer or speaker — a person’s name (cited as the source)</span><input id="lec-lecturer" value="${esc(L.lecturer || S.settings.lecturer || '')}" placeholder="e.g. Micah Shippee" autocomplete="name"></label>
+      <label class="field"><span>Lecturer or speaker — a person’s name (cited as the source)</span><input id="lec-lecturer" value="${esc(lecturerOf(L))}" placeholder="e.g. Dr. Jordan Lee" autocomplete="name"></label>
       <label class="field"><span>Institution</span><input id="lec-inst" value="${esc(L.institution || S.settings.institution || '')}" placeholder="e.g. State University" autocomplete="organization"></label>
-      <label class="field"><span>Notes prepared by (optional)</span><input id="lec-author" value="${esc(L.author || S.settings.author || '')}" placeholder="e.g. a TA or note-taker" autocomplete="off"></label>
+      <label class="field"><span>${isSignedIn() ? 'Notes author — your account name' : 'Notes author (optional)'}</span><input id="lec-author" value="${esc(authorOf(L))}" placeholder="${isSignedIn() ? '' : 'Your name'}" autocomplete="name">${isSignedIn() ? '<small class="muted">Change it only if someone else prepared these notes. Your dashboard keeps your account name.</small>' : ''}</label>
+      <label class="field"><span>Subject</span><select id="lec-subject" data-subject-select>${subjectOptions(L.subject)}</select></label>
       <label class="field"><span>Lecture date</span><input id="lec-date" type="date" value="${new Date(L.createdAt - new Date(L.createdAt).getTimezoneOffset() * 60000).toISOString().slice(0, 10)}"></label>
     </div>
     <p class="small muted" style="margin:0" id="lec-cite-prev"></p>
@@ -3251,14 +3398,18 @@ function openLectureSheet(focusLecturer) {
       const prev = () => { $('#lec-cite-prev', sh).innerHTML = `Reference entry: ${inl(lectureRef(L, L.notes?.lectureTitle))}`; };
       const upd = () => {
         L.title = $('#lec-title', sh).value.trim() || 'Untitled lecture'; L.course = $('#lec-course', sh).value.trim();
-        L.lecturer = $('#lec-lecturer', sh).value.trim(); L.institution = $('#lec-inst', sh).value.trim(); L.author = $('#lec-author', sh).value.trim();
+        L.lecturer = $('#lec-lecturer', sh).value.trim(); L.institution = $('#lec-inst', sh).value.trim();
+        const au = $('#lec-author', sh).value.trim(); L.author = au && au !== myName() ? au : '';
         const d = $('#lec-date', sh).value; if (d) { const [y, mo, da] = d.split('-').map(Number); const t = new Date(L.createdAt); t.setFullYear(y, mo - 1, da); L.createdAt = t.getTime(); }
-        if (L.lecturer) S.settings.lecturer = L.lecturer; if (L.institution) S.settings.institution = L.institution; if (L.author) S.settings.author = L.author; saveSettings();
+        if (L.institution) S.settings.institution = L.institution;
+        if (!isSignedIn() && !S.settings.myName && au) S.settings.myName = au;
+        saveSettings();
         if (L.notes) L.notes.lectureTitle = null;
         renderHeader(); saveSoon(); prev(); if (S.view === 'notes') renderNotes();
         if (S.view === 'home') renderHomeList();
       };
       ['#lec-title', '#lec-course', '#lec-lecturer', '#lec-inst', '#lec-author', '#lec-date'].forEach(id => { $(id, sh).oninput = upd; });
+      $('#lec-subject', sh).onchange = e => setSubject(e.target.value);
       prev();
       if (focusLecturer) setTimeout(() => $('#lec-lecturer', sh).focus(), 60);
       $('#lec-new', sh).onclick = () => { closeSheet(); openNewLectureSheet(); };
@@ -3445,7 +3596,7 @@ function homeStats(list) {
 }
 function setupSteps() {
   const steps = [];
-  steps.push({ id: 'name', done: !!S.settings.lecturer, label: 'Add your name and school', sub: 'Used to cite your lectures in the notes.' });
+  if (!isSignedIn()) steps.push({ id: 'name', done: !!myName(), label: 'Add your name (optional)', sub: 'Shown as the author of your notes. Signing in fills this in for you.' });
   steps.push({ id: 'ai', done: aiReady(), label: 'Choose an AI model', sub: 'Unlocks written articles, picture books and scenario quizzes. Several are free.' });
   if (cloudConfigured()) steps.push({ id: 'account', done: isSignedIn(), label: 'Sign in to keep a library', sub: 'Save every lecture and open it on any device.' });
   return steps;
@@ -3499,7 +3650,7 @@ function renderHomeList() {
 function renderHome() {
   const root = $('#home'); if (!root || !S.lecture) return;
   const list = homeLectures();
-  const name = firstName(S.settings.lecturer || (isSignedIn() ? CLOUD.user.displayName : '') || '');
+  const name = firstName(myName());
   const courses = [...new Set(list.map(m => m.course).filter(Boolean))];
   if (S.ui.homeCourse && !courses.includes(S.ui.homeCourse)) S.ui.homeCourse = '';
   const steps = setupSteps(), open = steps.filter(s => !s.done);
@@ -3537,7 +3688,7 @@ function renderHome() {
   const gl = $('#home-golive'); if (gl) gl.onclick = () => showView('live');
   $('#home-q').oninput = e => { S.ui.homeQ = e.target.value; renderHomeList(); };
   $$('.cchip', root).forEach(b => b.onclick = () => { S.ui.homeCourse = b.dataset.course; renderHome(); });
-  $$('.setup-step', root).forEach(b => b.onclick = () => { const s = b.dataset.step; if (s === 'name') openLectureSheet(true); else if (s === 'ai') openSettings(); else openAccountSheet(); });
+  $$('.setup-step', root).forEach(b => b.onclick = () => { const s = b.dataset.step; if (s === 'name') openNameSheet(); else if (s === 'ai') openSettings(); else openAccountSheet(); });
   $('#home-list').onclick = async e => {
     const b = e.target.closest('[data-open]'); if (!b) return;
     const id = b.closest('.lec-card').dataset.lid, view = b.dataset.open;
@@ -3562,6 +3713,7 @@ function openNewLectureSheet(startFrom) {
     <label class="field"><span>Title</span><input id="nl-title" placeholder="${esc(newLecture().title)}" autocomplete="off"></label>
     <div class="grid-2 stack-sm">
       <label class="field"><span>Course / section</span><input id="nl-course" list="nl-courses" value="${esc(L.course && !L.sample ? L.course : '')}" placeholder="e.g. BIO 110: Introductory Biology" autocomplete="off"><datalist id="nl-courses">${courses.map(c => `<option value="${esc(c)}"></option>`).join('')}</datalist></label>
+      <label class="field"><span>Subject</span><select id="nl-subject">${subjectOptions(L.sample ? '' : L.subject)}</select></label>
       <label class="field"><span>Language</span><select id="nl-lang">${SRC_LANGS.map(([c, l]) => `<option value="${c}" ${c === S.settings.srcLang ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
     </div>
     <div id="nl-mode"></div>
@@ -3590,7 +3742,7 @@ function openNewLectureSheet(startFrom) {
         await saveNow();
         const typed = $('#nl-title', sh).value.trim();
         const n = newLecture(typed || (mode === 'recording' ? file.name.replace(/\.[^.]+$/, '') : mode === 'paper' ? docs[0].name.replace(/\.[^.]+$/, '') : undefined));
-        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : (S.settings.lecturer || (L.sample ? '' : L.lecturer) || ''); n.institution = S.settings.institution || (L.sample ? '' : L.institution) || ''; n.author = L.sample ? '' : (L.author || '');
+        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : myName(); n.institution = S.settings.institution || (L.sample ? '' : L.institution) || ''; n.author = ''; n.subject = $('#nl-subject', sh).value;
         const lang = $('#nl-lang', sh).value;
         if (lang !== S.settings.srcLang) { S.settings.srcLang = lang; saveSettings(); TR.engineCache.clear(); $('#src-lang').value = lang; renderEngineNote(); }
         if (locked) await deleteLecture(L.id);
@@ -3607,6 +3759,18 @@ function openNewLectureSheet(startFrom) {
     });
 }
 
+/* Signed-out users can give their name once; signed-in users always use their account name. */
+function openNameSheet() {
+  openSheet('Your name', `
+    <p class="small muted" style="margin:0">Optional. Your name appears as the author of the notes you make. ${cloudConfigured() ? 'If you sign in, your account name is used instead.' : ''}</p>
+    <label class="field"><span>Your name</span><input id="nm-name" value="${esc(S.settings.myName || '')}" autocomplete="name" placeholder="e.g. Dr. Jordan Lee"></label>
+    <label class="field"><span>School or institution (optional)</span><input id="nm-inst" value="${esc(S.settings.institution || '')}" autocomplete="organization"></label>
+    <div class="row"><button class="btn primary" id="nm-save">Save</button>${cloudConfigured() ? '<button class="btn ghost" data-signin>Sign in instead</button>' : ''}</div>`,
+    sh => {
+      $('#nm-save', sh).onclick = () => { S.settings.myName = $('#nm-name', sh).value.trim(); S.settings.institution = $('#nm-inst', sh).value.trim(); saveSettings(); closeSheet(); renderHeader(); if (S.view === 'home') renderHome(); if (S.view === 'notes') renderNotes(); };
+    });
+}
+
 /* ================= Live sessions (presenter side) =================
    sessions/{CODE}: host, active, title, captions/{id}, interim, participants/{uid}, quiz, reveal/{i}, responses/{i}/{uid}, scores/{uid} */
 const LIVE = { code: null, ref: null, people: {}, langs: new Set(), offs: [], showQR: false, interimAt: 0, interimTimer: null, q: null };
@@ -3617,7 +3781,6 @@ function joinUrl(code, quiz) {
   const base = (CFG.appUrl || (location.origin + location.pathname)).replace(/index\.html?$/, '');
   return `${base}?join=${code}${quiz ? '&quiz=1' : ''}`;
 }
-const shortUrl = u => u.replace(/^https?:\/\//, '').replace(/\/?\?join=/, '/?join=');
 async function qrSvg(text) {
   try {
     const qr = (await lib('qr'))(0, 'M'); qr.addData(text); qr.make();
@@ -3700,7 +3863,7 @@ async function renderStageQR() {
   if (!LIVE.code || !LIVE.showQR) { box.hidden = true; return; }
   const url = joinUrl(LIVE.code);
   box.hidden = false;
-  box.innerHTML = `<div class="qr-wrap">${await qrSvg(url)}</div><div><div class="qr-code mono">${LIVE.code}</div><div class="qr-url">${esc(shortUrl(url))}</div><div class="qr-hint">Scan for captions in your language</div></div>`;
+  box.innerHTML = `<div class="qr-wrap">${await qrSvg(url)}</div><div><div class="qr-code mono">${LIVE.code}</div><div class="qr-hint">Scan for captions in your language</div></div>`;
 }
 async function openShareSheet() {
   if (!LIVE.code) { const ok = await startSharing(); if (!ok) return; }
@@ -3708,8 +3871,8 @@ async function openShareSheet() {
   openSheet('Students join here', `
     <div class="share-hero"><div class="qr-wrap big">${await qrSvg(url)}</div>
       <div class="share-info"><span class="eyebrow">Join code</span><div class="qr-code mono">${LIVE.code}</div>
-      <span class="eyebrow">Or open</span><div class="share-url mono" id="share-url">${esc(url)}</div>
-      <div class="row"><button class="btn sm" id="share-copy">${icon('copy')}Copy link</button></div></div></div>
+      <span class="eyebrow">Or send students the link</span>
+      <div class="row"><button class="btn sm" id="share-copy">${icon('copy')}Copy join link</button></div></div></div>
     <p class="small muted" style="margin:0">Students scan the code, choose a language, and see your captions live. No account or app install needed. Translations use this device’s AI model, so each extra language adds a little usage.</p>
     <div class="row"><button class="btn primary" id="share-show">${LIVE.showQR ? 'Hide' : 'Show'} code on the caption screen</button><button class="btn ghost danger" id="share-stop">Stop sharing</button></div>`,
     sh => {
@@ -3820,6 +3983,15 @@ function podium(q) {
   const runners = ranked.filter(([, s]) => s < top).slice(0, 2).map(([pid, s]) => ({ pid, name: nm(pid), score: s }));
   return { winners, runners };
 }
+/* The teacher can stop at any point: the current question is scored, the run is saved, and the winner is shown. */
+async function finishNow() {
+  const q = LIVE.q; if (!q || q.state === 'celebrate') return;
+  if (q.state === 'question') await reveal();
+  clearInterval(q.timer); q.off && q.off();
+  if (!q.saved) { saveQuizRun(q); q.saved = true; }
+  q.stoppedEarly = Object.keys(q.results).length < q.qs.length;
+  await celebrate();
+}
 async function celebrate() {
   const q = LIVE.q; q.state = 'celebrate';
   const { winners, runners } = podium(q);
@@ -3884,9 +4056,10 @@ async function renderLiveQuiz() {
   const stateLabel = { lobby: 'Live quiz · lobby', reflect: 'Exit ticket', ended: 'Review' }[q.state] || `Question ${q.i + 1} of ${q.qs.length}`;
   const top = `<div class="present-top"><span class="count">${stateLabel} · ${n} connected · code <b class="mono">${LIVE.code}</b></span><button class="btn sm" id="lq-close">${icon('close')}Close</button></div>`;
   let body = '', nav = '';
+  const finishBtn = `<button class="btn ghost" id="lq-finish">${icon('trophy')}End quiz &amp; show winner</button>`;
   if (q.state === 'lobby') {
     body = `<div class="lobby"><div class="qr-wrap big">${await qrSvg(url)}</div>
-      <div class="lobby-info"><span class="eyebrow">Join at</span><div class="share-url mono">${esc(shortUrl(url))}</div><span class="eyebrow">Code</span><div class="qr-code mono">${LIVE.code}</div>
+      <div class="lobby-info"><span class="eyebrow">Scan to join · code</span><div class="qr-code mono">${LIVE.code}</div>
       <p class="present-explain">${q.nameMode === 'ask' ? 'Students type their name when they join.' : 'Each student is given a color-and-animal name.'} ${q.duration ? `${q.duration} seconds per question.` : 'No time limit.'} ${q.qs.length} questions${q.reflection ? ', then a short reflection' : ''}.</p></div></div>
       ${q.showBoard ? '' : `<ul class="names">${people.map(([, p]) => `<li style="--c:${colorHex(p.color)}">${esc(displayName(p, q.nameMode))}</li>`).join('') || '<li class="muted-li">Waiting for students…</li>'}</ul>`}`;
     nav = `<button class="btn primary" id="lq-start" ${n ? '' : 'disabled'}>Start quiz</button>`;
@@ -3900,22 +4073,23 @@ async function renderLiveQuiz() {
       ${rv ? `<p class="present-explain"><b>${resp.length ? Math.round(counts[item.answer] / resp.length * 100) : 0}% correct</b> · ${resp.length} answered${item.explanation ? ` · ${esc(item.explanation)}` : ''}</p>${revealInsights(q, item)}`
         : `<p class="present-explain"><b>${resp.length}</b> of ${n} answered${q.conf ? ' · students also rate how sure they are' : ''}</p>`}`;
     const last = q.i >= q.qs.length - 1;
-    nav = rv ? (!last ? `<button class="btn primary" id="lq-next">Next question</button>` : q.reflection ? `<button class="btn primary" id="lq-reflect">Exit ticket</button>` : `<button class="btn primary" id="lq-end">Review results</button>`) : `<button class="btn" id="lq-reveal">Reveal answer now</button>`;
+    nav = (rv ? (!last ? `<button class="btn primary" id="lq-next">Next question</button>` : q.reflection ? `<button class="btn primary" id="lq-reflect">Exit ticket</button>` : `<button class="btn primary" id="lq-end">Review results</button>`) : `<button class="btn" id="lq-reveal">Reveal answer now</button>`) + (last && rv ? '' : finishBtn);
   } else if (q.state === 'reflect') {
     const refl = Object.values(LIVE.people).map(p => p.reflect).filter(r => r && String(r).trim());
     body = `<span class="eyebrow">Reflect on your learning</span><h2 class="present-stem">${esc(q.reflection)}</h2>
       <p class="present-explain"><b>${refl.length}</b> of ${n} reflections in · shown without names</p>
       <ul class="reflections">${refl.slice(-24).reverse().map(r => `<li>${esc(String(r).slice(0, 280))}</li>`).join('') || '<li class="muted-li">Students are writing…</li>'}</ul>`;
-    nav = `<button class="btn primary" id="lq-end">Review results</button>`;
+    nav = `<button class="btn primary" id="lq-end">Review results</button>${finishBtn}`;
   } else if (q.state === 'ended') {
     const rows = q.qs.map((item, i) => {
+      if (!q.results[i]) return '';
       const res = Object.entries(q.results[i] || {}); const pct = res.length ? Math.round(res.filter(([, x]) => x.c === item.answer).length / res.length * 100) : 0;
       const sure = res.filter(([pid, x]) => x.c !== item.answer && confOf(pid, i) === 2).length;
       return `<li><span class="mono">${pad(i + 1)}</span><span class="grow">${esc(item.stem.slice(0, 90))}${item.stem.length > 90 ? '…' : ''}${sure ? ` <span class="flag" title="Students who were certain but wrong">⚠ ${sure} certain but wrong</span>` : ''}</span><span class="pct-track"><span style="width:${pct}%;${pct < 60 ? 'background:#f0b84a' : ''}"></span></span><b class="mono">${pct}%</b></li>`;
     }).join('');
     const all = Object.entries(q.results).flatMap(([i, res]) => Object.values(res || {}).map(r => r.c === q.qs[+i]?.answer));
     const avg = all.length ? Math.round(all.filter(Boolean).length / all.length * 100) : 0;
-    const reteach = q.qs.map((item, i) => { const r = Object.values(q.results[i] || {}); return { i, pct: r.length ? r.filter(x => x.c === item.answer).length / r.length : 1 }; }).filter(x => x.pct < .6).map(x => x.i + 1);
+    const reteach = q.qs.map((item, i) => { if (!q.results[i]) return { i, pct: 1 }; const r = Object.values(q.results[i] || {}); return { i, pct: r.length ? r.filter(x => x.c === item.answer).length / r.length : 1 }; }).filter(x => x.pct < .6).map(x => x.i + 1);
     body = `<h2 class="present-stem">Class average: ${avg}% correct</h2>
       ${reteach.length ? `<p class="present-explain">Consider revisiting question${reteach.length > 1 ? 's' : ''} ${reteach.join(', ')} — fewer than 60% of the class chose the best answer.</p>` : `<p class="present-explain">Every question was answered correctly by most of the class.</p>`}
       <ul class="qstats">${rows}</ul><p class="present-explain small">Results, confidence ratings and reflections are saved with this lecture. Download them for your gradebook or to plan reteaching.</p>`;
@@ -3932,6 +4106,7 @@ async function renderLiveQuiz() {
   if (b('#lq-reflect')) b('#lq-reflect').onclick = startReflection;
   if (b('#lq-end')) b('#lq-end').onclick = endQuiz;
   if (b('#lq-celebrate')) b('#lq-celebrate').onclick = celebrate;
+  if (b('#lq-finish')) twoStep(b('#lq-finish'), 'Tap again to end now', finishNow);
   if (b('#lq-csv')) b('#lq-csv').onclick = () => saveFile(slug(S.lecture.title) + '-quiz-results.csv', quizResultsCsv(q), 'text/csv');
   if (b('#lq-again')) b('#lq-again').onclick = () => { closeLiveQuiz(true); openLiveQuiz(); };
   updateCountdown();
@@ -3941,7 +4116,8 @@ async function renderCelebrateScreen(ov, q) {
   const { winners, runners } = q.podium || podium(q);
   const w = winners[0];
   const correct = w ? q.qs.filter((item, i) => q.results[i]?.[w.pid]?.c === item.answer).length : 0;
-  const sub = w ? `${w.score.toLocaleString()} points · ${correct} of ${q.qs.length} correct` : 'Thanks for taking part in today’s quiz.';
+  const asked = Object.keys(q.results).length || q.qs.length;
+  const sub = w ? `${w.score.toLocaleString()} points · ${correct} of ${asked} correct` : 'Thanks for taking part in today’s quiz.';
   ov.innerHTML = `<div class="cele-host" id="cele-host"></div><div class="cele-actions"><button class="btn sm" id="lq-back">Back to review</button><button class="btn sm" id="lq-close">${icon('close')}Close</button></div>`;
   $('#lq-back', ov).onclick = async () => { q.state = 'ended'; stopCelebration(); await LIVE.ref.child('quiz/state').set('ended').catch(() => {}); renderLiveQuiz(); };
   $('#lq-close', ov).onclick = () => closeLiveQuiz();
@@ -4325,8 +4501,8 @@ function renderPQuiz() {
     return;
   }
   if (q.state === 'ended' || q.state === 'celebrate') {
-    const n = q.total || 0; let correct = 0;
-    for (let i = 0; i < n; i++) if (P.reveals[i] && P.myAnswers[i] === P.reveals[i].answer) correct++;
+    const asked = Object.keys(P.reveals || {}).length, n = asked || q.total || 0; let correct = 0;
+    for (let i = 0; i < (q.total || n); i++) if (P.reveals[i] && P.myAnswers[i] === P.reveals[i].answer) correct++;
     const { rank, of } = pRank();
     box.innerHTML = `<div class="p-empty">${meChip}<h2>Quiz complete</h2><p class="p-score"><b>${correct}</b> of ${n} correct${q.showBoard ? ` · ${(P.myScore || 0).toLocaleString()} points · #${rank} of ${of}` : ''}</p><p>Thanks for taking part. Your teacher has your results.</p></div>`;
     if (q.state === 'celebrate' && !P.celeDismissed) showPCelebration(q);

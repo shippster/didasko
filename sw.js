@@ -1,5 +1,5 @@
 /* Didasko service worker: app shell offline, fonts and file-reader libraries cached on first use. */
-const VERSION = 'didasko-v3.3.0';
+const VERSION = 'didasko-v3.4.0';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 const RUNTIME_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'www.gstatic.com'];

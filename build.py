@@ -3,7 +3,7 @@ import re, shutil, pathlib
 root = pathlib.Path(__file__).parent
 html = (root/'index.html').read_text()
 css = (root/'styles.css').read_text()
-ORDER = ['main.js', 'ai.js', 'apa.js', 'formats.js', 'media.js', 'cloud.js', 'settings.js', 'home.js', 'live.js', 'celebrate.js', 'participant.js']
+ORDER = ['main.js', 'ai.js', 'apa.js', 'formats.js', 'standards.js', 'media.js', 'cloud.js', 'settings.js', 'home.js', 'live.js', 'celebrate.js', 'participant.js']
 js = "/* Didasko — live captions, translation, APA notes, live quizzes. Built from src/ by build.py. */\n(() => {\n'use strict';\n" + '\n'.join((root/'src'/f).read_text() for f in ORDER) + "\nboot();\n})();\n"
 (root/'app.js').write_text(js)
 cfg = (root/'config.js').read_text()

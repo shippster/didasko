@@ -8,7 +8,6 @@ function joinUrl(code, quiz) {
   const base = (CFG.appUrl || (location.origin + location.pathname)).replace(/index\.html?$/, '');
   return `${base}?join=${code}${quiz ? '&quiz=1' : ''}`;
 }
-const shortUrl = u => u.replace(/^https?:\/\//, '').replace(/\/?\?join=/, '/?join=');
 async function qrSvg(text) {
   try {
     const qr = (await lib('qr'))(0, 'M'); qr.addData(text); qr.make();
@@ -91,7 +90,7 @@ async function renderStageQR() {
   if (!LIVE.code || !LIVE.showQR) { box.hidden = true; return; }
   const url = joinUrl(LIVE.code);
   box.hidden = false;
-  box.innerHTML = `<div class="qr-wrap">${await qrSvg(url)}</div><div><div class="qr-code mono">${LIVE.code}</div><div class="qr-url">${esc(shortUrl(url))}</div><div class="qr-hint">Scan for captions in your language</div></div>`;
+  box.innerHTML = `<div class="qr-wrap">${await qrSvg(url)}</div><div><div class="qr-code mono">${LIVE.code}</div><div class="qr-hint">Scan for captions in your language</div></div>`;
 }
 async function openShareSheet() {
   if (!LIVE.code) { const ok = await startSharing(); if (!ok) return; }
@@ -99,8 +98,8 @@ async function openShareSheet() {
   openSheet('Students join here', `
     <div class="share-hero"><div class="qr-wrap big">${await qrSvg(url)}</div>
       <div class="share-info"><span class="eyebrow">Join code</span><div class="qr-code mono">${LIVE.code}</div>
-      <span class="eyebrow">Or open</span><div class="share-url mono" id="share-url">${esc(url)}</div>
-      <div class="row"><button class="btn sm" id="share-copy">${icon('copy')}Copy link</button></div></div></div>
+      <span class="eyebrow">Or send students the link</span>
+      <div class="row"><button class="btn sm" id="share-copy">${icon('copy')}Copy join link</button></div></div></div>
     <p class="small muted" style="margin:0">Students scan the code, choose a language, and see your captions live. No account or app install needed. Translations use this device’s AI model, so each extra language adds a little usage.</p>
     <div class="row"><button class="btn primary" id="share-show">${LIVE.showQR ? 'Hide' : 'Show'} code on the caption screen</button><button class="btn ghost danger" id="share-stop">Stop sharing</button></div>`,
     sh => {
@@ -211,6 +210,15 @@ function podium(q) {
   const runners = ranked.filter(([, s]) => s < top).slice(0, 2).map(([pid, s]) => ({ pid, name: nm(pid), score: s }));
   return { winners, runners };
 }
+/* The teacher can stop at any point: the current question is scored, the run is saved, and the winner is shown. */
+async function finishNow() {
+  const q = LIVE.q; if (!q || q.state === 'celebrate') return;
+  if (q.state === 'question') await reveal();
+  clearInterval(q.timer); q.off && q.off();
+  if (!q.saved) { saveQuizRun(q); q.saved = true; }
+  q.stoppedEarly = Object.keys(q.results).length < q.qs.length;
+  await celebrate();
+}
 async function celebrate() {
   const q = LIVE.q; q.state = 'celebrate';
   const { winners, runners } = podium(q);
@@ -275,9 +283,10 @@ async function renderLiveQuiz() {
   const stateLabel = { lobby: 'Live quiz · lobby', reflect: 'Exit ticket', ended: 'Review' }[q.state] || `Question ${q.i + 1} of ${q.qs.length}`;
   const top = `<div class="present-top"><span class="count">${stateLabel} · ${n} connected · code <b class="mono">${LIVE.code}</b></span><button class="btn sm" id="lq-close">${icon('close')}Close</button></div>`;
   let body = '', nav = '';
+  const finishBtn = `<button class="btn ghost" id="lq-finish">${icon('trophy')}End quiz &amp; show winner</button>`;
   if (q.state === 'lobby') {
     body = `<div class="lobby"><div class="qr-wrap big">${await qrSvg(url)}</div>
-      <div class="lobby-info"><span class="eyebrow">Join at</span><div class="share-url mono">${esc(shortUrl(url))}</div><span class="eyebrow">Code</span><div class="qr-code mono">${LIVE.code}</div>
+      <div class="lobby-info"><span class="eyebrow">Scan to join · code</span><div class="qr-code mono">${LIVE.code}</div>
       <p class="present-explain">${q.nameMode === 'ask' ? 'Students type their name when they join.' : 'Each student is given a color-and-animal name.'} ${q.duration ? `${q.duration} seconds per question.` : 'No time limit.'} ${q.qs.length} questions${q.reflection ? ', then a short reflection' : ''}.</p></div></div>
       ${q.showBoard ? '' : `<ul class="names">${people.map(([, p]) => `<li style="--c:${colorHex(p.color)}">${esc(displayName(p, q.nameMode))}</li>`).join('') || '<li class="muted-li">Waiting for students…</li>'}</ul>`}`;
     nav = `<button class="btn primary" id="lq-start" ${n ? '' : 'disabled'}>Start quiz</button>`;
@@ -291,22 +300,23 @@ async function renderLiveQuiz() {
       ${rv ? `<p class="present-explain"><b>${resp.length ? Math.round(counts[item.answer] / resp.length * 100) : 0}% correct</b> · ${resp.length} answered${item.explanation ? ` · ${esc(item.explanation)}` : ''}</p>${revealInsights(q, item)}`
         : `<p class="present-explain"><b>${resp.length}</b> of ${n} answered${q.conf ? ' · students also rate how sure they are' : ''}</p>`}`;
     const last = q.i >= q.qs.length - 1;
-    nav = rv ? (!last ? `<button class="btn primary" id="lq-next">Next question</button>` : q.reflection ? `<button class="btn primary" id="lq-reflect">Exit ticket</button>` : `<button class="btn primary" id="lq-end">Review results</button>`) : `<button class="btn" id="lq-reveal">Reveal answer now</button>`;
+    nav = (rv ? (!last ? `<button class="btn primary" id="lq-next">Next question</button>` : q.reflection ? `<button class="btn primary" id="lq-reflect">Exit ticket</button>` : `<button class="btn primary" id="lq-end">Review results</button>`) : `<button class="btn" id="lq-reveal">Reveal answer now</button>`) + (last && rv ? '' : finishBtn);
   } else if (q.state === 'reflect') {
     const refl = Object.values(LIVE.people).map(p => p.reflect).filter(r => r && String(r).trim());
     body = `<span class="eyebrow">Reflect on your learning</span><h2 class="present-stem">${esc(q.reflection)}</h2>
       <p class="present-explain"><b>${refl.length}</b> of ${n} reflections in · shown without names</p>
       <ul class="reflections">${refl.slice(-24).reverse().map(r => `<li>${esc(String(r).slice(0, 280))}</li>`).join('') || '<li class="muted-li">Students are writing…</li>'}</ul>`;
-    nav = `<button class="btn primary" id="lq-end">Review results</button>`;
+    nav = `<button class="btn primary" id="lq-end">Review results</button>${finishBtn}`;
   } else if (q.state === 'ended') {
     const rows = q.qs.map((item, i) => {
+      if (!q.results[i]) return '';
       const res = Object.entries(q.results[i] || {}); const pct = res.length ? Math.round(res.filter(([, x]) => x.c === item.answer).length / res.length * 100) : 0;
       const sure = res.filter(([pid, x]) => x.c !== item.answer && confOf(pid, i) === 2).length;
       return `<li><span class="mono">${pad(i + 1)}</span><span class="grow">${esc(item.stem.slice(0, 90))}${item.stem.length > 90 ? '…' : ''}${sure ? ` <span class="flag" title="Students who were certain but wrong">⚠ ${sure} certain but wrong</span>` : ''}</span><span class="pct-track"><span style="width:${pct}%;${pct < 60 ? 'background:#f0b84a' : ''}"></span></span><b class="mono">${pct}%</b></li>`;
     }).join('');
     const all = Object.entries(q.results).flatMap(([i, res]) => Object.values(res || {}).map(r => r.c === q.qs[+i]?.answer));
     const avg = all.length ? Math.round(all.filter(Boolean).length / all.length * 100) : 0;
-    const reteach = q.qs.map((item, i) => { const r = Object.values(q.results[i] || {}); return { i, pct: r.length ? r.filter(x => x.c === item.answer).length / r.length : 1 }; }).filter(x => x.pct < .6).map(x => x.i + 1);
+    const reteach = q.qs.map((item, i) => { if (!q.results[i]) return { i, pct: 1 }; const r = Object.values(q.results[i] || {}); return { i, pct: r.length ? r.filter(x => x.c === item.answer).length / r.length : 1 }; }).filter(x => x.pct < .6).map(x => x.i + 1);
     body = `<h2 class="present-stem">Class average: ${avg}% correct</h2>
       ${reteach.length ? `<p class="present-explain">Consider revisiting question${reteach.length > 1 ? 's' : ''} ${reteach.join(', ')} — fewer than 60% of the class chose the best answer.</p>` : `<p class="present-explain">Every question was answered correctly by most of the class.</p>`}
       <ul class="qstats">${rows}</ul><p class="present-explain small">Results, confidence ratings and reflections are saved with this lecture. Download them for your gradebook or to plan reteaching.</p>`;
@@ -323,6 +333,7 @@ async function renderLiveQuiz() {
   if (b('#lq-reflect')) b('#lq-reflect').onclick = startReflection;
   if (b('#lq-end')) b('#lq-end').onclick = endQuiz;
   if (b('#lq-celebrate')) b('#lq-celebrate').onclick = celebrate;
+  if (b('#lq-finish')) twoStep(b('#lq-finish'), 'Tap again to end now', finishNow);
   if (b('#lq-csv')) b('#lq-csv').onclick = () => saveFile(slug(S.lecture.title) + '-quiz-results.csv', quizResultsCsv(q), 'text/csv');
   if (b('#lq-again')) b('#lq-again').onclick = () => { closeLiveQuiz(true); openLiveQuiz(); };
   updateCountdown();
@@ -332,7 +343,8 @@ async function renderCelebrateScreen(ov, q) {
   const { winners, runners } = q.podium || podium(q);
   const w = winners[0];
   const correct = w ? q.qs.filter((item, i) => q.results[i]?.[w.pid]?.c === item.answer).length : 0;
-  const sub = w ? `${w.score.toLocaleString()} points · ${correct} of ${q.qs.length} correct` : 'Thanks for taking part in today’s quiz.';
+  const asked = Object.keys(q.results).length || q.qs.length;
+  const sub = w ? `${w.score.toLocaleString()} points · ${correct} of ${asked} correct` : 'Thanks for taking part in today’s quiz.';
   ov.innerHTML = `<div class="cele-host" id="cele-host"></div><div class="cele-actions"><button class="btn sm" id="lq-back">Back to review</button><button class="btn sm" id="lq-close">${icon('close')}Close</button></div>`;
   $('#lq-back', ov).onclick = async () => { q.state = 'ended'; stopCelebration(); await LIVE.ref.child('quiz/state').set('ended').catch(() => {}); renderLiveQuiz(); };
   $('#lq-close', ov).onclick = () => closeLiveQuiz();

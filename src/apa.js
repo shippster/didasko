@@ -69,7 +69,15 @@ function fileInText(f) {
   const short = c.title.split(/\s+/).slice(0, 4).join(' ');
   return c.kind === 'article' ? `(“${short}”, ${c.year})` : `(*${short}*, ${c.year})`;
 }
-const lecturerOf = L => (L.lecturer || S.settings.lecturer || '').trim();
+/* The person using Didasko: the signed-in account's name, or (signed out) the name they typed once. */
+function myName() {
+  const u = typeof CLOUD !== 'undefined' && CLOUD.user && !CLOUD.user.isAnonymous ? CLOUD.user : null;
+  if (u) return (u.displayName || (u.email || '').split('@')[0] || '').trim();
+  return (S.settings.myName || '').trim();
+}
+/* The notes' author: the signed-in person unless this lecture names someone else. */
+const authorOf = L => (L.author || '').trim() || myName();
+const lecturerOf = L => (L.lecturer || (L.source || L.sample ? '' : myName()) || '').trim();
 const isVideoSrc = L => L.source?.kind === 'video' && !!L.source.url;
 const lectureYear = L => (isVideoSrc(L) && L.source.year) || yearOf(L.createdAt);
 function lectureInText(L) { const w = inTextAuthors([lecturerOf(L)]) || L.course || (isVideoSrc(L) ? L.source.title?.split(/\s+/).slice(0, 4).join(' ') : '') || 'Lecture'; return `(${w}, ${lectureYear(L)})`; }
@@ -125,7 +133,7 @@ function composeJournal(L, mla) {
   const sb = splitBody(L.notes?.md || '');
   const full = sb.title || L.title;
   const [t, ...sub] = full.split(/:\s+/);
-  const lecturer = lecturerOf(L), author = (L.author || S.settings.author || '').trim();
+  const lecturer = lecturerOf(L), author = authorOf(L);
   const running = full.replace(/:.*$/, '');
   const src = L.source || {};
   return {
@@ -180,6 +188,10 @@ function journalStandalone(L, mla) {
 }
 const apaStandalone = L => journalStandalone(L, false);
 const JOURNAL_CSS = `
+.eq{text-align:center;margin:.5em 0 .9em;font-family:'STIX Two Text','Cambria Math','Times New Roman',serif;font-size:1.12em;line-height:1.6;overflow-x:auto}
+.eq i{font-style:italic}.eq .frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 .12em;font-size:.92em;line-height:1.15}
+.eq .frac>span:first-child{border-bottom:1px solid currentColor;padding:0 .2em}.eq .frac>span:last-child{padding:0 .2em}
+.eq .sqrt>span{border-top:1px solid currentColor;padding:0 .15em}.eq sup,.eq sub{font-size:.7em}
 .jr{--jr-ink:#141414;--jr-mute:#4d4d4d;--jr-rule:#1a1a1a;--jr-link:#1f4e8c;--jr-soft:#f4f4f2;background:#fff;color:var(--jr-ink);max-width:7.4in;margin:0 auto;padding:clamp(22px,6vw,.85in) clamp(18px,6.5vw,1in) clamp(22px,5vw,.7in);font:16.5px/1.52 "STIX Two Text","Times New Roman",Tinos,Times,serif;box-shadow:0 1px 4px rgba(0,0,0,.14);border-radius:2px;overflow-wrap:anywhere;text-rendering:optimizeLegibility}
 .jr *{box-sizing:border-box}
 .jr-run{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;font-size:12.5px;line-height:1.4;padding-bottom:7px;border-bottom:1px solid var(--jr-rule);margin-bottom:clamp(26px,5vw,44px)}
@@ -378,6 +390,7 @@ async function buildDocx(blocks, title, opts = {}) {
       case 'section': return `<w:p><w:pPr><w:sectPr>${refs}${b.continuous ? '<w:type w:val="continuous"/>' : ''}${page}<w:cols w:num="${b.cols || 1}" w:space="400"/></w:sectPr></w:pPr></w:p>`;
       case 'ref': return para(docxRuns(runs), '<w:pStyle w:val="Reference"/>');
       case 'quote': return para(docxRuns(runs, jr ? {} : { i: true }), '<w:pStyle w:val="Quote"/>');
+      case 'eq': return para(`<w:r><w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr><w:t xml:space="preserve">${xe(eqText(b.text))}</w:t></w:r>`, '<w:jc w:val="center"/><w:ind w:firstLine="0"/><w:spacing w:before="60" w:after="120"/><w:keepLines/>');
       case 'code': return para(docxRuns([{ text: b.text, code: true }]), '<w:ind w:firstLine="0"/>');
       case 'hr': return para('', '<w:ind w:firstLine="0"/><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="999999"/></w:pBdr>');
       case 'pagebreak': return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';

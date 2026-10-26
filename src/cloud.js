@@ -41,7 +41,6 @@ async function onAuth(user) {
   if (uid === authUid) return;
   const was = authUid; authUid = uid;
   if (uid) {
-    if (!S.settings.lecturer && user.displayName) { S.settings.lecturer = user.displayName; saveSettings(); }
     await loadLibrary(uid, was === null);
   } else if (was) {
     await clearScope(was); CLOUD.scope = 'guest';
@@ -268,9 +267,10 @@ function openLectureSheet(focusLecturer) {
     <div class="grid-2 stack-sm">
       <label class="field"><span>Title</span><input id="lec-title" value="${esc(L.title)}" autocomplete="off"></label>
       <label class="field"><span>Course / section</span><input id="lec-course" value="${esc(L.course)}" placeholder="e.g. BIO 110: Introductory Biology" autocomplete="off"></label>
-      <label class="field"><span>Lecturer or speaker — a person’s name (cited as the source)</span><input id="lec-lecturer" value="${esc(L.lecturer || S.settings.lecturer || '')}" placeholder="e.g. Micah Shippee" autocomplete="name"></label>
+      <label class="field"><span>Lecturer or speaker — a person’s name (cited as the source)</span><input id="lec-lecturer" value="${esc(lecturerOf(L))}" placeholder="e.g. Dr. Jordan Lee" autocomplete="name"></label>
       <label class="field"><span>Institution</span><input id="lec-inst" value="${esc(L.institution || S.settings.institution || '')}" placeholder="e.g. State University" autocomplete="organization"></label>
-      <label class="field"><span>Notes prepared by (optional)</span><input id="lec-author" value="${esc(L.author || S.settings.author || '')}" placeholder="e.g. a TA or note-taker" autocomplete="off"></label>
+      <label class="field"><span>${isSignedIn() ? 'Notes author — your account name' : 'Notes author (optional)'}</span><input id="lec-author" value="${esc(authorOf(L))}" placeholder="${isSignedIn() ? '' : 'Your name'}" autocomplete="name">${isSignedIn() ? '<small class="muted">Change it only if someone else prepared these notes. Your dashboard keeps your account name.</small>' : ''}</label>
+      <label class="field"><span>Subject</span><select id="lec-subject" data-subject-select>${subjectOptions(L.subject)}</select></label>
       <label class="field"><span>Lecture date</span><input id="lec-date" type="date" value="${new Date(L.createdAt - new Date(L.createdAt).getTimezoneOffset() * 60000).toISOString().slice(0, 10)}"></label>
     </div>
     <p class="small muted" style="margin:0" id="lec-cite-prev"></p>
@@ -281,14 +281,18 @@ function openLectureSheet(focusLecturer) {
       const prev = () => { $('#lec-cite-prev', sh).innerHTML = `Reference entry: ${inl(lectureRef(L, L.notes?.lectureTitle))}`; };
       const upd = () => {
         L.title = $('#lec-title', sh).value.trim() || 'Untitled lecture'; L.course = $('#lec-course', sh).value.trim();
-        L.lecturer = $('#lec-lecturer', sh).value.trim(); L.institution = $('#lec-inst', sh).value.trim(); L.author = $('#lec-author', sh).value.trim();
+        L.lecturer = $('#lec-lecturer', sh).value.trim(); L.institution = $('#lec-inst', sh).value.trim();
+        const au = $('#lec-author', sh).value.trim(); L.author = au && au !== myName() ? au : '';
         const d = $('#lec-date', sh).value; if (d) { const [y, mo, da] = d.split('-').map(Number); const t = new Date(L.createdAt); t.setFullYear(y, mo - 1, da); L.createdAt = t.getTime(); }
-        if (L.lecturer) S.settings.lecturer = L.lecturer; if (L.institution) S.settings.institution = L.institution; if (L.author) S.settings.author = L.author; saveSettings();
+        if (L.institution) S.settings.institution = L.institution;
+        if (!isSignedIn() && !S.settings.myName && au) S.settings.myName = au;
+        saveSettings();
         if (L.notes) L.notes.lectureTitle = null;
         renderHeader(); saveSoon(); prev(); if (S.view === 'notes') renderNotes();
         if (S.view === 'home') renderHomeList();
       };
       ['#lec-title', '#lec-course', '#lec-lecturer', '#lec-inst', '#lec-author', '#lec-date'].forEach(id => { $(id, sh).oninput = upd; });
+      $('#lec-subject', sh).onchange = e => setSubject(e.target.value);
       prev();
       if (focusLecturer) setTimeout(() => $('#lec-lecturer', sh).focus(), 60);
       $('#lec-new', sh).onclick = () => { closeSheet(); openNewLectureSheet(); };

@@ -784,3 +784,15 @@ body.p-mode::before { background: var(--stage); }
 .seg.start-from button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; text-align: center; line-height: 1.2; }
 .seg.start-from svg.i { width: 18px; height: 18px; }
 .field input[type="file"] { padding: 9px 12px; min-height: 44px; }
+
+/* Equations in notes */
+#notes-doc .eq,.eq{text-align:center;margin:.5em 0 .9em;font-family:'STIX Two Text','Cambria Math','Times New Roman',serif;font-size:1.12em;line-height:1.6;overflow-x:auto}
+.eq i{font-style:italic}.eq .frac{display:inline-flex;flex-direction:column;vertical-align:middle;text-align:center;margin:0 .12em;font-size:.92em;line-height:1.15}
+.eq .frac>span:first-child{border-bottom:1px solid currentColor;padding:0 .2em}.eq .frac>span:last-child{padding:0 .2em}
+.eq .sqrt>span{border-top:1px solid currentColor;padding:0 .15em}.eq sup,.eq sub{font-size:.7em}
+.std-box details>summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer;list-style:none}
+.std-box details>summary::-webkit-details-marker{display:none}
+.std-box details>summary::before{content:'▸';color:var(--muted);transition:transform .2s}
+.std-box details[open]>summary::before{transform:rotate(90deg)}
+.std-box{border-top:1px solid var(--line);padding-top:12px}
+.chip.std{background:color-mix(in srgb,var(--accent) 12%,transparent)}

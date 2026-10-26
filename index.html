@@ -180,6 +180,7 @@
                 <option value="grad">Graduate / professional</option>
               </select></label>
             <label class="field"><span>Write notes in</span><select id="notes-lang"></select></label>
+            <label class="field"><span>Subject</span><select id="notes-subject" data-subject-select></select></label>
             <div class="field"><span>Lecture materials</span><label class="switch"><input type="checkbox" id="notes-use-files" checked> Use files marked for notes</label></div>
           </div>
           <label class="field" id="notes-custom-wrap" hidden><span>What output are you looking for?</span>
@@ -235,6 +236,7 @@
             <label class="switch"><input type="checkbox" id="quiz-key-focus" checked> Weight key points</label>
           </div>
         </div>
+        <div class="std-box" id="quiz-std"></div>
         <div class="live-opts">
           <span class="eyebrow">Live quiz on students’ devices</span>
           <div class="grid-2 stack-sm">

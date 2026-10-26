@@ -29,7 +29,7 @@ function homeStats(list) {
 }
 function setupSteps() {
   const steps = [];
-  steps.push({ id: 'name', done: !!S.settings.lecturer, label: 'Add your name and school', sub: 'Used to cite your lectures in the notes.' });
+  if (!isSignedIn()) steps.push({ id: 'name', done: !!myName(), label: 'Add your name (optional)', sub: 'Shown as the author of your notes. Signing in fills this in for you.' });
   steps.push({ id: 'ai', done: aiReady(), label: 'Choose an AI model', sub: 'Unlocks written articles, picture books and scenario quizzes. Several are free.' });
   if (cloudConfigured()) steps.push({ id: 'account', done: isSignedIn(), label: 'Sign in to keep a library', sub: 'Save every lecture and open it on any device.' });
   return steps;
@@ -83,7 +83,7 @@ function renderHomeList() {
 function renderHome() {
   const root = $('#home'); if (!root || !S.lecture) return;
   const list = homeLectures();
-  const name = firstName(S.settings.lecturer || (isSignedIn() ? CLOUD.user.displayName : '') || '');
+  const name = firstName(myName());
   const courses = [...new Set(list.map(m => m.course).filter(Boolean))];
   if (S.ui.homeCourse && !courses.includes(S.ui.homeCourse)) S.ui.homeCourse = '';
   const steps = setupSteps(), open = steps.filter(s => !s.done);
@@ -121,7 +121,7 @@ function renderHome() {
   const gl = $('#home-golive'); if (gl) gl.onclick = () => showView('live');
   $('#home-q').oninput = e => { S.ui.homeQ = e.target.value; renderHomeList(); };
   $$('.cchip', root).forEach(b => b.onclick = () => { S.ui.homeCourse = b.dataset.course; renderHome(); });
-  $$('.setup-step', root).forEach(b => b.onclick = () => { const s = b.dataset.step; if (s === 'name') openLectureSheet(true); else if (s === 'ai') openSettings(); else openAccountSheet(); });
+  $$('.setup-step', root).forEach(b => b.onclick = () => { const s = b.dataset.step; if (s === 'name') openNameSheet(); else if (s === 'ai') openSettings(); else openAccountSheet(); });
   $('#home-list').onclick = async e => {
     const b = e.target.closest('[data-open]'); if (!b) return;
     const id = b.closest('.lec-card').dataset.lid, view = b.dataset.open;
@@ -146,6 +146,7 @@ function openNewLectureSheet(startFrom) {
     <label class="field"><span>Title</span><input id="nl-title" placeholder="${esc(newLecture().title)}" autocomplete="off"></label>
     <div class="grid-2 stack-sm">
       <label class="field"><span>Course / section</span><input id="nl-course" list="nl-courses" value="${esc(L.course && !L.sample ? L.course : '')}" placeholder="e.g. BIO 110: Introductory Biology" autocomplete="off"><datalist id="nl-courses">${courses.map(c => `<option value="${esc(c)}"></option>`).join('')}</datalist></label>
+      <label class="field"><span>Subject</span><select id="nl-subject">${subjectOptions(L.sample ? '' : L.subject)}</select></label>
       <label class="field"><span>Language</span><select id="nl-lang">${SRC_LANGS.map(([c, l]) => `<option value="${c}" ${c === S.settings.srcLang ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
     </div>
     <div id="nl-mode"></div>
@@ -174,7 +175,7 @@ function openNewLectureSheet(startFrom) {
         await saveNow();
         const typed = $('#nl-title', sh).value.trim();
         const n = newLecture(typed || (mode === 'recording' ? file.name.replace(/\.[^.]+$/, '') : mode === 'paper' ? docs[0].name.replace(/\.[^.]+$/, '') : undefined));
-        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : (S.settings.lecturer || (L.sample ? '' : L.lecturer) || ''); n.institution = S.settings.institution || (L.sample ? '' : L.institution) || ''; n.author = L.sample ? '' : (L.author || '');
+        n.course = $('#nl-course', sh).value.trim(); n.lecturer = mode === 'video' || mode === 'paper' ? '' : myName(); n.institution = S.settings.institution || (L.sample ? '' : L.institution) || ''; n.author = ''; n.subject = $('#nl-subject', sh).value;
         const lang = $('#nl-lang', sh).value;
         if (lang !== S.settings.srcLang) { S.settings.srcLang = lang; saveSettings(); TR.engineCache.clear(); $('#src-lang').value = lang; renderEngineNote(); }
         if (locked) await deleteLecture(L.id);
@@ -188,5 +189,17 @@ function openNewLectureSheet(startFrom) {
       };
       if (replaces) twoStep(ok, 'Tap again — this replaces the current lecture', go); else ok.onclick = go;
       $('#nl-title', sh).onkeydown = e => { if (e.key === 'Enter' && !replaces) go(); };
+    });
+}
+
+/* Signed-out users can give their name once; signed-in users always use their account name. */
+function openNameSheet() {
+  openSheet('Your name', `
+    <p class="small muted" style="margin:0">Optional. Your name appears as the author of the notes you make. ${cloudConfigured() ? 'If you sign in, your account name is used instead.' : ''}</p>
+    <label class="field"><span>Your name</span><input id="nm-name" value="${esc(S.settings.myName || '')}" autocomplete="name" placeholder="e.g. Dr. Jordan Lee"></label>
+    <label class="field"><span>School or institution (optional)</span><input id="nm-inst" value="${esc(S.settings.institution || '')}" autocomplete="organization"></label>
+    <div class="row"><button class="btn primary" id="nm-save">Save</button>${cloudConfigured() ? '<button class="btn ghost" data-signin>Sign in instead</button>' : ''}</div>`,
+    sh => {
+      $('#nm-save', sh).onclick = () => { S.settings.myName = $('#nm-name', sh).value.trim(); S.settings.institution = $('#nm-inst', sh).value.trim(); saveSettings(); closeSheet(); renderHeader(); if (S.view === 'home') renderHome(); if (S.view === 'notes') renderNotes(); };
     });
 }

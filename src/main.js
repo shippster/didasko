@@ -70,7 +70,7 @@ const store = (() => {
 
 /* ================= State ================= */
 const guessSrc = () => { const n = navigator.language || 'en-US'; return (SRC_LANGS.find(l => l[0] === n) || SRC_LANGS.find(l => l[0].startsWith(n.split('-')[0])) || SRC_LANGS[0])[0]; };
-const DEFAULT_SETTINGS = { srcLang: guessSrc(), tgtLang: 'off', engine: 'auto', capStep: 3, capMode: 'both', theme: 'system', lastLecture: null, lecturer: '', institution: '', ai: null };
+const DEFAULT_SETTINGS = { srcLang: guessSrc(), tgtLang: 'off', engine: 'auto', capStep: 3, capMode: 'both', theme: 'system', lastLecture: null, myName: '', institution: '', ai: null };
 const S = {
   settings: { ...DEFAULT_SETTINGS }, index: [], lecture: null, view: 'home',
   rec: { running: false, interim: '', interimTr: '', startedAt: 0, pendingKey: false },
@@ -213,6 +213,29 @@ function runsHtml(runs) {
   }).join('');
 }
 const inl = s => runsHtml(parseInline(s));
+/* ---- Equations: "$$ … $$" lines hold simple LaTeX; shown as formatted math in HTML and as Unicode text in Word. ---- */
+const TEX_SYM = { cdot: '·', times: '×', div: '÷', pm: '±', mp: '∓', leq: '≤', le: '≤', geq: '≥', ge: '≥', neq: '≠', ne: '≠', approx: '≈', equiv: '≡', pi: 'π', theta: 'θ', alpha: 'α', beta: 'β', gamma: 'γ', lambda: 'λ', mu: 'μ', sigma: 'σ', Sigma: 'Σ', Delta: 'Δ', delta: 'δ', infty: '∞', to: '→', rightarrow: '→', Rightarrow: '⇒', implies: '⇒', iff: '⇔', degree: '°', circ: '°', angle: '∠', perp: '⊥', parallel: '∥', in: '∈', sum: 'Σ', int: '∫', ldots: '…', cdots: '⋯', dots: '…', quad: '  ', qquad: '    ' };
+const SUP = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '+': '⁺', '-': '⁻', '−': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', n: 'ⁿ', i: 'ⁱ', x: 'ˣ' };
+const SUB = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉', '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎', n: 'ₙ', i: 'ᵢ', x: 'ₓ', k: 'ₖ' };
+const BR = '\\{((?:[^{}]|\\{[^{}]*\\})*)\\}';
+function texBase(s) {
+  return String(s).replace(/\\(?:text|mathrm|mathbf|operatorname)\s*\{([^{}]*)\}/g, '$1').replace(/\\left|\\right|\\displaystyle/g, '').replace(/\\[,;:!]/g, ' ')
+    .replace(/\\([A-Za-z]+)/g, (m, w) => TEX_SYM[w] !== undefined ? TEX_SYM[w] : m).replace(/(\d)\s*\*\s*(\d)/g, '$1 × $2').replace(/(^|[^<>])-(?=[\s\d(a-zA-Z])/g, '$1−');
+}
+function eqText(s) {
+  let t = texBase(s), prev;
+  do { prev = t; t = t.replace(new RegExp('\\\\[dt]?frac\\s*' + BR + '\\s*' + BR), (m, a, b) => `${/^(\d+(\.\d+)?|[A-Za-z])$/.test(a) ? a : `(${a})`}/${/^(\d+(\.\d+)?|[A-Za-z])$/.test(b) ? b : `(${b})`}`).replace(new RegExp('\\\\sqrt\\s*' + BR), (m, a) => /^(\d+(\.\d+)?|[A-Za-z])$/.test(a) ? `√${a}` : `√(${a})`); } while (t !== prev);
+  t = t.replace(new RegExp('\\^' + BR, 'g'), (m, a) => [...a].every(c => SUP[c]) ? [...a].map(c => SUP[c]).join('') : `^(${a})`).replace(/\^([\w+−-])/g, (m, a) => SUP[a] || '^' + a)
+    .replace(new RegExp('_' + BR, 'g'), (m, a) => [...a].every(c => SUB[c]) ? [...a].map(c => SUB[c]).join('') : `_(${a})`).replace(/_(\w)/g, (m, a) => SUB[a] || '_' + a);
+  return t.replace(/[{}]/g, '').replace(/\\/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+function eqHtml(s) {
+  let t = esc(texBase(s)), prev;
+  do { prev = t; t = t.replace(new RegExp('\\\\[dt]?frac\\s*' + BR + '\\s*' + BR), '<span class="frac"><span>$1</span><span>$2</span></span>').replace(new RegExp('\\\\sqrt\\s*' + BR), '<span class="sqrt">√<span>$1</span></span>'); } while (t !== prev);
+  t = t.replace(new RegExp('\\^' + BR, 'g'), '<sup>$1</sup>').replace(/\^([\w+−-])/g, '<sup>$1</sup>').replace(new RegExp('_' + BR, 'g'), '<sub>$1</sub>').replace(/_(\w)/g, '<sub>$1</sub>');
+  t = t.replace(/[{}]/g, '').replace(/\\/g, '');
+  return t.replace(/(^|[^\w&#;<>/])([a-zA-Z])(?![\w;=">])/g, '$1<i>$2</i>');
+}
 function parseMd(src) {
   const lines = String(src || '').replace(/\r/g, '').split('\n');
   const blocks = []; let para = []; let i = 0;
@@ -222,6 +245,8 @@ function parseMd(src) {
     const line = lines[i]; let m;
     if (/^\s*```/.test(line)) { flush(); const buf = []; i++; while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]); i++; blocks.push({ type: 'code', text: buf.join('\n') }); continue; }
     if (!line.trim()) { flush(); i++; continue; }
+    if ((m = line.match(/^\s*\$\$(.+?)\$\$\s*$/))) { flush(); blocks.push({ type: 'eq', text: m[1].trim() }); i++; continue; }
+    if (/^\s*\$\$\s*$/.test(line)) { flush(); const buf = []; i++; while (i < lines.length && !/^\s*\$\$\s*$/.test(lines[i])) buf.push(lines[i++].trim()); i++; buf.join(' ').split(/\\\\/).map(x => x.replace(/&/g, '').trim()).filter(Boolean).forEach(x => blocks.push({ type: 'eq', text: x })); continue; }
     if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { flush(); blocks.push({ type: 'h', level: m[1].length, text: m[2].replace(/\s+#+\s*$/, '') }); i++; continue; }
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { flush(); blocks.push({ type: 'hr' }); i++; continue; }
     if (/^\s*>/.test(line)) { flush(); const buf = []; while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, '')); blocks.push({ type: 'quote', text: buf.join(' ') }); continue; }
@@ -268,6 +293,7 @@ function mdToHtml(src) {
       case 'p': return `<p>${inl(b.text)}</p>`;
       case 'hr': return '<hr>';
       case 'quote': return `<blockquote>${inl(b.text)}</blockquote>`;
+      case 'eq': return `<div class="eq" role="math" aria-label="${esc(eqText(b.text))}">${eqHtml(b.text)}</div>`;
       case 'code': return `<pre><code>${esc(b.text)}</code></pre>`;
       case 'list': return listHtml(b.items);
       case 'table': return `<div class="table-wrap"><table><thead><tr>${b.head.map(c => `<th>${inl(c)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(r => `<tr>${b.head.map((_, k) => `<td>${inl(r[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
@@ -280,6 +306,7 @@ const mdToText = src => parseMd(src).map(b => {
   if (b.type === 'list') return b.items.map(x => '  '.repeat(x.level) + (x.ordered ? '• ' : '– ') + strip(x.text)).join('\n');
   if (b.type === 'table') return [b.head, ...b.rows].map(r => r.map(strip).join(' | ')).join('\n');
   if (b.type === 'hr') return '—';
+  if (b.type === 'eq') return '    ' + eqText(b.text);
   if (b.type === 'h') return strip(b.text).toUpperCase();
   return strip(b.text || '');
 }).join('\n\n');
@@ -675,15 +702,15 @@ ${TYPE_RULES[qtype] || TYPE_RULES.mc}
 - Each wrong option is a plausible misconception or partial understanding a real student would hold — not a joke or an obviously wrong choice. Never "all of the above" or "none of the above". Keep options similar in length and grammar so the answer can't be guessed from form.
 - Stems are self-contained, clear and fair; no trick wording or double negatives.
 - Base every question only on the transcript and the materials. The transcript comes from speech recognition, so ignore obvious recognition errors.
-- Cover the lecture's most important ideas${mat.text ? ', and include some questions that draw on the materials' : ''}.${keyFocus ? '\n- Every line marked ★KEY POINT must be assessed by at least one question.' : ''}
+- Cover the lecture's most important ideas${mat.text ? ', and include some questions that draw on the materials' : ''}.${keyFocus ? '\n- Every line marked ★KEY POINT must be assessed by at least one question.' : ''}${isMath(L) ? MATH_QUIZ : ''}${standardsForPrompt(L)}
 For each question return:
 "type"; "stem"; "options" (array of strings, no letter prefixes); "answer" (index of the correct option);
 "feedback" (array, one string per option, same order, 1–2 sentences each: for the correct option say why it is right; for each wrong option name the misconception it reveals and give a hint that moves the student toward the right idea — specific, kind, and without simply restating the answer);
 "explanation" (1–2 sentences the teacher can say after revealing the answer);
 "reflect" (one short open reflection or turn-and-talk prompt that asks students to explain their reasoning or connect the idea to something new);
-"source" (a transcript timestamp like "Lecture 12:40", or the material's file name); "level" (Understand, Apply, Analyze or Evaluate).
+"source" (a transcript timestamp like "Lecture 12:40", or the material's file name); "level" (Understand, Apply, Analyze or Evaluate)${standardsList(L).length ? '; "standard" (the code of the standard it assesses)' : ''}.
 Also return "reflection": one exit-ticket question for the end of the quiz that asks students to reflect on their own learning about today's topic.
-Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"feedback":["","","",""],"explanation":"","reflect":"","source":"","level":""}],"reflection":""}`;
+Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"feedback":["","","",""],"explanation":"","reflect":"","source":"","level":""${standardsList(L).length ? ',"standard":""' : ''}}],"reflection":""}`;
   const noTr = !speechSegs(L).length;
   const user = `${lectureHeader(L)}\n\n<transcript>\n${noTr ? '(none — write every question from the materials)' : transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`;
   if (noTr) system += '\nThere is no lecture transcript for this session: base every question on the materials, and use the material’s file name as "source".';
@@ -710,7 +737,7 @@ function normalizeQuestions(arr) {
     let answer = Number.isInteger(q.answer) ? q.answer : typeof q.answer === 'boolean' ? (q.answer ? 0 : 1) : /^(true|t)$/i.test(String(q.answer)) ? 0 : /^(false|f)$/i.test(String(q.answer)) ? 1 : 'ABCD'.indexOf(String(q.answer || '').trim().toUpperCase()[0]);
     const fb = Array.isArray(q.feedback) ? q.feedback.map(x => String(x || '').trim()) : [];
     const feedback = options.map((_, k) => fb[k] || '');
-    return { id: q.id || uid(), type: tf ? 'tf' : 'mc', stem: String(q.stem || '').trim(), options, answer, feedback, explanation: String(q.explanation || '').trim(), reflect: String(q.reflect || '').trim(), source: String(q.source || '').trim(), level: String(q.level || '').trim() };
+    return { id: q.id || uid(), type: tf ? 'tf' : 'mc', stem: String(q.stem || '').trim(), options, answer, feedback, explanation: String(q.explanation || '').trim(), reflect: String(q.reflect || '').trim(), source: String(q.source || '').trim(), level: String(q.level || '').trim(), standard: String(q.standard || '').trim().slice(0, 80) };
   }).filter(q => q.stem && q.options.length === (q.type === 'tf' ? 2 : 4) && q.answer >= 0 && q.answer < q.options.length);
 }
 const optLetter = (q, k) => q.type === 'tf' ? (k ? 'F' : 'T') : 'ABCD'[k];
@@ -800,7 +827,7 @@ function renderQuiz() {
       }).join('')}</div>
       ${showAns && q.explanation ? `<div class="q-explain">${esc(q.explanation)}</div>` : ''}
       ${showAns && q.reflect ? `<div class="q-reflect"><span class="eyebrow">Reflect</span><span ${teacher ? 'contenteditable="true" data-f="reflect"' : ''}>${esc(q.reflect)}</span></div>` : ''}
-      ${teacher ? `<div class="q-foot">${q.level ? `<span class="chip accent">${esc(q.level)}</span>` : ''}${q.source ? `<span class="chip">${esc(q.source)}</span>` : ''}<span class="grow"></span><button class="btn sm ghost danger" data-del>${icon('trash')}Remove</button></div>` : ''}
+      ${teacher ? `<div class="q-foot">${q.level ? `<span class="chip accent">${esc(q.level)}</span>` : ''}${q.standard ? `<span class="chip std" title="${esc((standardsList(S.lecture).find(s => s.code === q.standard) || {}).text || 'Standard')}">${icon('star')}${esc(q.standard)}</span>` : ''}${q.source ? `<span class="chip">${esc(q.source)}</span>` : ''}<span class="grow"></span><button class="btn sm ghost danger" data-del>${icon('trash')}Remove</button></div>` : ''}
     </div>`;
   }).join('') + `<div class="q-card q-exit"><div class="q-head"><span class="q-num">${icon('spark')}</span><div class="grow"><span class="eyebrow">Exit ticket · asked at the end of a live quiz</span><div class="q-stem" ${teacher ? 'contenteditable="true"' : ''} data-f="reflection">${esc(Q.reflection || DEFAULT_REFLECTION)}</div></div></div></div>`;
 }
@@ -818,7 +845,10 @@ function quizStudentBlocks(L, qs, key) {
     const ex = L.quiz?.reflection || DEFAULT_REFLECTION;
     b.push({ type: 'h', level: 2, text: 'Exit ticket' }, { type: 'p', runs: [{ text: ex }] }, { type: 'p', runs: [{ text: '______________________________________________________________\n______________________________________________________________' }] });
   } else {
-    b.push({ type: 'table', head: ['#', 'Answer', 'Why', 'Source'], rows: qs.map((q, i) => [String(i + 1), q.type === 'tf' ? q.options[q.answer] : `${'ABCD'[q.answer]} — ${q.options[q.answer]}`, q.explanation, q.source || '']) });
+    const hasStd = qs.some(q => q.standard);
+    b.push({ type: 'table', head: ['#', 'Answer', 'Why', ...(hasStd ? ['Standard'] : []), 'Source'], rows: qs.map((q, i) => [String(i + 1), q.type === 'tf' ? q.options[q.answer] : `${'ABCD'[q.answer]} — ${q.options[q.answer]}`, q.explanation, ...(hasStd ? [q.standard || ''] : []), q.source || '']) });
+    const stds = standardsList(L);
+    if (hasStd && stds.length) { b.push({ type: 'h', level: 2, text: 'Standards assessed' }); stds.forEach(s => { const n = qs.map((q, i) => q.standard === (s.code || s.text) || q.standard === stdLabel(s) ? i + 1 : 0).filter(Boolean); b.push({ type: 'p', runs: [{ text: s.code ? s.code + ' — ' : '', b: true }, { text: s.text + (n.length ? `  (questions ${n.join(', ')})` : '  (not assessed)') }] }); }); }
     b.push({ type: 'h', level: 2, text: 'What each wrong answer tells you' });
     qs.forEach((q, i) => {
       const wrong = q.options.map((o, k) => k !== q.answer && q.feedback?.[k] ? `${optLetter(q, k)}: ${q.feedback[k]}` : '').filter(Boolean);
@@ -831,21 +861,21 @@ function quizText(qs) { return qs.map((q, i) => `${i + 1}. ${q.stem}\n${q.option
 function giftEsc(s) { return String(s).replace(/([~=#{}:\\])/g, '\\$1'); }
 function quizGift(L, qs) {
   return `// ${L.title} — formative check generated by Didasko\n// ${fmtDate(L.createdAt)}\n\n` + qs.map((q, i) =>
-    `// ${q.level || 'Question'}${q.source ? ' · ' + q.source : ''}${q.reflect ? `\n// Reflect: ${q.reflect}` : ''}\n::Q${i + 1}:: ${giftEsc(q.stem)} ` + (q.type === 'tf'
+    `// ${q.level || 'Question'}${q.standard ? ' · ' + q.standard : ''}${q.source ? ' · ' + q.source : ''}${q.reflect ? `\n// Reflect: ${q.reflect}` : ''}\n::Q${i + 1}:: ${giftEsc(q.stem)} ` + (q.type === 'tf'
       ? `{${q.answer === 0 ? 'TRUE' : 'FALSE'}${q.feedback?.[1 - q.answer] ? '#' + giftEsc(q.feedback[1 - q.answer]) : q.explanation ? '#' + giftEsc(q.explanation) : ''}${q.feedback?.[q.answer] ? '#' + giftEsc(q.feedback[q.answer]) : q.explanation ? '#' + giftEsc(q.explanation) : ''}}`
       : `{\n${q.options.map((o, k) => `${k === q.answer ? '=' : '~'}${giftEsc(o)}${q.feedback?.[k] ? '#' + giftEsc(q.feedback[k]) : k === q.answer && q.explanation ? '#' + giftEsc(q.explanation) : ''}`).join('\n')}\n}`)).join('\n\n')
     + `\n\n// Exit ticket\n::Exit ticket:: ${giftEsc(L.quiz?.reflection || DEFAULT_REFLECTION)} {}\n`;
 }
 function csvCell(s) { s = String(s ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 function quizCsv(qs) {
-  const rows = [['Type', 'Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct', 'Feedback A', 'Feedback B', 'Feedback C', 'Feedback D', 'Explanation', 'Reflection prompt', 'Level', 'Source']];
+  const rows = [['Type', 'Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct', 'Feedback A', 'Feedback B', 'Feedback C', 'Feedback D', 'Explanation', 'Reflection prompt', 'Level', 'Standard', 'Source']];
   const pad4 = a => [...a, ...Array(4 - a.length).fill('')];
-  qs.forEach(q => rows.push([q.type === 'tf' ? 'True/False' : 'Multiple choice', q.stem, ...pad4(q.options), q.type === 'tf' ? q.options[q.answer] : 'ABCD'[q.answer], ...pad4(q.feedback || []), q.explanation, q.reflect || '', q.level, q.source]));
+  qs.forEach(q => rows.push([q.type === 'tf' ? 'True/False' : 'Multiple choice', q.stem, ...pad4(q.options), q.type === 'tf' ? q.options[q.answer] : 'ABCD'[q.answer], ...pad4(q.feedback || []), q.explanation, q.reflect || '', q.level, q.standard || '', q.source]));
   return '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
 }
 function quizPrintHtml(L, qs, key) {
   const head = `<h1>${key ? 'Answer key — ' : ''}${esc(L.title)}</h1><p><em>${esc([L.course, fmtDate(L.createdAt)].filter(Boolean).join(' · '))}</em></p>`;
-  if (key) return head + `<table><thead><tr><th>#</th><th>Answer</th><th>Why</th><th>What wrong answers tell you</th></tr></thead><tbody>${qs.map((q, i) => `<tr><td>${i + 1}</td><td>${q.type === 'tf' ? esc(q.options[q.answer]) : `${'ABCD'[q.answer]} — ${esc(q.options[q.answer])}`}</td><td>${esc(q.explanation)}</td><td>${q.options.map((o, k) => k !== q.answer && q.feedback?.[k] ? `<b>${optLetter(q, k)}</b> ${esc(q.feedback[k])}` : '').filter(Boolean).join('<br>')}</td></tr>`).join('')}</tbody></table>`;
+  if (key) return head + `<table><thead><tr><th>#</th><th>Answer</th><th>Why</th><th>What wrong answers tell you</th></tr></thead><tbody>${qs.map((q, i) => `<tr><td>${i + 1}${q.standard ? `<br><small>${esc(q.standard)}</small>` : ''}</td><td>${q.type === 'tf' ? esc(q.options[q.answer]) : `${'ABCD'[q.answer]} — ${esc(q.options[q.answer])}`}</td><td>${esc(q.explanation)}</td><td>${q.options.map((o, k) => k !== q.answer && q.feedback?.[k] ? `<b>${optLetter(q, k)}</b> ${esc(q.feedback[k])}` : '').filter(Boolean).join('<br>')}</td></tr>`).join('')}</tbody></table>`;
   return head + `<div class="pname"><span>Name: ____________________________</span><span>Date: ____________</span></div>` + qs.map((q, i) => `<div class="pq"><strong>${i + 1}. ${esc(q.stem)}</strong>${q.type === 'tf' ? `<p>☐ True &nbsp;&nbsp; ☐ False</p>` : `<ol>${q.options.map(o => `<li>${esc(o)}</li>`).join('')}</ol>`}<p class="pconf">How sure are you? ☐ Guessing ☐ Fairly sure ☐ Certain</p>${q.reflect ? `<p class="preflect"><em>Reflect:</em> ${esc(q.reflect)}<br>_______________________________________________________</p>` : ''}</div>`).join('')
     + `<div class="pq"><strong>Exit ticket</strong><p>${esc(L.quiz?.reflection || DEFAULT_REFLECTION)}</p><p>_______________________________________________________<br>_______________________________________________________</p></div>`;
 }
@@ -1076,6 +1106,7 @@ function bind() {
   ['#quiz-type', '#quiz-timer', '#quiz-names', '#quiz-level'].forEach(id => { const v = S.settings[id.slice(1)]; if (v != null && $(id).querySelector(`option[value="${v}"]`)) $(id).value = v; $(id).onchange = e => { S.settings[id.slice(1)] = e.target.value; saveSettings(); }; });
   [['#quiz-board', 'quizBoard'], ['#quiz-conf', 'quizConf'], ['#quiz-reflect', 'quizReflect']].forEach(([id, k]) => { if (S.settings[k] != null) $(id).checked = !!S.settings[k]; $(id).onchange = e => { S.settings[k] = e.target.checked; saveSettings(); }; });
   $('#notes-style').onchange = () => { S.settings.notesStyle = $('#notes-style').value; saveSettings(); renderNotesStyleUi(); };
+  $('#notes-subject').innerHTML = subjectOptions(''); $('#notes-subject').onchange = e => setSubject(e.target.value);
   $('#notes-custom').oninput = e => { S.settings.notesCustom = e.target.value; saveSettings(); };
   $('#font-up').onclick = () => { S.settings.capStep = Math.min(CAP_SIZES.length - 1, S.settings.capStep + 1); saveSettings(); renderStageMeta(); };
   $('#font-down').onclick = () => { S.settings.capStep = Math.max(0, S.settings.capStep - 1); saveSettings(); renderStageMeta(); };
@@ -1356,6 +1387,7 @@ The light-dependent reactions are best understood as an energy-conversion pathwa
 async function boot() {
   const saved = (await store.get('settings')) || {};
   S.settings = { ...DEFAULT_SETTINGS, ...saved };
+  if (!S.settings.myName && saved.lecturer) S.settings.myName = saved.lecturer; // older versions kept the user's name here
   const ai = saved.ai || {};
   S.settings.ai = { ...DEFAULT_AI, ...ai, keys: { ...(ai.keys || {}) }, models: { ...(ai.models || {}) }, lists: { ...(ai.lists || {}) }, bases: { ...(ai.bases || {}) }, azure: { ...DEFAULT_AI.azure, ...(ai.azure || {}) } };
   if (!saved.ai && IS_ARTIFACT) S.settings.ai.provider = 'account';

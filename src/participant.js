@@ -207,8 +207,8 @@ function renderPQuiz() {
     return;
   }
   if (q.state === 'ended' || q.state === 'celebrate') {
-    const n = q.total || 0; let correct = 0;
-    for (let i = 0; i < n; i++) if (P.reveals[i] && P.myAnswers[i] === P.reveals[i].answer) correct++;
+    const asked = Object.keys(P.reveals || {}).length, n = asked || q.total || 0; let correct = 0;
+    for (let i = 0; i < (q.total || n); i++) if (P.reveals[i] && P.myAnswers[i] === P.reveals[i].answer) correct++;
     const { rank, of } = pRank();
     box.innerHTML = `<div class="p-empty">${meChip}<h2>Quiz complete</h2><p class="p-score"><b>${correct}</b> of ${n} correct${q.showBoard ? ` · ${(P.myScore || 0).toLocaleString()} points · #${rank} of ${of}` : ''}</p><p>Thanks for taking part. Your teacher has your results.</p></div>`;
     if (q.state === 'celebrate' && !P.celeDismissed) showPCelebration(q);
