@@ -9,12 +9,12 @@ const YT_RE = /^(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\
 const youTubeId = u => (String(u || '').trim().match(YT_RE) || [])[1] || '';
 function transcriber() {
   if (!aiReady()) return null;
-  if (prov().kind === 'gemini') return 'gemini';
-  if (S.settings.ai.provider === 'openai') return 'openai';
+  if (prov().kind === 'gemini' || prov().kind === 'free') return 'gemini';
+  if (aiId() === 'openai') return 'openai';
   return null;
 }
 const NEEDS_TRANSCRIBER = 'Transcribing a recording needs Gemini or ChatGPT. Choose one in Settings → AI model (Gemini has a free tier), or import a transcript file instead.';
-const NEEDS_GEMINI_VIDEO = 'Video links need Gemini as the AI model (Settings → AI model; it has a free tier). Or open the video on YouTube, choose “Show transcript”, copy it, and use Import transcript.';
+const NEEDS_GEMINI_VIDEO = 'Video links need your own Gemini key (Settings → AI model; Gemini has a free tier). Or open the video on YouTube, choose “Show transcript”, copy it, and use Import transcript.';
 const MEDIA = { busy: false, ctl: null };
 function setMediaStatus(text) {
   const st = $('#notes-status'); if (!st) return;
@@ -88,7 +88,7 @@ async function transcribeFile(file, L) {
   if (MEDIA.busy) { toast('A recording is already being transcribed.'); return false; }
   MEDIA.busy = true; MEDIA.ctl = new AbortController();
   const ext = extOf(file.name), mime = file.type && /^(audio|video)\//.test(file.type) ? file.type : MEDIA_EXT[ext] || 'audio/mpeg';
-  const cap = kind === 'gemini' ? 14 * 1048576 : 24 * 1048576;
+  const cap = usingFree() ? 10 * 1048576 : kind === 'gemini' ? 14 * 1048576 : 24 * 1048576;
   const label = file.name.length > 40 ? file.name.slice(0, 37) + '…' : file.name;
   try {
     setMediaStatus(`Preparing ${label}…`);
@@ -100,7 +100,7 @@ async function transcribeFile(file, L) {
       parts = raw.map(p => ({ blob: p.blob, offsetMs: Math.round(p.start * secPerByte * 1000), mime: 'audio/mpeg' }));
     } else {
       setMediaStatus(`Converting ${label} for transcription…`);
-      const d = await decodedParts(file, kind === 'gemini' ? 420 : 720);
+      const d = await decodedParts(file, usingFree() ? 300 : kind === 'gemini' ? 420 : 720);
       parts = d.parts.map(p => ({ ...p, mime: 'audio/wav' })); duration = duration || d.duration;
     }
     const lines = [];

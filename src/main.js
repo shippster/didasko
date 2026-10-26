@@ -375,13 +375,13 @@ const target = () => S.settings.tgtLang === 'off' ? null : S.settings.tgtLang;
 async function engineFor(tgt) {
   const src = srcBase(S.settings.srcLang);
   if (!tgt || tgt === src) return null;
-  const key = `${S.settings.engine}|${src}|${tgt}|${aiReady()}|${S.settings.ai.provider}`;
+  const key = `${S.settings.engine}|${src}|${tgt}|${ownAiReady()}|${S.settings.ai.provider}`;
   if (TR.engineCache.has(key)) return TR.engineCache.get(key);
   let eng = null;
   if (S.settings.engine !== 'ai' && 'Translator' in self) {
     try { const a = await self.Translator.availability({ sourceLanguage: src, targetLanguage: tgt }); if (a && a !== 'unavailable') eng = 'device'; } catch { /* unsupported pair */ }
   }
-  if (!eng && S.settings.engine !== 'device' && aiReady()) eng = 'ai';
+  if (!eng && S.settings.engine !== 'device' && ownAiReady()) eng = 'ai';
   TR.engineCache.set(key, eng);
   return eng;
 }
@@ -401,7 +401,7 @@ async function translateText(text, tgt, context = []) {
   const eng = await engineFor(tgt);
   if (eng === 'device') {
     try { const t = await deviceTranslator(srcBase(S.settings.srcLang), tgt); return await t.translate(text); }
-    catch (e) { if (!aiReady() || S.settings.engine === 'device') throw e; }
+    catch (e) { if (!ownAiReady() || S.settings.engine === 'device') throw e; }
   }
   if (eng === 'ai' || eng === 'device') {
     const ctx = context.length ? `Earlier captions, for context only (do not translate these):\n${context.join('\n')}\n\n` : '';

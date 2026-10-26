@@ -71,6 +71,19 @@ Optional: put a Zapier/Make/Mailchimp webhook URL in `newsletter.webhookUrl` to 
 
 ## 7. AI models — no cost to you
 
+### Built-in free AI (works with no key)
+
+Didasko ships with a shared free model — Gemini through **Firebase AI Logic** on your no-cost Spark plan. It is used automatically whenever a teacher hasn't added their own key (notes, quizzes, transcription of recordings; not live translation or YouTube links).
+
+1. Firebase console → **AI Logic** → Get started → choose the **Gemini Developer API** (no billing needed).
+2. Google Cloud console → Security → **reCAPTCHA** (Fraud Defense) → Create key: type **Web**, domain = your site. Copy the key ID.
+3. Firebase console → **App Check** → Apps → your web app → **reCAPTCHA Enterprise** → paste the key → Save. Then under APIs, set **Firebase AI Logic** to *Enforced*.
+4. In `config.js`, set `freeAI.recaptchaSiteKey` to the key. Set `freeAI.enabled: false` to turn the free AI off.
+
+Things to know: the daily allowance is per project and shared by everyone (roughly a few hundred requests a day on Flash-Lite; it resets at midnight Pacific). When it runs out, Didasko asks the teacher to add their own free Gemini key. On the free tier Google may use prompts to improve its products, it's for users 18+, and it isn't offered in the EU/EEA, UK or Switzerland — Didasko shows a one-time notice explaining this before anything is sent.
+
+### Teachers' own keys
+
 Each teacher opens **Settings → AI model**, picks a service and pastes their own key. Keys stay on that device and go straight from the browser to the provider; nothing passes through your Firebase project.
 
 | Service | Cost to the teacher |

@@ -15,6 +15,14 @@ window.DIDASKO_CONFIG = {
     appId: '1:226988581461:web:128a1b2759308f81d2aadc'
   },
 
+  // Free AI for everyone (no key needed): Gemini through Firebase AI Logic on the no-cost Spark plan.
+  // Needs App Check with a reCAPTCHA Enterprise site key (see SETUP.md). Set enabled: false to turn it off.
+  freeAI: {
+    enabled: true,
+    model: 'gemini-3.5-flash-lite',
+    recaptchaSiteKey: '6LeyOAAuAAAAADH6XVU23wRcW5su1ssPCf1jnRtt'
+  },
+
   // Optional: limit Microsoft sign-in to one school tenant (e.g. 'yourschool.onmicrosoft.com'). Leave empty for any Microsoft account.
   microsoftTenant: '',
 

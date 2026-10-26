@@ -2,12 +2,14 @@
 function aiSectionHtml() {
   const st = S.settings.ai, id = st.provider, p = PROVIDERS[id];
   const list = (st.lists[id] && st.lists[id].length ? st.lists[id] : p.models);
-  const opts = Object.entries(PROVIDERS).filter(([, v]) => !v.previewOnly || IS_ARTIFACT).map(([k, v]) => `<option value="${k}" ${k === id ? 'selected' : ''}>${esc(v.label)}</option>`).join('');
+  const opts = Object.entries(PROVIDERS).filter(([k, v]) => (!v.previewOnly || IS_ARTIFACT) && (k !== 'free' || freeCfg())).map(([k, v]) => `<option value="${k}" ${k === id ? 'selected' : ''}>${esc(v.label)}</option>`).join('');
   const m = st.models[id] || {};
   const canList = ['anthropic', 'gemini'].includes(p.kind) || (p.kind === 'openai' && !p.azure);
   return `
     <label class="field"><span>AI service for notes, quizzes, citations and translation</span><select id="ai-provider">${opts}</select></label>
     <p class="small muted" style="margin:0">${esc(p.note)}</p>
+    ${id !== 'free' && !ownReady(id) && freeAvailable() ? `<div class="notice">Until you add a key, Didasko uses its <b>free shared AI</b> (Gemini). Live translation still runs on-device only.</div>` : ''}
+    ${p.kind === 'free' && !freeAvailable() ? `<div class="notice warn">${freeState().region ? esc(FREE_MSG.FREE_REGION) : 'Today’s shared free allowance is used up. It resets at midnight Pacific time — or add your own free Gemini key.'}</div>` : ''}
     ${p.key ? `<label class="field"><span>${esc(p.label.replace(/ \(.*\)$/, ''))} API key${p.optionalKey ? ' (optional)' : ''}</span><input id="ai-key" type="password" value="${esc(st.keys[id] || '')}" placeholder="${esc(p.keyHint)}" autocomplete="off" spellcheck="false"></label>
       ${p.keyUrl ? `<p class="small muted" style="margin:0">Get a key at <a href="${p.keyUrl}" target="_blank" rel="noopener">${esc(p.keyUrl.replace(/^https:\/\//, ''))}</a>. Each teacher uses their own key, so usage is billed to them — or is free on free tiers — and never to the app’s owner.</p>` : ''}` : ''}
     ${p.editBase ? `<label class="field"><span>Service address</span><input id="ai-base" value="${esc(st.bases[id] || p.base || '')}" placeholder="https://…/v1" autocomplete="off" inputmode="url"></label>` : ''}
@@ -17,7 +19,7 @@ function aiSectionHtml() {
       <label class="field"><span>Deployment (notes and quiz)</span><input id="az-dep" value="${esc(st.azure.deployment)}" placeholder="e.g. gpt-main" autocomplete="off"></label>
       <label class="field"><span>Deployment (live translation)</span><input id="az-fast" value="${esc(st.azure.fastDeployment)}" placeholder="Same as above" autocomplete="off"></label>
     </div>` : ''}
-    ${!p.azure && !['chrome', 'sample'].includes(p.kind) ? `<div class="grid-2 stack-sm">
+    ${!p.azure && !['chrome', 'sample', 'free'].includes(p.kind) ? `<div class="grid-2 stack-sm">
       <label class="field"><span>Model for notes, quizzes and citations</span><input id="ai-main" list="ai-models" value="${esc(m.main || p.main)}" placeholder="Tap Refresh to list models" autocomplete="off" spellcheck="false"></label>
       <label class="field"><span>Faster model for live translation</span><input id="ai-fast" list="ai-models" value="${esc(m.fast || p.fast)}" placeholder="Same as above" autocomplete="off" spellcheck="false"></label>
       <datalist id="ai-models">${list.map(x => `<option value="${esc(x)}"></option>`).join('')}</datalist>
@@ -46,7 +48,7 @@ function bindAiSection(box) {
     catch (e) { out.textContent = e.message; }
   };
   $('#ai-test', box).onclick = async () => {
-    if (!aiReady()) { out.textContent = prov().kind === 'chrome' ? 'Chrome’s on-device model isn’t available in this browser.' : 'Fill in the key and model first.'; return; }
+    if (!aiReady()) { out.textContent = PROVIDERS[st.provider].kind === 'chrome' ? 'Chrome’s on-device model isn’t available in this browser.' : PROVIDERS[st.provider].kind === 'free' ? 'The free AI isn’t available right now.' : 'Fill in the key and model first.'; return; }
     out.textContent = 'Testing…';
     try { const t = await callAI({ maxTokens: 30, system: 'Reply with exactly: ready', user: 'Status check' }); out.textContent = t.trim() ? `Connected to ${aiLabel()}.` : 'Connected, but the reply was empty.'; }
     catch (e) { out.textContent = e.message === 'NO_AI' ? 'Fill in the key and model first.' : e.message; }
@@ -68,7 +70,7 @@ function openSettings() {
       </div></div>
     ${IS_ARTIFACT ? '' : `<div class="set-group"><span class="eyebrow">Install</span>
       ${standalone ? '<p class="small muted" style="margin:0">Didasko is installed on this device.</p>' : S.installPrompt ? `<div class="row"><button class="btn sm primary" id="set-install">${icon('down')}Install Didasko</button><span class="small muted">Adds it to your home screen and works offline.</span></div>` : `<p class="small muted" style="margin:0">${ios ? 'In Safari, tap Share, then <b>Add to Home Screen</b>.' : 'Use your browser’s menu and choose <b>Install app</b> or <b>Add to Home screen</b>.'}</p>`}</div>`}
-    <div class="set-group"><span class="eyebrow">Privacy</span><p class="small muted" style="margin:0">Speech recognition is provided by the browser (Chrome and Edge process audio on their servers; Safari may process on-device). Text for notes, quizzes and AI translation goes only to the AI service chosen above, using that teacher’s own key. Shared captions and quiz answers pass through this app’s database and are visible to anyone with the session link. Check your school’s policy before captioning or recording students.</p></div>
+    <div class="set-group"><span class="eyebrow">Privacy</span><p class="small muted" style="margin:0">Speech recognition is provided by the browser (Chrome and Edge process audio on their servers; Safari may process on-device). Text for notes, quizzes and AI translation goes only to the AI service chosen above, using that teacher’s own key. Without a key, notes, quizzes and transcription use Didasko’s free shared AI (Google Gemini), and Google may use that text to improve its products — leave out student names. Shared captions and quiz answers pass through this app’s database and are visible to anyone with the session link. Check your school’s policy before captioning or recording students.</p></div>
     <div class="set-group"><div class="row"><button class="btn sm ghost danger" id="set-wipe">${icon('trash')}Delete ${isSignedIn() ? 'all my lectures' : 'the lecture on this device'}</button></div></div>`,
     sh => {
       bindAiSection($('#ai-box', sh));
@@ -86,7 +88,7 @@ function openSettings() {
 function renderAiState() {
   const ok = aiReady();
   const chip = $('#ai-chip');
-  if (chip) { chip.textContent = ok ? `AI: ${aiLabel()}` : 'AI: not set up'; chip.className = 'chip ' + (ok ? 'ok' : 'warn'); }
+  if (chip) { chip.textContent = ok ? (usingFree() ? 'AI: free (shared)' : `AI: ${aiLabel()}`) : 'AI: not set up'; chip.className = 'chip ' + (ok ? 'ok' : 'warn'); }
   const nh = $('#notes-gen-hint'), qh = $('#quiz-hint');
   if (nh) nh.innerHTML = ok ? '' : `<b>No AI model is connected.</b> Articles, picture books and custom outputs need one. <button class="linklike" id="nh-ai">Connect one</button> (Gemini is free).`;
   const nb = $('#nh-ai'); if (nb) nb.onclick = () => openAiSetupSheet('Connect an AI model to write articles, picture books, custom outputs and quizzes from your lectures.', null);

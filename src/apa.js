@@ -224,7 +224,7 @@ const JOURNAL_CSS = `
 
 let notesCtl = null, notesRAF = 0;
 async function detectCitation(f, { quiet } = {}) {
-  if (!aiReady() || !f.text) return false;
+  if (!aiReady() || !f.text || (quiet && usingFree())) return false;
   try {
     const out = await callAI({
       fast: true, json: true, maxTokens: 600,

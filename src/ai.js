@@ -51,6 +51,10 @@ const PROVIDERS = {
     label: 'Gemini Nano in Chrome (free, on-device)', kind: 'chrome', key: false, main: 'gemini-nano', fast: 'gemini-nano', models: ['gemini-nano'], vision: false,
     note: 'Built into Chrome on desktop computers. Free and private, but small: best for short lectures and translation.'
   },
+  free: {
+    label: 'Didasko free AI (shared Gemini, no key)', kind: 'free', key: false, main: 'gemini-3.5-flash-lite', fast: 'gemini-3.5-flash-lite', models: ['gemini-3.5-flash-lite'], vision: true, hidden: true,
+    note: 'Free for everyone, with a daily allowance shared by all Didasko users. Google may use what you send to improve its products, so leave out student names. For adults (18+); not offered in the EU, EEA, UK or Switzerland. For more capacity and privacy, add your own free Gemini key.'
+  },
   account: {
     label: 'My Claude account (preview only)', kind: 'sample', key: false, main: 'default', fast: 'quick', models: ['default'], vision: false, previewOnly: true,
     note: 'Uses your Claude.ai account inside this preview.'
@@ -58,25 +62,126 @@ const PROVIDERS = {
 };
 const DEFAULT_AI = { provider: 'gemini', keys: {}, models: {}, imageModels: {}, lists: {}, bases: {}, azure: { endpoint: '', deployment: '', fastDeployment: '', apiVersion: '2024-10-21' } };
 
-const prov = () => PROVIDERS[S.settings.ai.provider] || PROVIDERS.gemini;
-const aiKey = () => S.settings.ai.keys[S.settings.ai.provider] || '';
+/* ---- Didasko free AI: Gemini through Firebase AI Logic on the app owner's no-cost Spark plan, protected by App Check.
+   Used automatically whenever the teacher hasn't connected their own AI. The daily allowance is shared by everyone. ---- */
+const FREE_SDK = '12.19.0';
+const FREE = { sdk: null };
+const freeCfg = () => { const c = window.DIDASKO_CONFIG || {}; return c.freeAI && c.freeAI.enabled !== false && c.freeAI.recaptchaSiteKey && c.firebase && c.firebase.apiKey ? c : null; };
+const ptDay = () => { try { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); } catch { return new Date().toISOString().slice(0, 10); } };
+const freeState = () => { try { return JSON.parse(localStorage.getItem('didasko-free') || '{}'); } catch { return {}; } };
+const setFreeState = o => { try { localStorage.setItem('didasko-free', JSON.stringify({ ...freeState(), ...o })); } catch { /* private mode */ } };
+function freeAvailable() {
+  if (IS_ARTIFACT || !freeCfg()) return false;
+  const f = freeState();
+  return !f.region && f.out !== ptDay();
+}
+async function freeSdk() {
+  if (!FREE.sdk) FREE.sdk = (async () => {
+    const c = freeCfg(), u = n => `https://www.gstatic.com/firebasejs/${FREE_SDK}/firebase-${n}.js`;
+    const [A, C, AI] = await Promise.all([import(u('app')), import(u('app-check')), import(u('ai'))]);
+    const app = A.initializeApp(c.firebase, 'didasko-free-ai');
+    C.initializeAppCheck(app, { provider: new C.ReCaptchaEnterpriseProvider(c.freeAI.recaptchaSiteKey), isTokenAutoRefreshEnabled: true });
+    return { AI, ai: AI.getAI(app, { backend: new AI.GoogleAIBackend() }) };
+  })().catch(e => { FREE.sdk = null; throw new Error('Couldn’t start Didasko’s free AI. Check your internet connection' + (e && e.message ? ` (${e.message})` : '') + '.'); });
+  return FREE.sdk;
+}
+function freeError(e) {
+  const m = String((e && (e.message || e.code)) || ''), st = e && e.customErrorData && e.customErrorData.status;
+  if (st === 429 || /429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(m)) return freeOut('FREE_QUOTA', { out: ptDay() });
+  if (/location is not supported|not available in your country|FAILED_PRECONDITION/i.test(m)) return freeOut('FREE_REGION', { region: true });
+  if (/app.?check|attestation|recaptcha/i.test(m)) return new Error('Didasko’s free AI couldn’t verify this browser. Reload the page and try again, or add your own free Gemini key in Settings → AI model.');
+  if (/SAFETY|blocked/i.test(m)) return new Error('The free AI declined this request. Try again, or use your own AI key.');
+  return new Error('Didasko’s free AI: ' + (m.replace(/^\[?AI\/[\w-]+\]?:?\s*/i, '').replace(/^Firebase AI:\s*/i, '') || 'something went wrong.'));
+}
+function freeOut(code, state) {
+  setFreeState(state); renderAiStateSoon();
+  setTimeout(() => { try { openAiSetupSheet(FREE_MSG[code], null); } catch { /* ignore */ } }, 50);
+  return new Error(FREE_MSG[code]);
+}
+const renderAiStateSoon = () => setTimeout(() => { try { renderAiState(); } catch { /* not ready */ } }, 0);
+const FREE_MSG = {
+  FREE_QUOTA: 'Today’s shared free AI allowance is used up. Add your own free Gemini key (about two minutes) to keep going — it’s saved only on this device.',
+  FREE_REGION: 'Didasko’s shared free AI isn’t offered where you are. Add your own AI key to use AI features.'
+};
+/* One-time notice before anything is sent to the shared free AI. */
+function freeConsent() {
+  if (freeState().agreed) return Promise.resolve(true);
+  return new Promise(resolve => {
+    let done = false; const finish = v => { if (done) return; done = true; resolve(v); };
+    openSheet('Use Didasko’s free AI?', `
+      <p style="margin:0">Didasko includes a free AI model (Google Gemini) so you can try articles, quizzes and transcription without an API key. It costs nothing.</p>
+      <ul class="small" style="margin:0;padding-left:1.2em;display:grid;gap:6px">
+        <li><b>Google may use what you send</b> (transcripts, files, prompts) to improve its products, and people may review it. Leave out student names and anything private.</li>
+        <li><b>For adults (18+).</b> Not offered in the EU, EEA, UK or Switzerland.</li>
+        <li><b>A shared daily allowance.</b> Everyone using Didasko draws on it; it resets at midnight Pacific time.</li>
+      </ul>
+      <p class="small muted" style="margin:0">For private use and your own allowance, connect your own key instead — Gemini’s is free.</p>
+      <div class="row"><button class="btn primary" id="fc-yes">${icon('spark')}I understand — use free AI</button><button class="btn ghost" id="fc-own">Use my own key</button></div>`,
+      sh => {
+        $('#fc-yes', sh).onclick = () => { setFreeState({ agreed: true }); closeSheet(); renderAiStateSoon(); finish(true); };
+        $('#fc-own', sh).onclick = () => { finish(false); openAiSetupSheet('Connect your own AI model. Gemini has a free tier.', null); };
+        const obs = new MutationObserver(() => { if (!sh.isConnected) { obs.disconnect(); finish(false); } });
+        obs.observe($('#sheet-root'), { childList: true });
+      });
+  });
+}
+async function callFree({ system, user, imgs, maxTokens, onText, signal, json }) {
+  if (!(await freeConsent())) throw new Error('Nothing was sent. Connect your own AI key in Settings → AI model, or choose the free AI when you’re ready.');
+  const { AI, ai } = await freeSdk();
+  const generationConfig = { maxOutputTokens: Math.max(maxTokens * 2, 8192) };
+  if (json) generationConfig.responseMimeType = 'application/json';
+  const model = AI.getGenerativeModel(ai, { model: freeCfg().freeAI.model || PROVIDERS.free.main, systemInstruction: system, generationConfig });
+  const parts = imgs.map(im => ({ inlineData: { mimeType: im.mime, data: im.data } }));
+  parts.push({ text: user });
+  const req = { contents: [{ role: 'user', parts }] };
+  const opts = signal ? { signal } : undefined;
+  const txt = r => { try { return r.text(); } catch { return ''; } };
+  try {
+    if (!onText) {
+      const r = await model.generateContent(req, opts);
+      const t = txt(r.response);
+      if (!t && r.response.promptFeedback?.blockReason) throw new Error('blocked ' + r.response.promptFeedback.blockReason);
+      return t;
+    }
+    const r = await model.generateContentStream(req, opts);
+    let text = '';
+    for await (const ch of r.stream) { if (signal?.aborted) throw new DOMException('Aborted', 'AbortError'); const d = txt(ch); if (d) { text += d; onText(text); } }
+    return text;
+  } catch (e) {
+    if (signal?.aborted || e?.name === 'AbortError') throw e;
+    throw freeError(e);
+  }
+}
+
+/* The service actually used: the teacher's choice when it is set up, otherwise the free AI. */
+function ownReady(id) {
+  const p = PROVIDERS[id]; if (!p) return false;
+  const st = S.settings.ai, key = st.keys[id] || '';
+  if (p.kind === 'free') return freeAvailable();
+  if (p.kind === 'sample') return !!S.ai.sample;
+  if (p.kind === 'chrome') return 'LanguageModel' in self;
+  if (p.azure) return !!(key && st.azure.endpoint && st.azure.deployment);
+  if (p.key && !p.optionalKey && !key) return false;
+  if (p.editBase && !(st.bases[id] || p.base)) return false;
+  const m = st.models[id] || {};
+  return !!(m.main || p.main);
+}
+const aiId = () => { const id = S.settings.ai.provider; return ownReady(id) || !freeAvailable() ? id : 'free'; };
+const usingFree = () => aiId() === 'free' && freeAvailable();
+const prov = () => PROVIDERS[aiId()] || PROVIDERS.gemini;
+const aiKey = () => S.settings.ai.keys[aiId()] || '';
 const aiModel = fast => {
-  const id = S.settings.ai.provider, m = S.settings.ai.models[id] || {};
+  const id = aiId(), m = S.settings.ai.models[id] || {};
+  if (id === 'free') return (freeCfg() && freeCfg().freeAI.model) || PROVIDERS.free.main;
   if (PROVIDERS[id]?.azure) return fast ? (S.settings.ai.azure.fastDeployment || S.settings.ai.azure.deployment) : S.settings.ai.azure.deployment;
   return (fast ? m.fast : m.main) || (fast ? PROVIDERS[id]?.fast : PROVIDERS[id]?.main) || '';
 };
-const aiBase = () => (S.settings.ai.bases[S.settings.ai.provider] || prov().base || '').replace(/\/+$/, '');
-function aiReady() {
-  const p = prov();
-  if (p.kind === 'sample') return !!S.ai.sample;
-  if (p.kind === 'chrome') return 'LanguageModel' in self;
-  if (p.azure) return !!(aiKey() && S.settings.ai.azure.endpoint && S.settings.ai.azure.deployment);
-  if (p.key && !p.optionalKey && !aiKey()) return false;
-  if (p.editBase && !aiBase()) return false;
-  return !!aiModel(false);
-}
+const aiBase = () => (S.settings.ai.bases[aiId()] || prov().base || '').replace(/\/+$/, '');
+const aiReady = () => ownReady(aiId());
+/* The teacher's own AI (not the shared free one): used for live translation, which would use up the shared allowance. */
+const ownAiReady = () => aiReady() && !usingFree();
 const aiVision = () => aiReady() && !!prov().vision;
-const aiLabel = () => `${prov().label.replace(/ \(.*\)$/, '')}${aiModel(false) && !['chrome', 'sample'].includes(prov().kind) ? ' · ' + aiModel(false) : ''}`;
+const aiLabel = () => usingFree() ? 'Didasko free (shared Gemini)' : `${prov().label.replace(/ \(.*\)$/, '')}${aiModel(false) && !['chrome', 'sample'].includes(prov().kind) ? ' · ' + aiModel(false) : ''}`;
 function aiErr(status, msg) {
   const name = prov().label.replace(/ \(.*\)$/, '');
   if (status === 401 || status === 403) return `${name} rejected the API key, or it doesn’t have access to this model. Check Settings → AI model.`;
@@ -120,6 +225,7 @@ async function callAI({ system, user, images = [], maxTokens = 4000, fast = fals
   if (!aiReady()) throw new Error('NO_AI');
   const p = prov(), model = aiModel(fast), key = aiKey();
   const imgs = p.vision ? images.slice(0, 8) : [];
+  if (p.kind === 'free') return callFree({ system, user, imgs, maxTokens, onText, signal, json });
 
   if (p.kind === 'anthropic') {
     const content = imgs.map(im => ({ type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } }));
@@ -214,8 +320,9 @@ async function callAI({ system, user, images = [], maxTokens = 4000, fast = fals
   }
   throw new Error('NO_AI');
 }
+const st_key = id => S.settings.ai.keys[id] || '';
 async function listModels() {
-  const id = S.settings.ai.provider, p = PROVIDERS[id], key = aiKey();
+  const id = S.settings.ai.provider, p = PROVIDERS[id], key = st_key(id);
   let ids = [];
   if (p.kind === 'anthropic') {
     const r = await aiFetch('https://api.anthropic.com/v1/models?limit=100', { headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' } });
@@ -238,12 +345,12 @@ async function listModels() {
 const IMAGE_MODELS = { gemini: 'gemini-2.5-flash-image', openai: 'gpt-image-1' };
 function imageProvider() {
   if (!aiReady()) return null;
-  const id = S.settings.ai.provider, p = prov();
+  const id = aiId(), p = prov();
   if (p.kind === 'gemini') return 'gemini';
   if (id === 'openai') return 'openai';
   return null;
 }
-const imageModel = () => (S.settings.ai.imageModels || {})[S.settings.ai.provider] || IMAGE_MODELS[imageProvider()] || '';
+const imageModel = () => (S.settings.ai.imageModels || {})[aiId()] || IMAGE_MODELS[imageProvider()] || '';
 async function aiImage(prompt, signal) {
   const kind = imageProvider(), model = imageModel(), key = aiKey();
   if (!kind) throw new Error('This AI service can’t paint pictures.');
