@@ -27,6 +27,8 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 
 The version number is shown next to the Didasko name in the top bar, at the bottom of Settings, and on students' screens. It is set in one place, `APP_VERSION` at the top of `src/main.js`. **Bump it with every update**, then run `python3 build.py` — the build also updates the cache name in `sw.js` so installed copies pick up the new version.
 
+**3.9.2** — more space between the view and layout buttons (48px tall, 16px apart) for easier tapping.
+
 **3.9.1** — the basic/advanced and mobile/desktop switches are buttons instead of links; “phone layout” is now called “mobile layout”.
 
 **3.9.0** — layout toggle for foldables and tablets: “Switch to phone layout / Switch to desktop layout” on the Basic and Advanced home screens, and Settings → Layout (Automatic, Phone, Desktop & tablet). Phone layout also scales the page back up when the browser is in “desktop site” mode.

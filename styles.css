@@ -953,3 +953,9 @@ body.basic-mode { background: var(--bg); }
 .btn.mode-btn { min-height: 40px; padding: 0 14px; font-size: .88rem; gap: 7px; }
 .btn.mode-btn .i { width: 17px; height: 17px; }
 @media (max-width: 560px) { .home-basic .btn.mode-btn, .b-foot .btn.mode-btn { flex: 1 1 auto; } }
+
+/* v3.9.2: comfortable touch targets for the view and layout buttons (48px tall, 16px apart) */
+.home-basic, .b-foot { gap: 16px 20px; }
+.btn.mode-btn { min-height: 48px; padding: 0 18px; }
+.b-foot { padding-top: 16px; }
+.home-basic { margin-bottom: 18px; }
