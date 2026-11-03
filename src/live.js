@@ -1,6 +1,7 @@
 /* ================= Live sessions (presenter side) =================
    sessions/{CODE}: host, active, title, captions/{id}, interim, participants/{uid}, quiz, reveal/{i}, responses/{i}/{uid}, scores/{uid} */
 const LIVE = { code: null, ref: null, people: {}, langs: new Set(), offs: [], showQR: false, interimAt: 0, interimTimer: null, q: null };
+const durLabel = d => d % 60 === 0 ? `${d / 60} minute${d === 60 ? '' : 's'}` : `${d} seconds`;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_LIVE_LANGS = 10;
 const genCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => CODE_CHARS[b % CODE_CHARS.length]).join('');
@@ -8,7 +9,14 @@ function joinUrl(code, quiz) {
   const base = (CFG.appUrl || (location.origin + location.pathname)).replace(/index\.html?$/, '');
   return `${base}?join=${code}${quiz ? '&quiz=1' : ''}`;
 }
+const QR_CACHE = new Map();
+const prettyUrl = u => u.replace(/^https?:\/\//, '');
+const urlHtml = u => esc(prettyUrl(u)).replace('?', '<wbr>?');
 async function qrSvg(text) {
+  if (QR_CACHE.has(text)) return QR_CACHE.get(text);
+  const svg = await qrSvgRaw(text); if (svg.includes('<svg')) QR_CACHE.set(text, svg); return svg;
+}
+async function qrSvgRaw(text) {
   try {
     const qr = (await lib('qr'))(0, 'M'); qr.addData(text); qr.make();
     const n = qr.getModuleCount(), m = 2; let d = '';
@@ -286,8 +294,8 @@ async function renderLiveQuiz() {
   const finishBtn = `<button class="btn ghost" id="lq-finish">${icon('trophy')}End quiz &amp; show winner</button>`;
   if (q.state === 'lobby') {
     body = `<div class="lobby"><div class="qr-wrap big">${await qrSvg(url)}</div>
-      <div class="lobby-info"><span class="eyebrow">Scan to join · code</span><div class="qr-code mono">${LIVE.code}</div>
-      <p class="present-explain">${q.nameMode === 'ask' ? 'Students type their name when they join.' : 'Each student is given a color-and-animal name.'} ${q.duration ? `${q.duration} seconds per question.` : 'No time limit.'} ${q.qs.length} questions${q.reflection ? ', then a short reflection' : ''}.</p></div></div>
+      <div class="lobby-info"><span class="eyebrow">Scan the QR code</span><span class="eyebrow">or go to this web address</span><div class="share-url mono lq-url">${urlHtml(url)}</div><div class="row"><button class="btn sm" id="lq-copy">${icon('copy')}Copy link</button></div><span class="eyebrow">Join code</span><div class="qr-code mono">${LIVE.code}</div>
+      <p class="present-explain">${q.nameMode === 'ask' ? 'Students type their name when they join.' : 'Each student is given a color-and-animal name.'} ${q.duration ? `${durLabel(q.duration)} per question.` : 'No time limit.'} ${q.qs.length} questions${q.reflection ? ', then a short reflection' : ''}.</p></div></div>
       ${q.showBoard ? '' : `<ul class="names">${people.map(([, p]) => `<li style="--c:${colorHex(p.color)}">${esc(displayName(p, q.nameMode))}</li>`).join('') || '<li class="muted-li">Waiting for students…</li>'}</ul>`}`;
     nav = `<button class="btn primary" id="lq-start" ${n ? '' : 'disabled'}>Start quiz</button>`;
   } else if (q.state === 'question' || q.state === 'reveal') {
@@ -322,11 +330,15 @@ async function renderLiveQuiz() {
       <ul class="qstats">${rows}</ul><p class="present-explain small">Results, confidence ratings and reflections are saved with this lecture. Download them for your gradebook or to plan reteaching.</p>`;
     nav = `<button class="btn primary" id="lq-celebrate">${icon('trophy')}Celebrate the winner</button><button class="btn" id="lq-csv">${icon('down')}Download results (.csv)</button><button class="btn" id="lq-again">Run again</button>`;
   }
+  // Keep the QR code and web address on screen after the lobby so students can join late or rejoin if dropped.
+  const joinStrip = ['question', 'reveal', 'reflect', 'ended'].includes(q.state)
+    ? `<div class="lq-join" aria-label="Join late or rejoin"><div class="qr-wrap">${await qrSvg(url)}</div><div class="lq-join-info"><span class="eyebrow">Join late or rejoin</span><div class="lq-url mono">${urlHtml(url)}</div><div class="small">Code <b class="mono">${LIVE.code}</b></div></div></div>` : '';
   const before = flipCapture(ov);
-  ov.innerHTML = `${top}<div class="lq-layout ${q.showBoard ? 'with-board' : ''}"><div class="present-body ${q.state === 'reveal' ? 'rv' : ''}">${body}</div>${q.showBoard ? `<aside class="lq-board" aria-label="Live leaderboard">${boardHtml(q)}</aside>` : ''}</div><div class="present-nav">${nav}</div>`;
+  ov.innerHTML = `${top}${joinStrip}<div class="lq-layout ${q.showBoard ? 'with-board' : ''}"><div class="present-body ${q.state === 'reveal' ? 'rv' : ''}">${body}</div>${q.showBoard ? `<aside class="lq-board" aria-label="Live leaderboard">${boardHtml(q)}</aside>` : ''}</div><div class="present-nav">${nav}</div>`;
   flipPlay(ov, before);
   $('#lq-close', ov).onclick = () => closeLiveQuiz();
   const b = id => $(id, ov);
+  if (b('#lq-copy')) b('#lq-copy').onclick = () => copyText(url);
   if (b('#lq-start')) b('#lq-start').onclick = () => askQuestion(0);
   if (b('#lq-reveal')) b('#lq-reveal').onclick = reveal;
   if (b('#lq-next')) b('#lq-next').onclick = () => askQuestion(q.i + 1);

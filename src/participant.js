@@ -28,7 +28,7 @@ function renderJoin(err) {
     <div class="brand-mark big"><svg class="i"><use href="#i-chalk"/></svg></div>
     <h1>Join a live lecture</h1><p>Enter the code shown on your teacher’s screen.</p>
     <form id="p-join-form" class="p-join-form" novalidate><input id="p-code" class="mono" maxlength="6" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABC123" aria-label="Join code" inputmode="text"><button class="btn primary" type="submit">Join</button></form>
-    ${err ? `<p class="p-err">${esc(err)}</p>` : ''}</div>`;
+    ${err ? `<p class="p-err">${esc(err)}</p>` : ''}<p class="p-version mono">Didasko v${APP_VERSION}</p></div>`;
   $('#p-join-form').onsubmit = e => { e.preventDefault(); const c = $('#p-code').value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (c.length < 6) { renderJoin('Codes have 6 letters and numbers.'); return; } location.search = '?join=' + c; };
   $('#p-code').focus();
 }
@@ -66,7 +66,7 @@ async function joinSession() {
 }
 function renderPShell() {
   $('#participant').innerHTML = `
-    <header class="p-top"><div class="grow" style="min-width:0"><div class="p-title" id="p-title">Live lecture</div><div class="p-sub" id="p-sub"></div></div><span class="status-pill live" id="p-status"><span class="dot"></span><span>LIVE</span></span></header>
+    <header class="p-top"><div class="grow" style="min-width:0"><div class="p-title" id="p-title">Live lecture</div><div class="p-sub" id="p-sub"></div></div><span class="status-pill live" id="p-status"><span class="dot"></span><span>LIVE</span></span><span class="app-version mono" title="Didasko version">v${APP_VERSION}</span></header>
     <div class="p-tabs seg" role="tablist"><button role="tab" id="pt-captions" aria-pressed="true">Captions</button><button role="tab" id="pt-quiz" aria-pressed="false">Quiz<span class="p-badge" id="pt-badge" hidden></span></button></div>
     <section class="p-caps-wrap" id="pv-captions">
       <div class="p-caps" id="p-caps" aria-live="polite"></div>
@@ -198,7 +198,7 @@ function renderPQuiz() {
     $('#p-name-form').onsubmit = e => { e.preventDefault(); const v = $('#p-name').value.trim().slice(0, 40); if (!v) return; P.me.name = v; pSave('name', v); P.ref.child(`participants/${P.uid}/name`).set(v).catch(() => {}); renderPQuiz(); renderPHeader(); };
     return;
   }
-  if (q.state === 'lobby') { box.innerHTML = `<div class="p-empty">${meChip}<h2>You’re in!</h2><p>The quiz will start soon. ${q.total} questions${q.duration ? `, ${q.duration} seconds each` : ''}.</p></div>`; return; }
+  if (q.state === 'lobby') { box.innerHTML = `<div class="p-empty">${meChip}<h2>You’re in!</h2><p>The quiz will start soon. ${q.total} questions${q.duration ? `, ${q.duration % 60 === 0 ? `${q.duration / 60} minute${q.duration === 60 ? '' : 's'}` : `${q.duration} seconds`} each` : ''}.</p></div>`; return; }
   if (q.state === 'reflect') {
     if (P.reflected) { box.innerHTML = `<div class="p-empty">${meChip}<h2>Thanks for reflecting</h2><p>Your teacher will share the results in a moment.</p></div>`; return; }
     if ($('#p-reflect-form', box)) return; // keep what the student is typing

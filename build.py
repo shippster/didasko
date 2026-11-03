@@ -6,6 +6,11 @@ css = (root/'styles.css').read_text()
 ORDER = ['main.js', 'ai.js', 'apa.js', 'formats.js', 'standards.js', 'media.js', 'cloud.js', 'settings.js', 'home.js', 'live.js', 'celebrate.js', 'participant.js']
 js = "/* Didasko — live captions, translation, APA notes, live quizzes. Built from src/ by build.py. */\n(() => {\n'use strict';\n" + '\n'.join((root/'src'/f).read_text() for f in ORDER) + "\nboot();\n})();\n"
 (root/'app.js').write_text(js)
+# Keep the service-worker cache name in step with APP_VERSION so installed apps pick up each update.
+ver = re.search(r"APP_VERSION = '([^']+)'", (root/'src'/'main.js').read_text()).group(1)
+sw = (root/'sw.js').read_text()
+(root/'sw.js').write_text(re.sub(r"const VERSION = '[^']*';", f"const VERSION = 'didasko-v{ver}';", sw))
+print('version', ver)
 cfg = (root/'config.js').read_text()
 
 dist = root/'dist'

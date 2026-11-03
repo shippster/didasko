@@ -71,7 +71,8 @@ function openSettings() {
     ${IS_ARTIFACT ? '' : `<div class="set-group"><span class="eyebrow">Install</span>
       ${standalone ? '<p class="small muted" style="margin:0">Didasko is installed on this device.</p>' : S.installPrompt ? `<div class="row"><button class="btn sm primary" id="set-install">${icon('down')}Install Didasko</button><span class="small muted">Adds it to your home screen and works offline.</span></div>` : `<p class="small muted" style="margin:0">${ios ? 'In Safari, tap Share, then <b>Add to Home Screen</b>.' : 'Use your browser’s menu and choose <b>Install app</b> or <b>Add to Home screen</b>.'}</p>`}</div>`}
     <div class="set-group"><span class="eyebrow">Privacy</span><p class="small muted" style="margin:0">Speech recognition is provided by the browser (Chrome and Edge process audio on their servers; Safari may process on-device). Text for notes, quizzes and AI translation goes only to the AI service chosen above, using that teacher’s own key. Without a key, notes, quizzes and transcription use Didasko’s free shared AI (Google Gemini), and Google may use that text to improve its products — leave out student names. Shared captions and quiz answers pass through this app’s database and are visible to anyone with the session link. Check your school’s policy before captioning or recording students.</p></div>
-    <div class="set-group"><div class="row"><button class="btn sm ghost danger" id="set-wipe">${icon('trash')}Delete ${isSignedIn() ? 'all my lectures' : 'the lecture on this device'}</button></div></div>`,
+    <div class="set-group"><div class="row"><button class="btn sm ghost danger" id="set-wipe">${icon('trash')}Delete ${isSignedIn() ? 'all my lectures' : 'the lecture on this device'}</button></div></div>
+    <p class="small muted version-line">Didasko version <b class="mono">${APP_VERSION}</b></p>`,
     sh => {
       bindAiSection($('#ai-box', sh));
       $('#set-acct', sh).onclick = openAccountSheet;

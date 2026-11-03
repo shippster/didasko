@@ -798,3 +798,24 @@ body.p-mode::before { background: var(--stage); }
 .chip.std{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .std-box details[open] > * + * { margin-top: 12px; }
 .std-box details .grid-2 { margin-top: 12px !important; }
+
+
+/* Version number (always visible, including on phones) */
+.app-version { font-size: .68rem; font-weight: 500; opacity: .7; padding: 2px 6px; border-radius: 999px; border: 1px solid currentColor; line-height: 1.2; white-space: nowrap; }
+.p-top .app-version { align-self: center; margin-left: 6px; }
+.p-version { font-size: .75rem; opacity: .6; margin-top: 18px; }
+.version-line { margin: 4px 0 0; }
+
+/* Live quiz: web address in the lobby, and join strip kept on screen during the quiz */
+.lobby .lq-url { font-size: clamp(1rem, 2.4vw, 1.5rem); font-weight: 600; }
+.lq-join { display: flex; align-items: center; gap: 12px; padding: 8px 12px; flex: none; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; }
+.lq-join .qr-wrap { padding: 5px; border-radius: 8px; }
+.lq-join .qr-wrap svg { width: 84px; height: 84px; }
+.lq-join-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lq-join .lq-url { font-size: clamp(.85rem, 1.8vw, 1.15rem); font-weight: 600; color: var(--chalk-yellow); overflow-wrap: break-word; }
+.lq-url { word-break: normal; overflow-wrap: break-word; }
+@media (max-width: 560px) { .lq-join .qr-wrap svg { width: 64px; height: 64px; } }
+@media (max-width: 560px) {
+  .brand { flex-direction: column; gap: 1px; align-items: center; }
+  .brand .app-version { font-size: .56rem; padding: 0 4px; border: 0; opacity: .65; }
+}

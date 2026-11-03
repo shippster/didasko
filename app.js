@@ -3,6 +3,8 @@
 'use strict';
 
 /* ================= Basics ================= */
+// App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
+const APP_VERSION = '3.5.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -1390,6 +1392,7 @@ The light-dependent reactions are best understood as an energy-conversion pathwa
 
 /* ================= Boot ================= */
 async function boot() {
+  document.querySelectorAll('#app-version').forEach(el => { el.textContent = 'v' + APP_VERSION; });
   const saved = (await store.get('settings')) || {};
   S.settings = { ...DEFAULT_SETTINGS, ...saved };
   if (!S.settings.myName && saved.lecturer) S.settings.myName = saved.lecturer; // older versions kept the user's name here
@@ -3499,7 +3502,8 @@ function openSettings() {
     ${IS_ARTIFACT ? '' : `<div class="set-group"><span class="eyebrow">Install</span>
       ${standalone ? '<p class="small muted" style="margin:0">Didasko is installed on this device.</p>' : S.installPrompt ? `<div class="row"><button class="btn sm primary" id="set-install">${icon('down')}Install Didasko</button><span class="small muted">Adds it to your home screen and works offline.</span></div>` : `<p class="small muted" style="margin:0">${ios ? 'In Safari, tap Share, then <b>Add to Home Screen</b>.' : 'Use your browser’s menu and choose <b>Install app</b> or <b>Add to Home screen</b>.'}</p>`}</div>`}
     <div class="set-group"><span class="eyebrow">Privacy</span><p class="small muted" style="margin:0">Speech recognition is provided by the browser (Chrome and Edge process audio on their servers; Safari may process on-device). Text for notes, quizzes and AI translation goes only to the AI service chosen above, using that teacher’s own key. Without a key, notes, quizzes and transcription use Didasko’s free shared AI (Google Gemini), and Google may use that text to improve its products — leave out student names. Shared captions and quiz answers pass through this app’s database and are visible to anyone with the session link. Check your school’s policy before captioning or recording students.</p></div>
-    <div class="set-group"><div class="row"><button class="btn sm ghost danger" id="set-wipe">${icon('trash')}Delete ${isSignedIn() ? 'all my lectures' : 'the lecture on this device'}</button></div></div>`,
+    <div class="set-group"><div class="row"><button class="btn sm ghost danger" id="set-wipe">${icon('trash')}Delete ${isSignedIn() ? 'all my lectures' : 'the lecture on this device'}</button></div></div>
+    <p class="small muted version-line">Didasko version <b class="mono">${APP_VERSION}</b></p>`,
     sh => {
       bindAiSection($('#ai-box', sh));
       $('#set-acct', sh).onclick = openAccountSheet;
@@ -3777,6 +3781,7 @@ function openNameSheet() {
 /* ================= Live sessions (presenter side) =================
    sessions/{CODE}: host, active, title, captions/{id}, interim, participants/{uid}, quiz, reveal/{i}, responses/{i}/{uid}, scores/{uid} */
 const LIVE = { code: null, ref: null, people: {}, langs: new Set(), offs: [], showQR: false, interimAt: 0, interimTimer: null, q: null };
+const durLabel = d => d % 60 === 0 ? `${d / 60} minute${d === 60 ? '' : 's'}` : `${d} seconds`;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_LIVE_LANGS = 10;
 const genCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => CODE_CHARS[b % CODE_CHARS.length]).join('');
@@ -3784,7 +3789,14 @@ function joinUrl(code, quiz) {
   const base = (CFG.appUrl || (location.origin + location.pathname)).replace(/index\.html?$/, '');
   return `${base}?join=${code}${quiz ? '&quiz=1' : ''}`;
 }
+const QR_CACHE = new Map();
+const prettyUrl = u => u.replace(/^https?:\/\//, '');
+const urlHtml = u => esc(prettyUrl(u)).replace('?', '<wbr>?');
 async function qrSvg(text) {
+  if (QR_CACHE.has(text)) return QR_CACHE.get(text);
+  const svg = await qrSvgRaw(text); if (svg.includes('<svg')) QR_CACHE.set(text, svg); return svg;
+}
+async function qrSvgRaw(text) {
   try {
     const qr = (await lib('qr'))(0, 'M'); qr.addData(text); qr.make();
     const n = qr.getModuleCount(), m = 2; let d = '';
@@ -4062,8 +4074,8 @@ async function renderLiveQuiz() {
   const finishBtn = `<button class="btn ghost" id="lq-finish">${icon('trophy')}End quiz &amp; show winner</button>`;
   if (q.state === 'lobby') {
     body = `<div class="lobby"><div class="qr-wrap big">${await qrSvg(url)}</div>
-      <div class="lobby-info"><span class="eyebrow">Scan to join · code</span><div class="qr-code mono">${LIVE.code}</div>
-      <p class="present-explain">${q.nameMode === 'ask' ? 'Students type their name when they join.' : 'Each student is given a color-and-animal name.'} ${q.duration ? `${q.duration} seconds per question.` : 'No time limit.'} ${q.qs.length} questions${q.reflection ? ', then a short reflection' : ''}.</p></div></div>
+      <div class="lobby-info"><span class="eyebrow">Scan the QR code</span><span class="eyebrow">or go to this web address</span><div class="share-url mono lq-url">${urlHtml(url)}</div><div class="row"><button class="btn sm" id="lq-copy">${icon('copy')}Copy link</button></div><span class="eyebrow">Join code</span><div class="qr-code mono">${LIVE.code}</div>
+      <p class="present-explain">${q.nameMode === 'ask' ? 'Students type their name when they join.' : 'Each student is given a color-and-animal name.'} ${q.duration ? `${durLabel(q.duration)} per question.` : 'No time limit.'} ${q.qs.length} questions${q.reflection ? ', then a short reflection' : ''}.</p></div></div>
       ${q.showBoard ? '' : `<ul class="names">${people.map(([, p]) => `<li style="--c:${colorHex(p.color)}">${esc(displayName(p, q.nameMode))}</li>`).join('') || '<li class="muted-li">Waiting for students…</li>'}</ul>`}`;
     nav = `<button class="btn primary" id="lq-start" ${n ? '' : 'disabled'}>Start quiz</button>`;
   } else if (q.state === 'question' || q.state === 'reveal') {
@@ -4098,11 +4110,15 @@ async function renderLiveQuiz() {
       <ul class="qstats">${rows}</ul><p class="present-explain small">Results, confidence ratings and reflections are saved with this lecture. Download them for your gradebook or to plan reteaching.</p>`;
     nav = `<button class="btn primary" id="lq-celebrate">${icon('trophy')}Celebrate the winner</button><button class="btn" id="lq-csv">${icon('down')}Download results (.csv)</button><button class="btn" id="lq-again">Run again</button>`;
   }
+  // Keep the QR code and web address on screen after the lobby so students can join late or rejoin if dropped.
+  const joinStrip = ['question', 'reveal', 'reflect', 'ended'].includes(q.state)
+    ? `<div class="lq-join" aria-label="Join late or rejoin"><div class="qr-wrap">${await qrSvg(url)}</div><div class="lq-join-info"><span class="eyebrow">Join late or rejoin</span><div class="lq-url mono">${urlHtml(url)}</div><div class="small">Code <b class="mono">${LIVE.code}</b></div></div></div>` : '';
   const before = flipCapture(ov);
-  ov.innerHTML = `${top}<div class="lq-layout ${q.showBoard ? 'with-board' : ''}"><div class="present-body ${q.state === 'reveal' ? 'rv' : ''}">${body}</div>${q.showBoard ? `<aside class="lq-board" aria-label="Live leaderboard">${boardHtml(q)}</aside>` : ''}</div><div class="present-nav">${nav}</div>`;
+  ov.innerHTML = `${top}${joinStrip}<div class="lq-layout ${q.showBoard ? 'with-board' : ''}"><div class="present-body ${q.state === 'reveal' ? 'rv' : ''}">${body}</div>${q.showBoard ? `<aside class="lq-board" aria-label="Live leaderboard">${boardHtml(q)}</aside>` : ''}</div><div class="present-nav">${nav}</div>`;
   flipPlay(ov, before);
   $('#lq-close', ov).onclick = () => closeLiveQuiz();
   const b = id => $(id, ov);
+  if (b('#lq-copy')) b('#lq-copy').onclick = () => copyText(url);
   if (b('#lq-start')) b('#lq-start').onclick = () => askQuestion(0);
   if (b('#lq-reveal')) b('#lq-reveal').onclick = reveal;
   if (b('#lq-next')) b('#lq-next').onclick = () => askQuestion(q.i + 1);
@@ -4325,7 +4341,7 @@ function renderJoin(err) {
     <div class="brand-mark big"><svg class="i"><use href="#i-chalk"/></svg></div>
     <h1>Join a live lecture</h1><p>Enter the code shown on your teacher’s screen.</p>
     <form id="p-join-form" class="p-join-form" novalidate><input id="p-code" class="mono" maxlength="6" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABC123" aria-label="Join code" inputmode="text"><button class="btn primary" type="submit">Join</button></form>
-    ${err ? `<p class="p-err">${esc(err)}</p>` : ''}</div>`;
+    ${err ? `<p class="p-err">${esc(err)}</p>` : ''}<p class="p-version mono">Didasko v${APP_VERSION}</p></div>`;
   $('#p-join-form').onsubmit = e => { e.preventDefault(); const c = $('#p-code').value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (c.length < 6) { renderJoin('Codes have 6 letters and numbers.'); return; } location.search = '?join=' + c; };
   $('#p-code').focus();
 }
@@ -4363,7 +4379,7 @@ async function joinSession() {
 }
 function renderPShell() {
   $('#participant').innerHTML = `
-    <header class="p-top"><div class="grow" style="min-width:0"><div class="p-title" id="p-title">Live lecture</div><div class="p-sub" id="p-sub"></div></div><span class="status-pill live" id="p-status"><span class="dot"></span><span>LIVE</span></span></header>
+    <header class="p-top"><div class="grow" style="min-width:0"><div class="p-title" id="p-title">Live lecture</div><div class="p-sub" id="p-sub"></div></div><span class="status-pill live" id="p-status"><span class="dot"></span><span>LIVE</span></span><span class="app-version mono" title="Didasko version">v${APP_VERSION}</span></header>
     <div class="p-tabs seg" role="tablist"><button role="tab" id="pt-captions" aria-pressed="true">Captions</button><button role="tab" id="pt-quiz" aria-pressed="false">Quiz<span class="p-badge" id="pt-badge" hidden></span></button></div>
     <section class="p-caps-wrap" id="pv-captions">
       <div class="p-caps" id="p-caps" aria-live="polite"></div>
@@ -4495,7 +4511,7 @@ function renderPQuiz() {
     $('#p-name-form').onsubmit = e => { e.preventDefault(); const v = $('#p-name').value.trim().slice(0, 40); if (!v) return; P.me.name = v; pSave('name', v); P.ref.child(`participants/${P.uid}/name`).set(v).catch(() => {}); renderPQuiz(); renderPHeader(); };
     return;
   }
-  if (q.state === 'lobby') { box.innerHTML = `<div class="p-empty">${meChip}<h2>You’re in!</h2><p>The quiz will start soon. ${q.total} questions${q.duration ? `, ${q.duration} seconds each` : ''}.</p></div>`; return; }
+  if (q.state === 'lobby') { box.innerHTML = `<div class="p-empty">${meChip}<h2>You’re in!</h2><p>The quiz will start soon. ${q.total} questions${q.duration ? `, ${q.duration % 60 === 0 ? `${q.duration / 60} minute${q.duration === 60 ? '' : 's'}` : `${q.duration} seconds`} each` : ''}.</p></div>`; return; }
   if (q.state === 'reflect') {
     if (P.reflected) { box.innerHTML = `<div class="p-empty">${meChip}<h2>Thanks for reflecting</h2><p>Your teacher will share the results in a moment.</p></div>`; return; }
     if ($('#p-reflect-form', box)) return; // keep what the student is typing

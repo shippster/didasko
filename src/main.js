@@ -1,5 +1,7 @@
 
 /* ================= Basics ================= */
+// App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
+const APP_VERSION = '3.5.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -1387,6 +1389,7 @@ The light-dependent reactions are best understood as an energy-conversion pathwa
 
 /* ================= Boot ================= */
 async function boot() {
+  document.querySelectorAll('#app-version').forEach(el => { el.textContent = 'v' + APP_VERSION; });
   const saved = (await store.get('settings')) || {};
   S.settings = { ...DEFAULT_SETTINGS, ...saved };
   if (!S.settings.myName && saved.lecturer) S.settings.myName = saved.lecturer; // older versions kept the user's name here
