@@ -4,7 +4,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.9.0';
+const APP_VERSION = '3.9.1';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -494,14 +494,14 @@ function applyLayout() {
   if (l === 'phone') { const vw = root.clientWidth, sw = screen.width || vw; if (sw < 900 && vw > sw * 1.1) root.style.zoom = (vw / sw).toFixed(3); }
   $$('[data-lay-toggle]').forEach(b => {
     const wide = layoutIsWide();
-    b.innerHTML = `${icon(wide ? 'phone' : 'monitor')}${wide ? 'Switch to phone layout' : 'Switch to desktop layout'}`;
+    b.innerHTML = `${icon(wide ? 'phone' : 'monitor')}${wide ? 'Switch to mobile layout' : 'Switch to desktop layout'}`;
     b.title = wide ? 'Single column with tabs along the bottom' : 'Wider layout with tabs down the side';
   });
 }
 function setLayout(l) {
   S.settings.layout = l; saveSettings(); applyLayout(); relayoutCaptions();
   const sel = $('#set-layout'); if (sel) sel.value = l;
-  toast(l === 'auto' ? 'Layout follows your screen size' : l === 'phone' ? 'Phone layout' : 'Desktop & tablet layout');
+  toast(l === 'auto' ? 'Layout follows your screen size' : l === 'phone' ? 'Mobile layout' : 'Desktop & tablet layout');
 }
 function applyTheme() {
   const t = S.settings.theme;
@@ -3730,7 +3730,7 @@ function openSettings() {
       <div class="grid-2 stack-sm">
         <label class="field"><span>Translation engine</span><select id="set-engine">${opt([['auto', 'On-device first, then AI'], ['device', 'On-device only'], ['ai', 'AI model only']], st.engine)}</select></label>
         <label class="field"><span>Appearance</span><select id="set-theme">${opt([['system', 'Match device'], ['light', 'Light'], ['dark', 'Dark']], st.theme)}</select></label>
-        <label class="field"><span>Layout</span><select id="set-layout">${opt([['auto', 'Automatic (screen size)'], ['phone', 'Phone'], ['wide', 'Desktop & tablet']], st.layout || 'auto')}</select></label>
+        <label class="field"><span>Layout</span><select id="set-layout">${opt([['auto', 'Automatic (screen size)'], ['phone', 'Mobile'], ['wide', 'Desktop & tablet']], st.layout || 'auto')}</select></label>
       </div></div>
     ${IS_ARTIFACT ? '' : `<div class="set-group"><span class="eyebrow">Install</span>
       ${standalone ? '<p class="small muted" style="margin:0">Didasko is installed on this device.</p>' : S.installPrompt ? `<div class="row"><button class="btn sm primary" id="set-install">${icon('down')}Install Didasko</button><span class="small muted">Adds it to your home screen and works offline.</span></div>` : `<p class="small muted" style="margin:0">${ios ? 'In Safari, tap Share, then <b>Add to Home Screen</b>.' : 'Use your browser’s menu and choose <b>Install app</b> or <b>Add to Home screen</b>.'}</p>`}</div>`}

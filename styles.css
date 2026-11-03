@@ -947,3 +947,9 @@ body.basic-mode { background: var(--bg); }
 .lay-toggle .i { width: 16px; height: 16px; }
 .b-foot { display: flex; flex-wrap: wrap; gap: 6px 22px; justify-content: center; }
 @media (max-width: 560px) { .home-basic { justify-content: center; } }
+
+/* v3.9.1: view and layout switches are buttons */
+.home-basic, .b-foot { gap: 8px 10px; }
+.btn.mode-btn { min-height: 40px; padding: 0 14px; font-size: .88rem; gap: 7px; }
+.btn.mode-btn .i { width: 17px; height: 17px; }
+@media (max-width: 560px) { .home-basic .btn.mode-btn, .b-foot .btn.mode-btn { flex: 1 1 auto; } }

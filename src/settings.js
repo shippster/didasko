@@ -67,7 +67,7 @@ function openSettings() {
       <div class="grid-2 stack-sm">
         <label class="field"><span>Translation engine</span><select id="set-engine">${opt([['auto', 'On-device first, then AI'], ['device', 'On-device only'], ['ai', 'AI model only']], st.engine)}</select></label>
         <label class="field"><span>Appearance</span><select id="set-theme">${opt([['system', 'Match device'], ['light', 'Light'], ['dark', 'Dark']], st.theme)}</select></label>
-        <label class="field"><span>Layout</span><select id="set-layout">${opt([['auto', 'Automatic (screen size)'], ['phone', 'Phone'], ['wide', 'Desktop & tablet']], st.layout || 'auto')}</select></label>
+        <label class="field"><span>Layout</span><select id="set-layout">${opt([['auto', 'Automatic (screen size)'], ['phone', 'Mobile'], ['wide', 'Desktop & tablet']], st.layout || 'auto')}</select></label>
       </div></div>
     ${IS_ARTIFACT ? '' : `<div class="set-group"><span class="eyebrow">Install</span>
       ${standalone ? '<p class="small muted" style="margin:0">Didasko is installed on this device.</p>' : S.installPrompt ? `<div class="row"><button class="btn sm primary" id="set-install">${icon('down')}Install Didasko</button><span class="small muted">Adds it to your home screen and works offline.</span></div>` : `<p class="small muted" style="margin:0">${ios ? 'In Safari, tap Share, then <b>Add to Home Screen</b>.' : 'Use your browser’s menu and choose <b>Install app</b> or <b>Add to Home screen</b>.'}</p>`}</div>`}

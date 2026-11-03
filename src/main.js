@@ -1,7 +1,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.9.0';
+const APP_VERSION = '3.9.1';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -491,14 +491,14 @@ function applyLayout() {
   if (l === 'phone') { const vw = root.clientWidth, sw = screen.width || vw; if (sw < 900 && vw > sw * 1.1) root.style.zoom = (vw / sw).toFixed(3); }
   $$('[data-lay-toggle]').forEach(b => {
     const wide = layoutIsWide();
-    b.innerHTML = `${icon(wide ? 'phone' : 'monitor')}${wide ? 'Switch to phone layout' : 'Switch to desktop layout'}`;
+    b.innerHTML = `${icon(wide ? 'phone' : 'monitor')}${wide ? 'Switch to mobile layout' : 'Switch to desktop layout'}`;
     b.title = wide ? 'Single column with tabs along the bottom' : 'Wider layout with tabs down the side';
   });
 }
 function setLayout(l) {
   S.settings.layout = l; saveSettings(); applyLayout(); relayoutCaptions();
   const sel = $('#set-layout'); if (sel) sel.value = l;
-  toast(l === 'auto' ? 'Layout follows your screen size' : l === 'phone' ? 'Phone layout' : 'Desktop & tablet layout');
+  toast(l === 'auto' ? 'Layout follows your screen size' : l === 'phone' ? 'Mobile layout' : 'Desktop & tablet layout');
 }
 function applyTheme() {
   const t = S.settings.theme;

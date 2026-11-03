@@ -27,6 +27,8 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 
 The version number is shown next to the Didasko name in the top bar, at the bottom of Settings, and on students' screens. It is set in one place, `APP_VERSION` at the top of `src/main.js`. **Bump it with every update**, then run `python3 build.py` — the build also updates the cache name in `sw.js` so installed copies pick up the new version.
 
+**3.9.1** — the basic/advanced and mobile/desktop switches are buttons instead of links; “phone layout” is now called “mobile layout”.
+
 **3.9.0** — layout toggle for foldables and tablets: “Switch to phone layout / Switch to desktop layout” on the Basic and Advanced home screens, and Settings → Layout (Automatic, Phone, Desktop & tablet). Phone layout also scales the page back up when the browser is in “desktop site” mode.
 
 **3.8.0** — new **Basic view**, now the start screen: three choices (Start recording, Add a transcript, Upload video or audio), then a Next step screen with Create quiz and Create notes, plus an inline transcript review. Recording has Pause, Resume and Stop; Stop goes to Next step. Add a transcript takes a file (.txt, .vtt, .srt, .docx, .pdf), a YouTube link or pasted text. A video or audio upload goes straight to Next step when transcribing finishes. “Advanced mode” opens the full app, which links back with “Click here for basic view”; the choice is remembered on each device.
