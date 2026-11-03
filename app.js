@@ -4,7 +4,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.8.0';
+const APP_VERSION = '3.9.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -482,6 +482,27 @@ function setInterim(text) {
 }
 
 /* ================= Rendering: shell ================= */
+/* ---- Layout: phone (bottom tabs) or desktop & tablet (side rail). Automatic follows the screen width, but foldables
+   and "desktop site" browsers can land on the wrong one, so people can pick. ---- */
+const wideByWidth = () => matchMedia('(min-width: 900px)').matches;
+function layoutIsWide() { const l = S.settings?.layout; return l === 'wide' || (l !== 'phone' && wideByWidth()); }
+function applyLayout() {
+  const root = document.documentElement, l = S.settings?.layout || 'auto';
+  root.classList.toggle('lay-phone', l === 'phone'); root.classList.toggle('lay-wide', l === 'wide');
+  // A browser in "desktop site" mode lays the page out ~980px wide and shrinks it to fit. In phone layout, scale it back up.
+  root.style.zoom = '';
+  if (l === 'phone') { const vw = root.clientWidth, sw = screen.width || vw; if (sw < 900 && vw > sw * 1.1) root.style.zoom = (vw / sw).toFixed(3); }
+  $$('[data-lay-toggle]').forEach(b => {
+    const wide = layoutIsWide();
+    b.innerHTML = `${icon(wide ? 'phone' : 'monitor')}${wide ? 'Switch to phone layout' : 'Switch to desktop layout'}`;
+    b.title = wide ? 'Single column with tabs along the bottom' : 'Wider layout with tabs down the side';
+  });
+}
+function setLayout(l) {
+  S.settings.layout = l; saveSettings(); applyLayout(); relayoutCaptions();
+  const sel = $('#set-layout'); if (sel) sel.value = l;
+  toast(l === 'auto' ? 'Layout follows your screen size' : l === 'phone' ? 'Phone layout' : 'Desktop & tablet layout');
+}
 function applyTheme() {
   const t = S.settings.theme;
   if (t === 'system') { if (!IS_ARTIFACT) delete document.documentElement.dataset.theme; }
@@ -1369,6 +1390,8 @@ function bind() {
   };
   // transcript editing
   bindBasic();
+  document.addEventListener('click', e => { if (e.target.closest('[data-lay-toggle]')) setLayout(layoutIsWide() ? 'phone' : 'wide'); });
+  applyLayout();
   $('#trv-lines').onclick = () => { saveTranscriptBlock(); S.settings.trView = 'lines'; saveSettings(); renderTranscript(); };
   $('#trv-block').onclick = () => { S.settings.trView = 'block'; saveSettings(); renderTranscript(); };
   $('#tr-to-notes').onclick = () => { saveTranscriptBlock(); S.ui.notesTab = 'notes'; renderNotesArea(); window.scrollTo({ top: 0 }); };
@@ -1601,6 +1624,7 @@ async function boot() {
   ['#app-version', '#app-version-b'].forEach(id => { const el = document.querySelector(id); if (el) el.textContent = 'v' + APP_VERSION; });
   const saved = (await store.get('settings')) || {};
   S.settings = { ...DEFAULT_SETTINGS, ...saved };
+  applyLayout(); addEventListener('resize', () => { if ((S.settings.layout || 'auto') !== 'wide') applyLayout(); });
   if (!S.settings.myName && saved.lecturer) S.settings.myName = saved.lecturer; // older versions kept the user's name here
   const ai = saved.ai || {};
   S.settings.ai = { ...DEFAULT_AI, ...ai, keys: { ...(ai.keys || {}) }, models: { ...(ai.models || {}) }, lists: { ...(ai.lists || {}) }, bases: { ...(ai.bases || {}) }, azure: { ...DEFAULT_AI.azure, ...(ai.azure || {}) } };
@@ -3706,6 +3730,7 @@ function openSettings() {
       <div class="grid-2 stack-sm">
         <label class="field"><span>Translation engine</span><select id="set-engine">${opt([['auto', 'On-device first, then AI'], ['device', 'On-device only'], ['ai', 'AI model only']], st.engine)}</select></label>
         <label class="field"><span>Appearance</span><select id="set-theme">${opt([['system', 'Match device'], ['light', 'Light'], ['dark', 'Dark']], st.theme)}</select></label>
+        <label class="field"><span>Layout</span><select id="set-layout">${opt([['auto', 'Automatic (screen size)'], ['phone', 'Phone'], ['wide', 'Desktop & tablet']], st.layout || 'auto')}</select></label>
       </div></div>
     ${IS_ARTIFACT ? '' : `<div class="set-group"><span class="eyebrow">Install</span>
       ${standalone ? '<p class="small muted" style="margin:0">Didasko is installed on this device.</p>' : S.installPrompt ? `<div class="row"><button class="btn sm primary" id="set-install">${icon('down')}Install Didasko</button><span class="small muted">Adds it to your home screen and works offline.</span></div>` : `<p class="small muted" style="margin:0">${ios ? 'In Safari, tap Share, then <b>Add to Home Screen</b>.' : 'Use your browser’s menu and choose <b>Install app</b> or <b>Add to Home screen</b>.'}</p>`}</div>`}
@@ -3717,6 +3742,7 @@ function openSettings() {
       $('#set-acct', sh).onclick = openAccountSheet;
       $('#set-engine', sh).onchange = e => { st.engine = e.target.value; saveSettings(); TR.engineCache.clear(); renderEngineNote(); };
       $('#set-theme', sh).onchange = e => { st.theme = e.target.value; saveSettings(); applyTheme(); };
+      $('#set-layout', sh).onchange = e => setLayout(e.target.value);
       const ib = $('#set-install', sh); if (ib) ib.onclick = async () => { S.installPrompt.prompt(); await S.installPrompt.userChoice.catch(() => {}); S.installPrompt = null; closeSheet(); };
       twoStep($('#set-wipe', sh), 'Tap again to delete permanently', async () => {
         if (S.rec.running) pauseCaptions(true);

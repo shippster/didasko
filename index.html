@@ -57,6 +57,8 @@
   <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></symbol>
   <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8 20.5h8M12 16.5v4"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
   <symbol id="i-chalk" viewBox="0 0 24 24"><path d="M4 6h16v10H4zM8 20l4-4 4 4" stroke="#f2cb52"/><path d="M7 10h6M7 13h9" stroke="#f3f1e7"/></symbol>
 </svg>
@@ -76,7 +78,7 @@
 
   <main>
     <!-- HOME / DASHBOARD -->
-    <section class="view" id="view-home" aria-labelledby="tab-home"><p class="home-basic"><button class="linklike" id="home-basic">Click here for basic view</button></p><div id="home" class="home"></div></section>
+    <section class="view" id="view-home" aria-labelledby="tab-home"><p class="home-basic"><button class="linklike" id="home-basic">Click here for basic view</button><button class="linklike lay-toggle" data-lay-toggle></button></p><div id="home" class="home"></div></section>
 
     <!-- LIVE -->
     <section class="view" id="view-live" aria-labelledby="tab-live" hidden>
@@ -344,7 +346,7 @@
     <button class="mode-link" id="b-adv">Advanced mode <span aria-hidden="true">→</span></button>
   </header>
   <main class="b-main" id="b-main"><div id="basic-main"></div></main>
-  <footer class="b-foot"><button class="linklike" id="b-adv-foot">Click here for advanced mode</button></footer>
+  <footer class="b-foot"><button class="linklike" id="b-adv-foot">Click here for advanced mode</button><button class="linklike lay-toggle" data-lay-toggle></button></footer>
 </div>
 <div id="participant" class="participant" hidden></div>
 <div id="sheet-root"></div>

@@ -129,15 +129,24 @@ main {
 .tab .badge { position: absolute; top: 9px; left: calc(50% + 8px); min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: .65rem; line-height: 16px; }
 
 @media (min-width: 900px) {
-  .app { padding-left: 92px; }
-  .tabbar {
+:where(html:not(.lay-phone)) .app { padding-left: 92px; }
+:where(html:not(.lay-phone)) .tabbar {
     top: 0; bottom: 0; right: auto; width: 92px; border-top: 0; border-right: 1px solid var(--line);
     grid-template-columns: 1fr; grid-auto-rows: 76px; align-content: start; padding-top: calc(70px + env(safe-area-inset-top, 0px));
   }
-  .tab { height: 76px; }
-  .tab[aria-selected="true"]::before { top: 18%; bottom: 18%; left: 0; right: auto; width: 3px; height: auto; border-radius: 0 3px 3px 0; }
-  main { padding-block: 24px 32px; }
+:where(html:not(.lay-phone)) .tab { height: 76px; }
+:where(html:not(.lay-phone)) .tab[aria-selected="true"]::before { top: 18%; bottom: 18%; left: 0; right: auto; width: 3px; height: auto; border-radius: 0 3px 3px 0; }
+:where(html:not(.lay-phone)) main { padding-block: 24px 32px; }
 }
+/* same rules when the layout is forced (Settings → Layout) */
+:where(html.lay-wide) .app { padding-left: 92px; }
+:where(html.lay-wide) .tabbar {
+    top: 0; bottom: 0; right: auto; width: 92px; border-top: 0; border-right: 1px solid var(--line);
+    grid-template-columns: 1fr; grid-auto-rows: 76px; align-content: start; padding-top: calc(70px + env(safe-area-inset-top, 0px));
+  }
+:where(html.lay-wide) .tab { height: 76px; }
+:where(html.lay-wide) .tab[aria-selected="true"]::before { top: 18%; bottom: 18%; left: 0; right: auto; width: 3px; height: auto; border-radius: 0 3px 3px 0; }
+:where(html.lay-wide) main { padding-block: 24px 32px; }
 
 /* ---------- Generic pieces ---------- */
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -186,13 +195,21 @@ main {
 
 /* ---------- Live view ---------- */
 .live-layout { display: grid; gap: 16px; }
-@media (min-width: 900px) { .live-layout { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; } }
+@media (min-width: 900px) {
+:where(html:not(.lay-phone)) .live-layout { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+}
+/* same rules when the layout is forced (Settings → Layout) */
+:where(html.lay-wide) .live-layout { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
 .stage {
   background: var(--stage); color: var(--stage-ink); border-radius: 16px; position: relative; overflow: hidden;
   display: flex; flex-direction: column; min-height: 46vh;
   background-image: radial-gradient(120% 80% at 50% 0%, var(--stage-2), var(--stage));
 }
-@media (min-width: 900px) { .stage { min-height: 62vh; } }
+@media (min-width: 900px) {
+:where(html:not(.lay-phone)) .stage { min-height: 62vh; }
+}
+/* same rules when the layout is forced (Settings → Layout) */
+:where(html.lay-wide) .stage { min-height: 62vh; }
 .stage-bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.07); flex-wrap: wrap; }
 .stage-bar .lang { font: 600 .78rem/1 var(--font-mono); color: var(--stage-dim); letter-spacing: .04em; text-transform: uppercase; }
 .stage-bar .lang b { color: var(--chalk-yellow); font-weight: 600; }
@@ -662,9 +679,17 @@ body.p-mode::before { background: var(--stage); }
 .liveq { gap: 10px; }
 .lq-layout { flex: 1; min-height: 0; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 .lq-layout > .present-body { min-height: 0; }
-@media (min-width: 900px) { .lq-layout.with-board { grid-template-columns: minmax(0, 1fr) clamp(260px, 26vw, 360px); } }
+@media (min-width: 900px) {
+:where(html:not(.lay-phone)) .lq-layout.with-board { grid-template-columns: minmax(0, 1fr) clamp(260px, 26vw, 360px); }
+}
+/* same rules when the layout is forced (Settings → Layout) */
+:where(html.lay-wide) .lq-layout.with-board { grid-template-columns: minmax(0, 1fr) clamp(260px, 26vw, 360px); }
 .lq-board { display: flex; flex-direction: column; gap: 10px; min-height: 0; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 14px; }
-@media (max-width: 899px) { .lq-board { max-height: 40vh; } }
+@media (max-width: 899px) {
+:where(html:not(.lay-wide)) .lq-board { max-height: 40vh; }
+}
+/* same rules when the layout is forced (Settings → Layout) */
+:where(html.lay-phone) .lq-board { max-height: 40vh; }
 .lqb-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .lqb-head .eyebrow { display: inline-flex; gap: 6px; align-items: center; color: var(--chalk-yellow); }
 .lqb-head .eyebrow svg.i { width: 16px; height: 16px; }
@@ -915,3 +940,10 @@ body.basic-mode { background: var(--bg); }
   body.from-basic .topbar .mode-link { display: inline-block; }
   body.from-basic .topbar .status-pill { display: none; }
 }
+
+/* ---------- v3.9: layout toggle (phone ⇄ desktop & tablet) ---------- */
+.home-basic { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: flex-end; }
+.lay-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.lay-toggle .i { width: 16px; height: 16px; }
+.b-foot { display: flex; flex-wrap: wrap; gap: 6px 22px; justify-content: center; }
+@media (max-width: 560px) { .home-basic { justify-content: center; } }
