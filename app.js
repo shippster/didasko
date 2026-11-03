@@ -4,7 +4,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.6.0';
+const APP_VERSION = '3.7.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -703,18 +703,135 @@ function renderNotesArea() {
   $('#notes-tools').hidden = t !== 'notes';
   if (t === 'notes') renderNotes(); else renderTranscript();
 }
+function reviewTranscript() { S.settings.trView = 'block'; saveSettings(); showView('notes'); S.ui.notesTab = 'transcript'; renderNotesArea(); }
 function renderTranscript() {
   const L = S.lecture, tgt = target(), box = $('#transcript');
   const n = speechSegs(L).length;
   $('#transcript-count').textContent = `${n} lines · ${speechWords(L).toLocaleString()} words · ${fmtClock(L.ms)}`;
   $('#tr-translate').hidden = !tgt;
+  const block = S.settings.trView === 'block';
+  $('#trv-lines').setAttribute('aria-pressed', String(!block)); $('#trv-block').setAttribute('aria-pressed', String(block));
+  $('#tr-hint').textContent = block ? 'Edit the whole transcript like a document: fix words, delete filler, tidy sentences. Your changes save as you type, and timestamps, key points and topic markers stay in place.' : 'Tap any line to fix a misheard word. Corrections flow into the notes and quiz.';
+  $('#tr-next').hidden = !n;
+  box.classList.toggle('as-block', block);
   if (!L.segments.length) { box.innerHTML = `<div class="empty"><h3>The transcript is empty</h3><p>Captured captions appear here as you teach.</p></div>`; return; }
+  if (block) { renderTranscriptBlock(box); return; }
+  TB.ids = null;
   box.innerHTML = L.segments.map(s => `<div class="tline ${s.kind === 'topic' ? 'topic' : ''} ${s.key ? 'key' : ''}" data-id="${s.id}">
       <time>${fmtClock(s.t)}</time>
       <div class="grow"><div class="tx" contenteditable="true" spellcheck="true">${esc(s.text)}</div>${tgt && s.tr?.[tgt] ? `<div class="tr" dir="auto">${esc(s.tr[tgt])}</div>` : ''}</div>
       <div class="row" style="gap:2px">${s.kind === 'speech' ? `<button class="tbtn" data-act="key" aria-label="${s.key ? 'Unmark' : 'Mark'} key point" title="Key point">${icon('star', s.key ? 'style="fill:currentColor;color:var(--warn)"' : '')}</button>` : ''}<button class="tbtn" data-act="del" aria-label="Delete line" title="Delete line">${icon('trash')}</button></div>
     </div>`).join('');
 }
+/* ---- Transcript as one editable block of text ----
+   The text area shows the spoken lines as paragraphs. On save, the edited words are matched back to the original lines
+   with a word-level diff, so each line keeps its timestamp, key-point star and translation unless its words changed. */
+const TB = { ids: null, timer: null, dirty: false };
+function blockParagraphs(segs) {
+  const paras = []; let cur = [], prev = null;
+  for (const s of S.lecture.segments) {
+    if (s.kind === 'topic') { if (cur.length) paras.push(cur); cur = []; prev = null; continue; }
+    if (!segs.includes(s)) continue;
+    const words = cur.reduce((a, x) => a + x.text.split(/\s+/).length, 0);
+    const gap = prev && s.t - prev.t > 45000, done = words >= 60 && /[.!?]["”’)]?$/.test(prev?.text || ''), long = words >= 110;
+    if (cur.length && (gap || done || long)) { paras.push(cur); cur = []; }
+    cur.push(s); prev = s;
+  }
+  if (cur.length) paras.push(cur);
+  return paras.map(p => p.map(s => s.text).join(' ')).join('\n\n');
+}
+function renderTranscriptBlock(box) {
+  const ta = $('#tr-block', box);
+  if (ta && document.activeElement === ta) { TB.stale = true; return; } // don't disturb the teacher mid-edit
+  const segs = speechSegs(S.lecture);
+  TB.ids = segs.map(s => s.id); TB.stale = false;
+  box.innerHTML = `<textarea id="tr-block" class="tr-block" spellcheck="true" aria-label="Transcript text"></textarea><div class="row between tr-block-foot"><span class="small muted" id="tr-block-state">${segs.length} lines · edits save automatically</span><button class="btn sm ghost" id="tr-block-undo" hidden>Undo last edit</button></div>`;
+  const t = $('#tr-block', box); t.value = blockParagraphs(segs);
+  TB.undo = null;
+}
+// Myers diff over word arrays; returns, for each word of b, the index of the matching word in a (or -1).
+function wordMatch(a, b, maxD = 1500) {
+  const map = new Int32Array(b.length).fill(-1);
+  let p = 0; while (p < a.length && p < b.length && a[p] === b[p]) { map[p] = p; p++; }
+  let ea = a.length, eb = b.length; while (ea > p && eb > p && a[ea - 1] === b[eb - 1]) { ea--; eb--; map[eb] = ea; }
+  const A = a.slice(p, ea), B = b.slice(p, eb), N = A.length, M = B.length;
+  if (!N || !M) return map;
+  const off = N + M + 1, v = new Int32Array(2 * off + 2), trace = [];
+  let found = false;
+  outer: for (let d = 0; d <= Math.min(N + M, maxD); d++) {
+    trace.push(v.slice(off - d - 1, off + d + 2));
+    for (let k = -d; k <= d; k += 2) {
+      let x = (k === -d || (k !== d && v[off + k - 1] < v[off + k + 1])) ? v[off + k + 1] : v[off + k - 1] + 1, y = x - k;
+      while (x < N && y < M && A[x] === B[y]) { x++; y++; }
+      v[off + k] = x;
+      if (x >= N && y >= M) { found = true; break outer; }
+    }
+  }
+  if (!found) return null;
+  let x = N, y = M;
+  for (let d = trace.length - 1; d >= 0; d--) {
+    const tv = trace[d], get = k => tv[k + d + 1], k = x - y;
+    const pk = (k === -d || (k !== d && get(k - 1) < get(k + 1))) ? k + 1 : k - 1;
+    const px = d === 0 ? 0 : get(pk), py = d === 0 ? 0 : px - pk;
+    while (x > px && y > py) { x--; y--; map[p + y] = p + x; }
+    x = px; y = py;
+  }
+  return map;
+}
+function saveTranscriptBlock(final) {
+  const ta = $('#tr-block'); if (!ta || !TB.ids) return;
+  const L = S.lecture, segs = TB.ids.map(id => L.segments.find(s => s.id === id)).filter(Boolean);
+  const oldW = [], segOf = [];
+  segs.forEach((s, si) => s.text.split(/\s+/).filter(Boolean).forEach(w => { oldW.push(w); segOf.push(si); }));
+  const newW = ta.value.split(/\s+/).filter(Boolean);
+  const state = $('#tr-block-state');
+  if (!newW.length && oldW.length) { if (state) state.textContent = 'The text is empty, so nothing was saved. To start over, delete lines in Timestamped lines view.'; return; }
+  const out = segs.map(() => []);
+  const map = wordMatch(oldW, newW);
+  if (map) {
+    let cur = -1;
+    for (let j = 0; j < newW.length; j++) {
+      if (map[j] >= 0) cur = segOf[map[j]];
+      else if (cur < 0) { let k = j + 1; while (k < newW.length && map[k] < 0) k++; cur = k < newW.length ? segOf[map[k]] : 0; }
+      out[cur].push(newW[j]);
+    }
+  } else { // the text was rewritten wholesale: spread it over the lines in proportion to their length
+    const total = Math.max(1, oldW.length); let j = 0;
+    segs.forEach((s, si) => { const n = si === segs.length - 1 ? newW.length - j : Math.round(newW.length * (segOf.filter(x => x === si).length / total)); out[si] = newW.slice(j, j + n); j += n; });
+  }
+  let changed = 0, removed = 0;
+  const before = segs.map(s => ({ id: s.id, text: s.text, tr: s.tr }));
+  segs.forEach((s, si) => {
+    const text = out[si].join(' ');
+    if (!text) { (TB.removedCache ||= new Map()).set(s.id, { ...s }); L.segments = L.segments.filter(x => x !== s); liveDelSeg(s.id); removed++; return; }
+    if (text !== s.text) { s.text = text; s.tr = {}; liveSeg(s); queueTranslate(s); if (LIVE.code) LIVE.langs.forEach(l => queueTranslate(s, l)); changed++; }
+  });
+  TB.ids = segs.filter(s => L.segments.includes(s)).map(s => s.id);
+  if (changed || removed) {
+    TB.undo = { before, positions: L.segments.map(s => s.id) };
+    saveSoon(); renderCaptions(); renderStats();
+    $('#transcript-count').textContent = `${speechSegs(L).length} lines · ${speechWords(L).toLocaleString()} words · ${fmtClock(L.ms)}`;
+  }
+  if (state) state.textContent = changed || removed ? `Saved · ${changed} line${changed === 1 ? '' : 's'} updated${removed ? `, ${removed} removed` : ''}` : 'All changes saved';
+  const ub = $('#tr-block-undo'); if (ub) ub.hidden = !TB.undo;
+  if (final && TB.stale) renderTranscript();
+}
+function undoTranscriptBlock() {
+  const u = TB.undo; if (!u) return;
+  const L = S.lecture;
+  // Put back removed lines in time order, and restore the text of edited ones.
+  for (const b of u.before) {
+    let s = L.segments.find(x => x.id === b.id);
+    if (!s) { const orig = { id: b.id, kind: 'speech', t: 0, text: b.text, tr: b.tr || {}, key: false }; const old = TB.removedCache?.get(b.id); Object.assign(orig, old || {}); s = orig; L.segments.push(s); }
+    if (s.text !== b.text) { s.text = b.text; s.tr = b.tr || {}; }
+    liveSeg(s);
+  }
+  L.segments.sort((a, b) => a.t - b.t);
+  TB.undo = null; saveSoon(); renderCaptions(); renderStats();
+  const ta = $('#tr-block'); if (ta) ta.blur();
+  renderTranscript(); toast('Edit undone');
+}
+
 const STOP = new Set('a about above after again against all also am an and any are as at be because been before being below between both but by can could did do does doing down during each few for from further had has have having he her here hers him his how i if in into is it its itself just let like me more most my no nor not now of off on once only or other our ours out over own really right same she should so some such than that the their them then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours okay ok yeah gonna kind sort thing things going get got know see say said one two three first second next way lot little well want think make made today everyone remember plus minus times okay so basically actually means mean called call use used using look let’s let\'s we\'ll we’re we\'re it\'s that\'s'.split(' '));
 function keyTerms(text, n = 12) {
   const toks = (String(text).toLowerCase().match(/[\p{L}][\p{L}\p{N}'’-]{2,}/gu) || []);
@@ -1141,7 +1258,7 @@ function openImportSheet() {
         const base = speechSegs(S.lecture).length ? elapsed() : 0;
         rows.forEach(r => { const s = addSpeech(r.text, base + r.t); });
         S.lecture.ms = Math.max(S.lecture.ms, base + rows[rows.length - 1].t + 4000);
-        saveSoon(); closeSheet(); renderAll(); toast(`Imported ${rows.length} lines`);
+        saveSoon(); closeSheet(); renderAll(); reviewTranscript(); toast(`Imported ${rows.length} lines. Review the text, then write notes or make a quiz.`, 5000);
       };
     });
 }
@@ -1249,6 +1366,17 @@ function bind() {
     try { await exportNotes(b.dataset.exp); } catch (err) { toast(err.message || 'Export failed', 4500); }
   };
   // transcript editing
+  $('#trv-lines').onclick = () => { saveTranscriptBlock(); S.settings.trView = 'lines'; saveSettings(); renderTranscript(); };
+  $('#trv-block').onclick = () => { S.settings.trView = 'block'; saveSettings(); renderTranscript(); };
+  $('#tr-to-notes').onclick = () => { saveTranscriptBlock(); S.ui.notesTab = 'notes'; renderNotesArea(); window.scrollTo({ top: 0 }); };
+  $('#tr-to-quiz').onclick = () => { saveTranscriptBlock(); showView('quiz'); };
+  $('#transcript').addEventListener('input', e => {
+    if (e.target.id !== 'tr-block') return;
+    const st = $('#tr-block-state'); if (st) st.textContent = 'Editing…';
+    clearTimeout(TB.timer); TB.timer = setTimeout(() => saveTranscriptBlock(), 1200);
+  });
+  $('#transcript').addEventListener('focusout', e => { if (e.target.id === 'tr-block') { clearTimeout(TB.timer); saveTranscriptBlock(true); } });
+  $('#transcript').addEventListener('click', e => { if (e.target.id === 'tr-block-undo') undoTranscriptBlock(); });
   $('#transcript').addEventListener('focusout', e => {
     const tx = e.target.closest('.tx'); if (!tx) return;
     const id = tx.closest('.tline').dataset.id; const s = S.lecture.segments.find(x => x.id === id); if (!s) return;
@@ -3133,7 +3261,7 @@ async function transcribeFile(file, L) {
     L.ms = Math.max(L.ms || 0, base + Math.round((duration || 0) * 1000), base + lines[lines.length - 1].t + 4000);
     L.source = L.source || { kind: file.type.startsWith('video/') ? 'video' : 'audio', name: file.name };
     saveSoon(); renderAll();
-    toast(`Transcript ready: ${lines.length} lines from ${label}. Choose an output and tap Generate.`, 5000);
+    reviewTranscript(); toast(`Transcript ready: ${lines.length} lines from ${label}. Review and edit it, then write notes or make a quiz.`, 6000);
     return true;
   } catch (e) {
     if (!MEDIA.ctl?.signal.aborted) toast(e.message === 'NO_AI' ? NEEDS_TRANSCRIBER : e.message, 6000);
@@ -3166,7 +3294,7 @@ async function transcribeYouTube(url, L) {
     if (!L.lecturer && meta.SPEAKER) L.lecturer = meta.SPEAKER;
     if (meta.TITLE && /^Lecture · /.test(L.title)) L.title = meta.TITLE;
     saveSoon(); renderAll();
-    toast(`Transcript ready: ${rows.length} lines from “${meta.TITLE || 'the video'}”. Choose an output and tap Generate.`, 5000);
+    reviewTranscript(); toast(`Transcript ready: ${rows.length} lines from “${meta.TITLE || 'the video'}”. Review and edit it, then write notes or make a quiz.`, 6000);
     return true;
   } catch (e) {
     if (!MEDIA.ctl?.signal.aborted) toast(e.message === 'NO_AI' ? NEEDS_GEMINI_VIDEO : e.message, 7000);
@@ -3833,8 +3961,8 @@ function openNewLectureSheet(startFrom) {
         showView('notes');
         if (mode === 'paper') { await addFiles(docs); S.ui.notesTab = 'notes'; renderNotesArea(); toast('Material added. Choose an output and tap Generate, or make a quiz.', 5000); return; }
         S.ui.notesTab = 'transcript'; renderNotesArea();
-        if (mode === 'recording') await transcribeFile(file, S.lecture); else await transcribeYouTube(url, S.lecture);
-        S.ui.notesTab = 'notes'; renderNotesArea();
+        const ok = mode === 'recording' ? await transcribeFile(file, S.lecture) : await transcribeYouTube(url, S.lecture);
+        if (!ok) { S.ui.notesTab = 'notes'; renderNotesArea(); }
       };
       if (replaces) twoStep(ok, 'Tap again — this replaces the current lecture', go); else ok.onclick = go;
       $('#nl-title', sh).onkeydown = e => { if (e.key === 'Enter' && !replaces) go(); };

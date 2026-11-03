@@ -830,3 +830,14 @@ body.p-mode::before { background: var(--stage); }
 @media (prefers-reduced-motion: reduce) { .cap-track, .cap-line { transition: none; } }
 .captions.roll .cap-win { overflow: visible; }
 .captions.roll.mode-both .cap-t-win { overflow: hidden; } /* the translation's outgoing line must not drift over the original */
+
+/* ---------- v3.7: transcript as an editable text block ---------- */
+.tr-viewbar { margin-top: 2px; }
+.tr-viewbar .seg button { display: inline-flex; align-items: center; gap: 6px; }
+.tr-viewbar .seg .i { width: 16px; height: 16px; }
+.transcript.as-block { padding: 0; gap: 0; }
+.tr-block { display: block; width: 100%; min-height: 62vh; resize: vertical; border: 0; border-radius: inherit; padding: 18px 20px; background: var(--surface); color: var(--ink); font: 1.02rem/1.75 var(--font-ui); outline: none; }
+.tr-block:focus { box-shadow: inset 0 0 0 2px var(--accent-soft); }
+.tr-block-foot { padding: 8px 14px; border-top: 1px solid var(--line); }
+.tr-next { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+@media (max-width: 560px) { .tr-block { padding: 14px; font-size: 1rem; min-height: 55vh; } }

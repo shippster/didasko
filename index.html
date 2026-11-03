@@ -207,9 +207,16 @@
               <button class="btn sm" id="tr-import"><svg class="i"><use href="#i-upload"/></svg>Import</button>
             </div>
           </div>
-          <p class="small muted" style="margin:0">Tap any line to fix a misheard word. Corrections flow into the notes and quiz.</p>
+          <div class="row between tr-viewbar">
+            <div class="seg" role="group" aria-label="Transcript view"><button id="trv-lines" aria-pressed="true"><svg class="i"><use href="#i-clock"/></svg>Timestamped lines</button><button id="trv-block" aria-pressed="false"><svg class="i"><use href="#i-edit"/></svg>Text block</button></div>
+          </div>
+          <p class="small muted" style="margin:0" id="tr-hint">Tap any line to fix a misheard word. Corrections flow into the notes and quiz.</p>
         </div>
         <div class="panel transcript" id="transcript"></div>
+        <div class="panel tr-next" id="tr-next" hidden>
+          <span class="small"><b>Transcript look right?</b> Corrections here carry into your notes and quiz.</span>
+          <div class="row"><button class="btn sm primary" id="tr-to-notes"><svg class="i"><use href="#i-notes"/></svg>Write notes</button><button class="btn sm" id="tr-to-quiz"><svg class="i"><use href="#i-quiz"/></svg>Make a quiz</button></div>
+        </div>
       </div>
     </section>
 

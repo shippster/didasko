@@ -27,6 +27,8 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 
 The version number is shown next to the Didasko name in the top bar, at the bottom of Settings, and on students' screens. It is set in one place, `APP_VERSION` at the top of `src/main.js`. **Bump it with every update**, then run `python3 build.py` — the build also updates the cache name in `sw.js` so installed copies pick up the new version.
 
+**3.7.0** — transcript review before notes and quizzes: a **Text block** view (alongside **Timestamped lines**) for editing the whole transcript like a document; edits are matched back to the original lines so timestamps, key points and topics are kept, with undo. After transcribing a YouTube video or recording, or importing a transcript, Didasko opens the text block for review, with Write notes and Make a quiz buttons underneath.
+
 **3.6.0** — smoother live captions: broadcast-style roll-up with two fixed lines; each new line slides in from the bottom while the top line fades out, and earlier lines no longer re-wrap as words arrive.
 
 **3.5.0** — visible version number; live quiz shows both a QR code and a web address, keeps them on screen during the quiz for late joiners and rejoins; 45-second and 1-minute timer options.

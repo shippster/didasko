@@ -184,8 +184,8 @@ function openNewLectureSheet(startFrom) {
         showView('notes');
         if (mode === 'paper') { await addFiles(docs); S.ui.notesTab = 'notes'; renderNotesArea(); toast('Material added. Choose an output and tap Generate, or make a quiz.', 5000); return; }
         S.ui.notesTab = 'transcript'; renderNotesArea();
-        if (mode === 'recording') await transcribeFile(file, S.lecture); else await transcribeYouTube(url, S.lecture);
-        S.ui.notesTab = 'notes'; renderNotesArea();
+        const ok = mode === 'recording' ? await transcribeFile(file, S.lecture) : await transcribeYouTube(url, S.lecture);
+        if (!ok) { S.ui.notesTab = 'notes'; renderNotesArea(); }
       };
       if (replaces) twoStep(ok, 'Tap again — this replaces the current lecture', go); else ok.onclick = go;
       $('#nl-title', sh).onkeydown = e => { if (e.key === 'Enter' && !replaces) go(); };

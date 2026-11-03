@@ -115,7 +115,7 @@ async function transcribeFile(file, L) {
     L.ms = Math.max(L.ms || 0, base + Math.round((duration || 0) * 1000), base + lines[lines.length - 1].t + 4000);
     L.source = L.source || { kind: file.type.startsWith('video/') ? 'video' : 'audio', name: file.name };
     saveSoon(); renderAll();
-    toast(`Transcript ready: ${lines.length} lines from ${label}. Choose an output and tap Generate.`, 5000);
+    reviewTranscript(); toast(`Transcript ready: ${lines.length} lines from ${label}. Review and edit it, then write notes or make a quiz.`, 6000);
     return true;
   } catch (e) {
     if (!MEDIA.ctl?.signal.aborted) toast(e.message === 'NO_AI' ? NEEDS_TRANSCRIBER : e.message, 6000);
@@ -148,7 +148,7 @@ async function transcribeYouTube(url, L) {
     if (!L.lecturer && meta.SPEAKER) L.lecturer = meta.SPEAKER;
     if (meta.TITLE && /^Lecture · /.test(L.title)) L.title = meta.TITLE;
     saveSoon(); renderAll();
-    toast(`Transcript ready: ${rows.length} lines from “${meta.TITLE || 'the video'}”. Choose an output and tap Generate.`, 5000);
+    reviewTranscript(); toast(`Transcript ready: ${rows.length} lines from “${meta.TITLE || 'the video'}”. Review and edit it, then write notes or make a quiz.`, 6000);
     return true;
   } catch (e) {
     if (!MEDIA.ctl?.signal.aborted) toast(e.message === 'NO_AI' ? NEEDS_GEMINI_VIDEO : e.message, 7000);
