@@ -819,3 +819,14 @@ body.p-mode::before { background: var(--stage); }
   .brand { flex-direction: column; gap: 1px; align-items: center; }
   .brand .app-version { font-size: .56rem; padding: 0 4px; border: 0; opacity: .65; }
 }
+
+/* ---------- v3.6: roll-up captions (two fixed lines; the next line slides in, the top line fades out) ---------- */
+.captions.roll .cap-win { position: relative; height: 2.6em; line-height: 1.3; overflow: hidden; display: block; }
+.captions.roll .cap-win[hidden] { display: none; }
+.cap-track { position: absolute; left: 0; right: 0; bottom: 0; transition: transform .38s cubic-bezier(.25,.8,.3,1); will-change: transform; }
+.cap-line { height: 1.3em; white-space: nowrap; overflow: hidden; transition: opacity .38s ease; }
+.cap-line.out { opacity: 0; }
+.captions.roll .cap-t-win.pending .cap-line:last-child:empty::after { content: "…"; opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .cap-track, .cap-line { transition: none; } }
+.captions.roll .cap-win { overflow: visible; }
+.captions.roll.mode-both .cap-t-win { overflow: hidden; } /* the translation's outgoing line must not drift over the original */

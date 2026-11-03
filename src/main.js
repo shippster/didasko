@@ -1,7 +1,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.5.0';
+const APP_VERSION = '3.6.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -528,25 +528,99 @@ function showView(v) {
 }
 
 /* ================= Rendering: captions =================
-   The stage shows a rolling window of exactly two lines, like broadcast captions. Everything is still kept in the transcript. */
-const CAP_TAIL = 4; // recent sentences fed into the window; only the last two visual lines are visible
-function capStream(tgt) {
-  const segs = speechSegs(S.lecture).slice(-CAP_TAIL);
-  const orig = segs.map(s => s.text).concat(S.rec.interim ? [S.rec.interim] : []).join(' ');
-  const tr = tgt ? segs.map(s => s.tr?.[tgt] || '').filter(Boolean).concat(S.rec.interimTr ? [S.rec.interimTr] : []).join(' ') : '';
-  const pendingTr = !!tgt && segs.length > 0 && !segs[segs.length - 1].tr?.[tgt];
-  return { orig, tr, pendingTr };
+   Broadcast-style roll-up captions. Text is laid out into fixed lines once (greedy wrap, measured on a canvas), so
+   earlier lines never re-wrap as words arrive. Two lines are visible; when a third starts, the block slides up and the
+   top line fades out. Only the words on the newest line change while someone is speaking. The transcript keeps everything. */
+const CAP_VISIBLE = 2;
+const capCanvas = document.createElement('canvas').getContext('2d');
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+class CapRoller {
+  constructor(win) { this.win = win; this.reset(); }
+  reset() { this.anchor = null; this.offset = 0; this.high = 0; this.last = -1; this.win.innerHTML = '<div class="cap-track"></div>'; this.track = this.win.firstChild; }
+  measureSetup() {
+    const cs = getComputedStyle(this.win);
+    capCanvas.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    this.maxW = Math.max(40, this.win.clientWidth * 0.97); this.spaceW = capCanvas.measureText(' ').width;
+  }
+  // units: [{ id, text }] in order (final text); interim: words still being heard.
+  update(units, interim, animate = true) {
+    if (!this.win.clientWidth) return;
+    this.measureSetup();
+    let ai = this.anchor ? units.findIndex(u => u.id === this.anchor.id) : -1;
+    if (ai < 0) { const keep = Math.max(0, units.length - 3); if (this.anchor) { this.reset(); animate = false; } this.anchor = units[keep] ? { id: units[keep].id, word: 0 } : null; ai = keep; }
+    const unitWords = units.slice(ai).map((u, k) => { const w = String(u.text || '').split(/\s+/).filter(Boolean); return k === 0 ? w.slice(this.anchor?.word || 0) : w; });
+    const words = unitWords.flat().map(w => ({ w, f: true })).concat(String(interim || '').split(/\s+/).filter(Boolean).map(w => ({ w, f: false })));
+    const lines = []; let cur = [], curW = 0;
+    for (const x of words) {
+      const ww = capCanvas.measureText(x.w).width;
+      if (cur.length && curW + this.spaceW + ww > this.maxW) { lines.push(cur); cur = []; curW = 0; }
+      curW += (cur.length ? this.spaceW : 0) + ww; cur.push(x);
+    }
+    if (cur.length) lines.push(cur);
+    // Drop finished lines from the front so layout work stays small; move the anchor past their words.
+    let firstLive = lines.findIndex(l => l.some(x => !x.f)); if (firstLive < 0) firstLive = lines.length - 1;
+    const drop = Math.max(0, Math.min(firstLive, lines.length - (CAP_VISIBLE + 2)));
+    if (drop > 0 && this.anchor) {
+      let n = lines.slice(0, drop).reduce((a, l) => a + l.length, 0), k = 0, word = this.anchor.word;
+      while (k < unitWords.length && n >= unitWords[k].length) { n -= unitWords[k].length; k++; word = 0; }
+      if (k < unitWords.length) this.anchor = { id: units[ai + k].id, word: (k === 0 ? this.anchor.word : 0) + n };
+      else this.anchor = units[units.length - 1] ? { id: units[units.length - 1].id, word: Infinity } : null;
+      lines.splice(0, drop); this.offset += drop;
+    }
+    const total = this.offset + lines.length;
+    this.high = Math.max(total, Math.min(this.high, total + 1)); // keep one blank line rather than scrolling back down
+    const lastIdx = Math.max(this.high - 1, CAP_VISIBLE - 1);
+    const want = new Map();
+    for (let i = lastIdx - CAP_VISIBLE; i <= lastIdx; i++) { const l = lines[i - this.offset]; want.set(i, l ? l.map(x => x.w).join(' ') : ''); }
+    [...this.track.children].forEach(el => { if (!want.has(+el.dataset.i)) el.remove(); });
+    for (const [i, text] of want) {
+      let el = this.track.querySelector(`[data-i="${i}"]`);
+      if (!el) { el = document.createElement('div'); el.className = 'cap-line'; el.dataset.i = i; const next = [...this.track.children].find(c => +c.dataset.i > i); this.track.insertBefore(el, next || null); }
+      if (el.textContent !== text) el.textContent = text;
+      el.classList.toggle('out', i <= lastIdx - CAP_VISIBLE);
+    }
+    const moved = this.last >= 0 ? lastIdx - this.last : 0; this.last = lastIdx;
+    if (moved > 0 && animate && !reduceMotion()) {
+      const t = this.track; t.style.transition = 'none'; t.style.transform = `translateY(${Math.min(moved, CAP_VISIBLE) * 1.3}em)`;
+      void t.offsetHeight; t.style.transition = ''; t.style.transform = '';
+    }
+  }
 }
-function renderCaptions() {
+const CAP = { o: null, t: null, raf: 0, lecture: null };
+function capUnits(tgt) {
+  const segs = speechSegs(S.lecture);
+  if (!tgt) return segs.map(s => ({ id: s.id, text: s.text }));
+  // Translations arrive out of order; show them in order, skipping one that is still missing after a few seconds.
+  const now = elapsed(), out = [];
+  for (let k = 0; k < segs.length; k++) {
+    const s = segs[k], tr = s.tr?.[tgt];
+    if (tr) { out.push({ id: s.id, text: tr }); continue; }
+    if (segs.slice(k + 1).some(x => x.tr?.[tgt]) && now - s.t > 6000) continue;
+    break;
+  }
+  return out;
+}
+function capPending(tgt) { const segs = speechSegs(S.lecture); return !!tgt && segs.length > 0 && !segs[segs.length - 1].tr?.[tgt]; }
+function renderCaptions() { if (!CAP.raf) CAP.raf = requestAnimationFrame(() => { CAP.raf = 0; drawCaptions(true); }); }
+function relayoutCaptions() { if (CAP.o) { CAP.o.reset(); CAP.t.reset(); } drawCaptions(false); }
+function drawCaptions(animate) {
   const box = $('#captions'), tgt = target();
   const mode = tgt ? S.settings.capMode : 'original';
-  const { orig, tr, pendingTr } = capStream(tgt);
-  let html = '';
-  if (mode !== 'translation') html += `<div class="cap-win cap-o-win" aria-label="Captions"><p>${esc(orig)}</p></div>`;
-  if (tgt && mode !== 'original') html += `<div class="cap-win cap-t-win ${!tr && pendingTr ? 'pending' : ''}" dir="${RTL.has(tgt) ? 'rtl' : 'auto'}" lang="${esc(tgt)}"><p>${esc(tr || (pendingTr ? '…' : ''))}</p></div>`;
-  if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
-  box.className = 'captions two-line mode-' + mode;
-  $('#stage-empty').hidden = !!orig || S.rec.running;
+  if (!CAP.o || !box.contains(CAP.o.win)) {
+    box.innerHTML = '<div class="cap-win cap-o-win" aria-label="Captions"></div><div class="cap-win cap-t-win"></div>';
+    CAP.o = new CapRoller(box.children[0]); CAP.t = new CapRoller(box.children[1]);
+    if (!CAP.ro && 'ResizeObserver' in window) { let key = ''; CAP.ro = new ResizeObserver(() => { const k = box.clientWidth + '|' + getComputedStyle(box).fontSize; if (k !== key) { key = k; relayoutCaptions(); } }); CAP.ro.observe(box); }
+    document.fonts?.ready.then(() => relayoutCaptions());
+  }
+  if (CAP.lecture !== S.lecture.id || CAP.tgt !== tgt) { CAP.lecture = S.lecture.id; CAP.tgt = tgt; CAP.o.reset(); CAP.t.reset(); animate = false; }
+  box.className = 'captions two-line roll mode-' + mode;
+  const ow = CAP.o.win, tw = CAP.t.win;
+  ow.hidden = mode === 'translation'; tw.hidden = !tgt || mode === 'original';
+  if (tgt) { tw.setAttribute('lang', tgt); tw.setAttribute('dir', RTL.has(tgt) ? 'rtl' : 'auto'); }
+  const oUnits = capUnits(null);
+  if (!ow.hidden) CAP.o.update(oUnits, S.rec.interim, animate);
+  if (!tw.hidden) { CAP.t.update(capUnits(tgt), S.rec.interimTr, animate); tw.classList.toggle('pending', capPending(tgt) && !S.rec.interimTr); }
+  $('#stage-empty').hidden = !!(oUnits.length || S.rec.interim) || S.rec.running;
 }
 function renderInterim() { renderCaptions(); }
 function updateCapTr(seg, tgt) { if (tgt === target()) renderCaptions(); }
@@ -554,7 +628,8 @@ function renderStageMeta() {
   const tgt = target();
   const src = srcBase(S.settings.srcLang).toUpperCase();
   $('#stage-lang').innerHTML = tgt ? `${esc(src)} → <b>${esc(tgt.toUpperCase())}</b>` : esc(src);
-  document.documentElement.style.setProperty('--cap-size', CAP_SIZES[S.settings.capStep] + 'rem');
+  const capSize = CAP_SIZES[S.settings.capStep] + 'rem';
+  if (document.documentElement.style.getPropertyValue('--cap-size') !== capSize) { document.documentElement.style.setProperty('--cap-size', capSize); if (CAP.o) requestAnimationFrame(relayoutCaptions); }
   const mb = $('#mode-btn'); mb.hidden = !tgt;
   const labels = { both: ['⇅', 'Showing original and translation'], translation: ['T', 'Showing translation only'], original: ['O', 'Showing original only'] };
   const [txt, lab] = labels[S.settings.capMode] || labels.both;
