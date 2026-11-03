@@ -1,7 +1,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.7.0';
+const APP_VERSION = '3.8.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -621,6 +621,7 @@ function drawCaptions(animate) {
   if (!ow.hidden) CAP.o.update(oUnits, S.rec.interim, animate);
   if (!tw.hidden) { CAP.t.update(capUnits(tgt), S.rec.interimTr, animate); tw.classList.toggle('pending', capPending(tgt) && !S.rec.interimTr); }
   $('#stage-empty').hidden = !!(oUnits.length || S.rec.interim) || S.rec.running;
+  drawBasicCaptions(animate);
 }
 function renderInterim() { renderCaptions(); }
 function updateCapTr(seg, tgt) { if (tgt === target()) renderCaptions(); }
@@ -1282,6 +1283,7 @@ function fillLangSelects() {
   $('#notes-lang').innerHTML = outLangs; $('#quiz-lang').innerHTML = outLangs;
 }
 function renderAll() {
+  renderModeSwitch();
   renderHeader(); renderStageMeta(); renderCaptions(); renderRecState(); renderStats(); renderBadges(); renderAiState(); renderShare();
   if (S.view === 'home') renderHome(); if (S.view === 'notes') renderNotesArea(); if (S.view === 'quiz') renderQuiz(); if (S.view === 'files') renderFiles();
 }
@@ -1363,17 +1365,18 @@ function bind() {
     try { await exportNotes(b.dataset.exp); } catch (err) { toast(err.message || 'Export failed', 4500); }
   };
   // transcript editing
+  bindBasic();
   $('#trv-lines').onclick = () => { saveTranscriptBlock(); S.settings.trView = 'lines'; saveSettings(); renderTranscript(); };
   $('#trv-block').onclick = () => { S.settings.trView = 'block'; saveSettings(); renderTranscript(); };
   $('#tr-to-notes').onclick = () => { saveTranscriptBlock(); S.ui.notesTab = 'notes'; renderNotesArea(); window.scrollTo({ top: 0 }); };
   $('#tr-to-quiz').onclick = () => { saveTranscriptBlock(); showView('quiz'); };
-  $('#transcript').addEventListener('input', e => {
+  document.addEventListener('input', e => {
     if (e.target.id !== 'tr-block') return;
     const st = $('#tr-block-state'); if (st) st.textContent = 'Editing…';
     clearTimeout(TB.timer); TB.timer = setTimeout(() => saveTranscriptBlock(), 1200);
   });
-  $('#transcript').addEventListener('focusout', e => { if (e.target.id === 'tr-block') { clearTimeout(TB.timer); saveTranscriptBlock(true); } });
-  $('#transcript').addEventListener('click', e => { if (e.target.id === 'tr-block-undo') undoTranscriptBlock(); });
+  document.addEventListener('focusout', e => { if (e.target.id === 'tr-block') { clearTimeout(TB.timer); saveTranscriptBlock(true); } });
+  document.addEventListener('click', e => { if (e.target.id === 'tr-block-undo') undoTranscriptBlock(); });
   $('#transcript').addEventListener('focusout', e => {
     const tx = e.target.closest('.tx'); if (!tx) return;
     const id = tx.closest('.tline').dataset.id; const s = S.lecture.segments.find(x => x.id === id); if (!s) return;
@@ -1592,7 +1595,7 @@ The light-dependent reactions are best understood as an energy-conversion pathwa
 
 /* ================= Boot ================= */
 async function boot() {
-  document.querySelectorAll('#app-version').forEach(el => { el.textContent = 'v' + APP_VERSION; });
+  ['#app-version', '#app-version-b'].forEach(id => { const el = document.querySelector(id); if (el) el.textContent = 'v' + APP_VERSION; });
   const saved = (await store.get('settings')) || {};
   S.settings = { ...DEFAULT_SETTINGS, ...saved };
   if (!S.settings.myName && saved.lecturer) S.settings.myName = saved.lecturer; // older versions kept the user's name here
@@ -1615,6 +1618,7 @@ async function boot() {
   $('#notes-custom').value = L.notes?.custom || S.settings.notesCustom || '';
   renderNotesStyleUi();
   showView('home');
+  if (isBasic()) enterBasic(false);
 
   if (window.claude?.use) {
     window.claude.use('sample').then(s => { if (s) { S.ai.sample = s; renderAiState(); } }).catch(() => {});

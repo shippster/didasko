@@ -27,6 +27,8 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 
 The version number is shown next to the Didasko name in the top bar, at the bottom of Settings, and on students' screens. It is set in one place, `APP_VERSION` at the top of `src/main.js`. **Bump it with every update**, then run `python3 build.py` — the build also updates the cache name in `sw.js` so installed copies pick up the new version.
 
+**3.8.0** — new **Basic view**, now the start screen: three choices (Start recording, Add a transcript, Upload video or audio), then a Next step screen with Create quiz and Create notes, plus an inline transcript review. Recording has Pause, Resume and Stop; Stop goes to Next step. Add a transcript takes a file (.txt, .vtt, .srt, .docx, .pdf), a YouTube link or pasted text. A video or audio upload goes straight to Next step when transcribing finishes. “Advanced mode” opens the full app, which links back with “Click here for basic view”; the choice is remembered on each device.
+
 **3.7.0** — transcript review before notes and quizzes: a **Text block** view (alongside **Timestamped lines**) for editing the whole transcript like a document; edits are matched back to the original lines so timestamps, key points and topics are kept, with undo. After transcribing a YouTube video or recording, or importing a transcript, Didasko opens the text block for review, with Write notes and Make a quiz buttons underneath.
 
 **3.6.0** — smoother live captions: broadcast-style roll-up with two fixed lines; each new line slides in from the bottom while the top line fades out, and earlier lines no longer re-wrap as words arrive.
@@ -36,7 +38,7 @@ The version number is shown next to the Didasko name in the top bar, at the bott
 ## Files
 
 ```
-index.html             app shell (teacher and student views)
+index.html             app shell (basic view, advanced teacher view, student view)
 config.js              ← your settings: Firebase, app address, newsletter
 styles.css             styles (light + dark, APA paper, print)
 app.js                 the app (built from src/ by build.py)

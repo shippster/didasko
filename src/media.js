@@ -20,6 +20,7 @@ function setMediaStatus(text) {
   const st = $('#notes-status'); if (!st) return;
   st.hidden = !text; if (text) $('#notes-status-text').textContent = text;
   $('#notes-generate').disabled = !!text;
+  basicStatus(text);
 }
 const blobB64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = () => rej(new Error('Couldn’t read the recording.')); r.readAsDataURL(blob); });
 function mediaDuration(file) {
@@ -83,7 +84,7 @@ async function transcribePart(kind, blob, mime, signal) {
   });
   return parseTimed(out);
 }
-async function transcribeFile(file, L) {
+async function transcribeFile(file, L, quiet) {
   const kind = transcriber(); if (!kind) { toast(NEEDS_TRANSCRIBER, 7000); return false; }
   if (MEDIA.busy) { toast('A recording is already being transcribed.'); return false; }
   MEDIA.busy = true; MEDIA.ctl = new AbortController();
@@ -115,14 +116,14 @@ async function transcribeFile(file, L) {
     L.ms = Math.max(L.ms || 0, base + Math.round((duration || 0) * 1000), base + lines[lines.length - 1].t + 4000);
     L.source = L.source || { kind: file.type.startsWith('video/') ? 'video' : 'audio', name: file.name };
     saveSoon(); renderAll();
-    reviewTranscript(); toast(`Transcript ready: ${lines.length} lines from ${label}. Review and edit it, then write notes or make a quiz.`, 6000);
+    if (!quiet) reviewTranscript(); toast(`Transcript ready: ${lines.length} lines from ${label}. Review and edit it, then write notes or make a quiz.`, 6000);
     return true;
   } catch (e) {
     if (!MEDIA.ctl?.signal.aborted) toast(e.message === 'NO_AI' ? NEEDS_TRANSCRIBER : e.message, 6000);
     return false;
   } finally { MEDIA.busy = false; MEDIA.ctl = null; setMediaStatus(''); }
 }
-async function transcribeYouTube(url, L) {
+async function transcribeYouTube(url, L, quiet) {
   const id = youTubeId(url);
   if (!id) { toast('That doesn’t look like a YouTube link. Paste the address of a public video.'); return false; }
   if (!aiReady() || prov().kind !== 'gemini') { toast(NEEDS_GEMINI_VIDEO, 8000); return false; }
@@ -148,7 +149,7 @@ async function transcribeYouTube(url, L) {
     if (!L.lecturer && meta.SPEAKER) L.lecturer = meta.SPEAKER;
     if (meta.TITLE && /^Lecture · /.test(L.title)) L.title = meta.TITLE;
     saveSoon(); renderAll();
-    reviewTranscript(); toast(`Transcript ready: ${rows.length} lines from “${meta.TITLE || 'the video'}”. Review and edit it, then write notes or make a quiz.`, 6000);
+    if (!quiet) reviewTranscript(); toast(`Transcript ready: ${rows.length} lines from “${meta.TITLE || 'the video'}”. Review and edit it, then write notes or make a quiz.`, 6000);
     return true;
   } catch (e) {
     if (!MEDIA.ctl?.signal.aborted) toast(e.message === 'NO_AI' ? NEEDS_GEMINI_VIDEO : e.message, 7000);
