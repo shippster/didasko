@@ -27,6 +27,8 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 
 The version number is shown next to the Didasko name in the top bar, at the bottom of Settings, and on students' screens. It is set in one place, `APP_VERSION` at the top of `src/main.js`. **Bump it with every update**, then run `python3 build.py` — the build also updates the cache name in `sw.js` so installed copies pick up the new version.
 
+**3.10.2** — shorter quizzes: questions are one sentence of at most 15 words (about 75% shorter), answer choices at most 8 words, and new quizzes default to 5 questions (8, 10, 15 or 20 still available).
+
 **3.10.1** — the app now lives at **didasko.live**.
 
 **3.10.0** — faster transcription and quizzes. Recordings are cut into 5–10 minute parts transcribed side by side (with automatic retry when a service is busy); choosing **Groq** transcribes recordings with Whisper large-v3-turbo, the fastest option. Gemini no longer “thinks” before transcribing, and YouTube videos are read at one frame every 10 seconds with live progress (“reached 12:40”). Quizzes of 6+ questions are written in parallel batches, one per part of the lecture, with thinking set to low; correct answers are spread evenly over A–D.

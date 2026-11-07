@@ -4,7 +4,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.10.1';
+const APP_VERSION = '3.10.2';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -917,9 +917,10 @@ Rules:
 - Focus: ${LEVELS[level] || LEVELS.mixed}.
 ${TYPE_RULES[qtype] || TYPE_RULES.mc}
 - Never write fill-in-the-blank, cloze or "which word completes the sentence" items, and never ask for a word, name, number or date quoted from the lecture. Ask students to explain, predict, compare, classify, apply, or evaluate a claim.
-- Prefer stems that present a short scenario, example, data point, or a classmate's claim ("A student says… What is the best response?").
-- Each wrong option is a plausible misconception or partial understanding a real student would hold — not a joke or an obviously wrong choice. Never "all of the above" or "none of the above". Keep options similar in length and grammar so the answer can't be guessed from form.
-- Stems are self-contained, clear and fair; no trick wording or double negatives.
+- LENGTH (most important): students read and answer these on a phone in seconds. Every stem is ONE short sentence of at most 15 words — no setup paragraph, no background, no "Imagine that…". A scenario is a few words inside the question ("A plant is kept in the dark. What stops first?"). True/false statements are also at most 15 words.
+- Options are short phrases of at most 8 words each, never full sentences when a phrase will do.
+- Each wrong option is a plausible misconception or partial understanding a real student would hold — not a joke or an obviously wrong choice. Never "all of the above" or "none of the above". Keep options similar in length and grammar so the answer can't be guessed from form (all short).
+- Stems are clear and fair; no trick wording or double negatives.
 - Base every question only on the transcript and the materials. The transcript comes from speech recognition, so ignore obvious recognition errors.
 - Cover the lecture's most important ideas${mat.text ? ', and include some questions that draw on the materials' : ''}.${keyFocus ? '\n- Every line marked ★KEY POINT must be assessed by at least one question.' : ''}${isMath(L) ? MATH_QUIZ : ''}${standardsForPrompt(L)}
 For each question return:
