@@ -917,6 +917,14 @@ body.basic-mode { background: var(--bg); }
 .b-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 18px; margin-top: 18px; }
 .b-links .linklike { display: inline-flex; align-items: center; gap: 6px; }
 .b-links .i { width: 16px; height: 16px; }
+.b-more { margin-top: 22px; padding: 16px; border: 1px dashed var(--line); border-radius: 16px; }
+.b-more-h { display: block; font-size: .8rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.b-more-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.b-mini { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-weight: 600; text-align: left; cursor: pointer; transition: border-color .12s ease; }
+.b-mini:hover { border-color: var(--accent); }
+.b-mini .i { flex: none; width: 20px; height: 20px; color: var(--accent); }
+.b-mini[aria-disabled="true"] { opacity: .6; }
+@media (max-width: 600px) { .b-more-row { grid-template-columns: 1fr; } }
 #b-editor { margin-top: 16px; }
 #b-editor .tr-block { min-height: 50vh; }
 /* recording */

@@ -4,7 +4,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.10.2';
+const APP_VERSION = '3.11.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -3416,7 +3416,7 @@ async function transcribeFile(file, L, quiet) {
     const base = speechSegs(L).length ? elapsed() + 2000 : 0;
     lines.forEach(r => addSpeech(r.text, base + r.t));
     L.ms = Math.max(L.ms || 0, base + Math.round((duration || 0) * 1000), base + lines[lines.length - 1].t + 4000);
-    L.source = L.source || { kind: file.type.startsWith('video/') ? 'video' : 'audio', name: file.name };
+    if (!base) L.source = L.source || { kind: file.type.startsWith('video/') ? 'video' : 'audio', name: file.name };
     saveSoon(); renderAll();
     if (!quiet) reviewTranscript(); toast(`Transcript ready: ${lines.length} lines from ${label}. Review and edit it, then write notes or make a quiz.`, 6000);
     return true;
@@ -3458,11 +3458,12 @@ async function transcribeYouTube(url, L, quiet) {
     const meta = {}; const body2 = text.replace(/^\s*(TITLE|SPEAKER|YEAR):[ \t]*(.*)$/gim, (_, k, v) => { meta[k.toUpperCase()] = v.trim(); return ''; });
     const rows = parseTimed(body2.replace(/^\s*\n/gm, ''));
     if (rows.length < 2) throw new Error('Gemini didn’t return a transcript for this video. Check that it’s public and try again.');
-    const base = speechSegs(L).length ? elapsed() + 2000 : 0;
+    const appended = speechSegs(L).length > 0;
+    const base = appended ? elapsed() + 2000 : 0;
     rows.forEach(r => addSpeech(r.text, base + r.t));
     L.ms = Math.max(L.ms || 0, base + rows[rows.length - 1].t + 5000);
-    L.source = { kind: 'video', url: watch, title: meta.TITLE || '', speaker: meta.SPEAKER || '', year: (meta.YEAR || '').match(/\d{4}/)?.[0] || '' };
-    if (!L.lecturer && meta.SPEAKER) L.lecturer = meta.SPEAKER;
+    if (!appended) L.source = { kind: 'video', url: watch, title: meta.TITLE || '', speaker: meta.SPEAKER || '', year: (meta.YEAR || '').match(/\d{4}/)?.[0] || '' };
+    if (!appended && !L.lecturer && meta.SPEAKER) L.lecturer = meta.SPEAKER;
     if (meta.TITLE && /^Lecture · /.test(L.title)) L.title = meta.TITLE;
     saveSoon(); renderAll();
     if (!quiet) reviewTranscript(); toast(`Transcript ready: ${rows.length} lines from “${meta.TITLE || 'the video'}”. Review and edit it, then write notes or make a quiz.`, 6000);
@@ -4157,7 +4158,7 @@ function openNameSheet() {
 /* ================= Basic view =================
    A very simple start: record, add a transcript, or upload a video/audio file → then make notes or a quiz.
    "Advanced mode" is the full app; each view links to the other. The choice is remembered (S.settings.uiMode). */
-const BASIC = { step: 'start', roller: null, timer: null, editing: false };
+const BASIC = { step: 'start', roller: null, timer: null, editing: false, adding: false };
 const isBasic = () => S.settings.uiMode !== 'advanced';
 
 function enterBasic(save = true) {
@@ -4189,6 +4190,8 @@ function basicGo(step) {
   const replaceNote = libraryLocked() && hasContent
     ? `<p class="b-note">Starting something new replaces “${esc(L.title)}” on this device. ${cloudConfigured() ? '<button class="linklike" data-signin>Sign in</button> to keep every lecture.' : ''}</p>` : '';
   const canRecord = SR && !IS_ARTIFACT;
+  if (step === 'start' || step === 'next') BASIC.adding = false;
+  const add = BASIC.adding, addTo = add ? ` to “${esc(L.title)}”` : '';
   if (step === 'start') {
     const resume = !L.sample && speechSegs(L).length;
     box.innerHTML = `
@@ -4220,7 +4223,8 @@ function basicGo(step) {
   } else if (step === 'transcript') {
     box.innerHTML = `
       <button class="b-back" id="b-back"><span aria-hidden="true">←</span> Back</button>
-      <h1 class="b-h1">Add a transcript</h1>
+      <h1 class="b-h1">Add a transcript${addTo}</h1>
+      ${add ? '<p class="b-sub">It’s added after what’s already there, so the notes and quiz cover everything.</p>' : ''}
       <label class="b-drop" id="b-drop" tabindex="0">
         <input type="file" id="b-file" accept=".txt,.vtt,.srt,.md,.docx,.pdf,audio/*,video/*,.mp3,.m4a,.wav,.mp4,.mov,.webm" hidden>
         <span class="b-ico">${icon('upload')}</span>
@@ -4233,8 +4237,8 @@ function basicGo(step) {
         <textarea id="b-text" placeholder="Paste a transcript…"></textarea>
         <button class="btn primary" id="b-text-go">Add text</button>
       </details>
-      ${replaceNote}`;
-    $('#b-back').onclick = () => basicGo('start');
+      ${add ? '' : replaceNote}`;
+    $('#b-back').onclick = () => basicGo(add ? 'next' : 'start');
     const drop = $('#b-drop');
     $('#b-file').onchange = e => { const f = e.target.files[0]; if (f) basicAddFile(f); };
     drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#b-file').click(); } };
@@ -4246,7 +4250,7 @@ function basicGo(step) {
     $('#b-text-go').onclick = () => basicAddText($('#b-text').value, 'Pasted transcript');
   } else if (step === 'working') {
     box.innerHTML = `<div class="b-working"><span class="spinner"></span><h1 class="b-h1" id="b-work-title">Working on it…</h1><p class="b-sub" id="b-work-text">This can take a minute or two for long recordings.</p><button class="btn ghost" id="b-cancel">Cancel</button></div>`;
-    $('#b-cancel').onclick = () => { MEDIA.ctl?.abort(); basicGo('start'); };
+    $('#b-cancel').onclick = () => { MEDIA.ctl?.abort(); basicGo(add ? 'next' : 'start'); };
   } else if (step === 'next') {
     const n = speechSegs(L).length, words = speechWords(L);
     box.innerHTML = `
@@ -4257,6 +4261,14 @@ function basicGo(step) {
         <button class="b-choice big" id="b-quiz"><span class="b-ico">${icon('quiz')}</span><span><b>Create quiz</b><small>Multiple-choice questions from this lecture</small></span></button>
         <button class="b-choice big" id="b-notes"><span class="b-ico">${icon('notes')}</span><span><b>Create notes</b><small>Organized, well-formatted lecture notes</small></span></button>
       </div>
+      <div class="b-more">
+        <span class="b-more-h">Add more to this lecture</span>
+        <div class="b-more-row">
+          <button class="b-mini" id="b-more-rec" ${canRecord ? '' : 'aria-disabled="true"'}>${icon('mic')}<span>Record more</span></button>
+          <button class="b-mini" id="b-more-tr">${icon('notes')}<span>Add a transcript</span></button>
+          <button class="b-mini" id="b-more-media">${icon('upload')}<span>Upload video or audio</span></button>
+        </div>
+      </div>
       <div class="b-links"><button class="linklike" id="b-edit">${icon('edit')}Review or fix the transcript</button><button class="linklike" id="b-new">Start something new</button></div>
       <div id="b-editor" hidden></div>`;
     if (!n) { $('#b-quiz').disabled = $('#b-notes').disabled = true; }
@@ -4264,6 +4276,9 @@ function basicGo(step) {
     $('#b-notes').onclick = () => { saveBasicEditor(); enterAdvanced('notes', false); S.ui.notesTab = 'notes'; renderNotesArea(); generateNotes(); };
     $('#b-edit').onclick = toggleBasicEditor;
     $('#b-new').onclick = () => basicGo('start');
+    $('#b-more-rec').onclick = () => { saveBasicEditor(); canRecord ? basicRecordMore() : toast('Live recording works in Chrome, Edge or Safari.', 5000); };
+    $('#b-more-tr').onclick = () => { saveBasicEditor(); BASIC.adding = true; basicGo('transcript'); };
+    $('#b-more-media').onclick = () => { saveBasicEditor(); basicPickMedia(true); };
   }
   $$('[data-signin]', box).forEach(b => b.onclick = () => openAccountSheet());
   window.scrollTo({ top: 0 });
@@ -4287,6 +4302,13 @@ async function basicStartRecording() {
   basicGo('record');
   toggleCaptions(); basicRecState();
 }
+/* Keep recording into the same lecture: the new lines follow the earlier ones. */
+function basicRecordMore() {
+  BASIC.adding = true;
+  basicGo('record');
+  if (!S.rec.running) toggleCaptions();
+  basicRecState();
+}
 function basicRecState() {
   const run = S.rec.running, b = $('#b-pause'), l = $('#b-live'); if (!b) return;
   b.innerHTML = `${icon(run ? 'pause' : 'mic')}<span>${run ? 'Pause' : 'Resume'}</span>`;
@@ -4305,18 +4327,19 @@ function basicStopRecording() {
 }
 
 /* ---- Video or audio file ---- */
-function basicPickMedia() {
+function basicPickMedia(adding) {
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.webm,.flac,.mp4,.mov';
-  inp.onchange = () => { const f = inp.files[0]; if (f) basicTranscribeMedia(f); };
+  inp.onchange = () => { const f = inp.files[0]; if (f) { BASIC.adding = !!adding; basicTranscribeMedia(f); } };
   inp.click();
 }
 async function basicTranscribeMedia(file) {
   if (!transcriber()) { toast(NEEDS_TRANSCRIBER, 7000); return; }
-  await basicNewLecture(file.name.replace(/\.[^.]+$/, ''));
+  const add = BASIC.adding;
+  if (!add) await basicNewLecture(file.name.replace(/\.[^.]+$/, ''));
   basicGo('working'); $('#b-work-title').textContent = `Transcribing ${file.name.length > 40 ? file.name.slice(0, 37) + '…' : file.name}`;
   const ok = await transcribeFile(file, S.lecture, true);
   if (BASIC.step !== 'working') return; // cancelled
-  basicGo(ok ? 'next' : 'start');
+  basicGo(ok || add ? 'next' : 'start');
 }
 
 /* ---- Transcript: file, link or pasted text ---- */
@@ -4334,20 +4357,25 @@ async function basicAddFile(file) {
 async function basicAddText(text, title) {
   const rows = parseTimed(text || '');
   if (!rows.length) { toast('That file or text doesn’t contain a transcript.'); return; }
-  await basicNewLecture(title, true);
-  rows.forEach(r => addSpeech(r.text, r.t));
-  S.lecture.ms = Math.max(S.lecture.ms || 0, rows[rows.length - 1].t + 4000);
+  const add = BASIC.adding && speechSegs(S.lecture).length;
+  if (!BASIC.adding) await basicNewLecture(title, true);
+  const base = add ? elapsed() + 2000 : 0;
+  rows.forEach(r => addSpeech(r.text, base + r.t));
+  S.lecture.ms = Math.max(S.lecture.ms || 0, base + rows[rows.length - 1].t + 4000);
   saveSoon(); renderAll();
+  if (add) toast(`Added ${rows.length} line${rows.length > 1 ? 's' : ''} to the transcript.`);
   basicGo('next');
 }
 async function basicAddLink(url) {
   if (!url) { toast('Paste a link first.'); return; }
   if (!youTubeId(url)) { toast('Paste a YouTube link. For other sites, download the transcript and add the file.', 5000); return; }
   if (!aiReady() || prov().kind !== 'gemini') { toast(NEEDS_GEMINI_VIDEO, 8000); return; }
-  await basicNewLecture(undefined, true);
+  const add = BASIC.adding;
+  if (!add) await basicNewLecture(undefined, true);
   basicGo('working'); $('#b-work-title').textContent = 'Transcribing the video';
   const ok = await transcribeYouTube(url, S.lecture, true);
   if (BASIC.step !== 'working') return;
+  if (!ok && add) BASIC.adding = true;
   basicGo(ok ? 'next' : 'transcript');
 }
 function basicStatus(text) {

@@ -135,7 +135,7 @@ async function transcribeFile(file, L, quiet) {
     const base = speechSegs(L).length ? elapsed() + 2000 : 0;
     lines.forEach(r => addSpeech(r.text, base + r.t));
     L.ms = Math.max(L.ms || 0, base + Math.round((duration || 0) * 1000), base + lines[lines.length - 1].t + 4000);
-    L.source = L.source || { kind: file.type.startsWith('video/') ? 'video' : 'audio', name: file.name };
+    if (!base) L.source = L.source || { kind: file.type.startsWith('video/') ? 'video' : 'audio', name: file.name };
     saveSoon(); renderAll();
     if (!quiet) reviewTranscript(); toast(`Transcript ready: ${lines.length} lines from ${label}. Review and edit it, then write notes or make a quiz.`, 6000);
     return true;
@@ -177,11 +177,12 @@ async function transcribeYouTube(url, L, quiet) {
     const meta = {}; const body2 = text.replace(/^\s*(TITLE|SPEAKER|YEAR):[ \t]*(.*)$/gim, (_, k, v) => { meta[k.toUpperCase()] = v.trim(); return ''; });
     const rows = parseTimed(body2.replace(/^\s*\n/gm, ''));
     if (rows.length < 2) throw new Error('Gemini didn’t return a transcript for this video. Check that it’s public and try again.');
-    const base = speechSegs(L).length ? elapsed() + 2000 : 0;
+    const appended = speechSegs(L).length > 0;
+    const base = appended ? elapsed() + 2000 : 0;
     rows.forEach(r => addSpeech(r.text, base + r.t));
     L.ms = Math.max(L.ms || 0, base + rows[rows.length - 1].t + 5000);
-    L.source = { kind: 'video', url: watch, title: meta.TITLE || '', speaker: meta.SPEAKER || '', year: (meta.YEAR || '').match(/\d{4}/)?.[0] || '' };
-    if (!L.lecturer && meta.SPEAKER) L.lecturer = meta.SPEAKER;
+    if (!appended) L.source = { kind: 'video', url: watch, title: meta.TITLE || '', speaker: meta.SPEAKER || '', year: (meta.YEAR || '').match(/\d{4}/)?.[0] || '' };
+    if (!appended && !L.lecturer && meta.SPEAKER) L.lecturer = meta.SPEAKER;
     if (meta.TITLE && /^Lecture · /.test(L.title)) L.title = meta.TITLE;
     saveSoon(); renderAll();
     if (!quiet) reviewTranscript(); toast(`Transcript ready: ${rows.length} lines from “${meta.TITLE || 'the video'}”. Review and edit it, then write notes or make a quiz.`, 6000);
