@@ -46,7 +46,7 @@ To allow only one school's Microsoft accounts, put its tenant (for example `your
 
 ## 4. Authorize your web address
 
-**Authentication → Settings → Authorized domains → Add domain**, and add the address where the app will live — for example `micahshippee.github.io` or `didasko.micahshippee.com`. (`localhost` is already there for testing.)
+**Authentication → Settings → Authorized domains → Add domain**, and add the address where the app will live — for example `didasko.live` (and `www.didasko.live` if you use it). (`localhost` is already there for testing.)
 
 ## 5. Put the app online
 
@@ -56,7 +56,22 @@ Any static HTTPS host works. Pick one:
 - **Netlify Drop:** drag this folder onto app.netlify.com/drop.
 - **Firebase Hosting:** `npm i -g firebase-tools`, then `firebase init hosting` and `firebase deploy` in this folder.
 
-**Custom address (optional):** micahshippee.com's domain is managed at WordPress.com, so you can add a `CNAME` record such as `didasko` → `micahshippee.github.io` under **WordPress.com → Domains → micahshippee.com → DNS records**, then set the same custom domain in GitHub Pages. Put the final address in `appUrl` in `config.js` so QR codes always point there, and add it to Firebase's authorized domains (step 4).
+**Custom address (didasko.live, registered at GoDaddy):**
+
+1. In GitHub: repository → **Settings → Pages → Custom domain** → `didasko.live` → Save. (The `CNAME` file in this folder already says `didasko.live`.)
+2. In GoDaddy: **My Products → didasko.live → DNS → Manage DNS**. Delete GoDaddy's default `A` record for `@` (the "Parked" one), then add:
+
+   | Type | Name | Value |
+   |---|---|---|
+   | A | @ | 185.199.108.153 |
+   | A | @ | 185.199.109.153 |
+   | A | @ | 185.199.110.153 |
+   | A | @ | 185.199.111.153 |
+   | CNAME | www | *your GitHub username*`.github.io` |
+
+   Also remove any GoDaddy **Forwarding** set on the domain.
+3. Wait for GitHub's DNS check to pass (minutes to a few hours), then tick **Enforce HTTPS** in Settings → Pages.
+4. `appUrl` in `config.js` is `https://didasko.live/` so join links and QR codes always point there. Add `didasko.live` to Firebase's authorized domains (step 4) and to the reCAPTCHA key's allowed domains used by App Check.
 
 ## 6. Newsletter sign-up
 

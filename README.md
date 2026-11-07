@@ -27,6 +27,8 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 
 The version number is shown next to the Didasko name in the top bar, at the bottom of Settings, and on students' screens. It is set in one place, `APP_VERSION` at the top of `src/main.js`. **Bump it with every update**, then run `python3 build.py` — the build also updates the cache name in `sw.js` so installed copies pick up the new version.
 
+**3.10.1** — the app now lives at **didasko.live**.
+
 **3.10.0** — faster transcription and quizzes. Recordings are cut into 5–10 minute parts transcribed side by side (with automatic retry when a service is busy); choosing **Groq** transcribes recordings with Whisper large-v3-turbo, the fastest option. Gemini no longer “thinks” before transcribing, and YouTube videos are read at one frame every 10 seconds with live progress (“reached 12:40”). Quizzes of 6+ questions are written in parallel batches, one per part of the lecture, with thinking set to low; correct answers are spread evenly over A–D.
 
 **3.9.2** — more space between the view and layout buttons (48px tall, 16px apart) for easier tapping.
@@ -76,8 +78,3 @@ If you change anything in `src/`, run `python3 build.py` to rebuild `app.js`.
 - Shared captions and quiz answers pass through your Firebase database and can be read by anyone with the session code. Sessions don't contain account details.
 - Transcript and file text go only to the AI service the teacher chose, using the teacher's own key.
 - Check your institution's policy before captioning or recording class discussion that includes students.
-
-## Developer notes
-
-Didasko is designed and developed by **Micah Shippee, PhD** ([micahshippee.com](https://micahshippee.com)). The app itself shows no developer branding: students see only the join code and QR code, and notes are authored by whoever is signed in (or the name they enter).
-
