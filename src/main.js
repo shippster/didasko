@@ -1,7 +1,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.9.2';
+const APP_VERSION = '3.10.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -910,7 +910,7 @@ async function generateQuiz() {
   };
   let system = `You are an expert in formative assessment. You write short concept checks that a teacher uses during or right after a lecture to find out what students understand and what to reteach, following research-based practice (Black & Wiliam's assessment for learning, Wiliam's hinge questions, Hattie & Timperley's feedback model).
 Rules:
-- Write exactly ${n} questions, in ${lang}, for ${AUDIENCE[$('#notes-audience').value] || 'students'}.
+- Write exactly {{N}} questions, in ${lang}, for ${AUDIENCE[$('#notes-audience').value] || 'students'}.
 - Focus: ${LEVELS[level] || LEVELS.mixed}.
 ${TYPE_RULES[qtype] || TYPE_RULES.mc}
 - Never write fill-in-the-blank, cloze or "which word completes the sentence" items, and never ask for a word, name, number or date quoted from the lecture. Ask students to explain, predict, compare, classify, apply, or evaluate a claim.
@@ -928,22 +928,56 @@ For each question return:
 Also return "reflection": one exit-ticket question for the end of the quiz that asks students to reflect on their own learning about today's topic.
 Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"feedback":["","","",""],"explanation":"","reflect":"","source":"","level":""${standardsList(L).length ? ',"standard":""' : ''}}],"reflection":""}`;
   const noTr = !speechSegs(L).length;
-  const user = `${lectureHeader(L)}\n\n<transcript>\n${noTr ? '(none — write every question from the materials)' : transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`;
   if (noTr) system += '\nThere is no lecture transcript for this session: base every question on the materials, and use the material’s file name as "source".';
+  /* Speed: the AI writes a quiz about as fast as it can type, so a 10-question quiz is written as a few small batches
+     side by side, each about one part of the lecture (which also keeps them from repeating each other). */
+  const batches = quizBatches(L, n, noTr);
+  const userFor = b => `${lectureHeader(L)}\n\n<transcript>\n${noTr ? '(none — write every question from the materials)' : transcriptForPrompt(b.segs ? { ...L, segments: b.segs } : L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`
+    + (batches.length > 1 ? `\n\nThis transcript is part ${b.i + 1} of ${batches.length} of the lecture (${b.from}–${b.to}). The other parts get their own questions, so write your ${b.m} questions about the ideas in this part only${mat.text ? ', drawing on the materials where they relate to it' : ''}.` : '');
+  const written = batches.map(() => 0);
+  const progress = () => { const k = written.reduce((a, b) => a + b, 0); $('#quiz-status-text').textContent = k ? `Writing question ${Math.min(k, n)} of ${n}…` : 'Reading the lecture…'; };
   quizBusy = true; setQuizBusy(true);
   try {
-    const text = await callAI({
-      system, user, images: mat.images, maxTokens: 12000, json: true,
-      onText: t => { const k = (t.match(/"stem"\s*:/g) || []).length; $('#quiz-status-text').textContent = k ? `Writing question ${Math.min(k, n)} of ${n}…` : 'Reading the lecture…'; }
-    });
-    const j = parseJson(text);
-    const qs = normalizeQuestions(j.questions);
-    if (!qs.length) throw new Error('The AI didn’t return any usable questions. Try again.');
-    L.quiz = { questions: qs, at: Date.now(), lang, type: qtype, level, reflection: String(j.reflection || '').trim() || DEFAULT_REFLECTION };
+    const results = await Promise.allSettled(batches.map(b => withRetry(() => callAI({
+      system: system.replace('{{N}}', b.m), user: userFor(b), images: mat.images, maxTokens: Math.min(12000, 1500 + b.m * 1100), json: true, think: 'low',
+      onText: t => { written[b.i] = (t.match(/"stem"\s*:/g) || []).length; progress(); }
+    }).then(parseJson))));
+    const ok = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    const qs = normalizeQuestions(ok.flatMap(j => j.questions || []));
+    if (!qs.length) throw (results.find(r => r.status === 'rejected')?.reason || new Error('The AI didn’t return any usable questions. Try again.'));
+    if (batches.length > 1) spreadAnswers(qs);
+    L.quiz = { questions: qs, at: Date.now(), lang, type: qtype, level, reflection: String(ok.map(j => j.reflection).find(r => String(r || '').trim()) || '').trim() || DEFAULT_REFLECTION };
     S.ui.practice = {};
-    toast(`${qs.length} questions ready`);
+    const failed = results.find(r => r.status === 'rejected');
+    toast(failed ? `${qs.length} questions ready — one part of the lecture couldn’t be written (${failed.reason?.message || 'error'}). Generate again to retry.` : `${qs.length} questions ready`, failed ? 7000 : 3000);
   } catch (e) { toast(e.message, 5000); }
   finally { quizBusy = false; setQuizBusy(false); saveSoon(); renderQuiz(); renderBadges(); }
+}
+/* Split a quiz into batches that can be written side by side, each about a stretch of the lecture with roughly the
+   same amount of talk. Short quizzes, materials-only quizzes and one-at-a-time services stay a single request. */
+function quizBatches(L, n, noTr) {
+  const k = noTr || n < 6 ? 1 : Math.min(aiParallel(), Math.ceil(n / 3));
+  if (k < 2) return [{ i: 0, m: n, segs: null }];
+  const segs = L.segments, total = speechSegs(L).reduce((a, s) => a + words(s.text), 0) || 1;
+  const parts = Array.from({ length: k }, () => []); let acc = 0;
+  segs.forEach(s => { const p = Math.min(k - 1, Math.floor(acc / total * k)); parts[p].push(s); if (s.kind === 'speech') acc += words(s.text); });
+  const live = parts.filter(p => p.some(s => s.kind === 'speech'));
+  if (live.length < 2) return [{ i: 0, m: n, segs: null }];
+  return live.map((p, i) => {
+    const sp = p.filter(s => s.kind === 'speech');
+    return { i, m: Math.floor(n / live.length) + (i < n % live.length ? 1 : 0), segs: p, from: fmtClock(sp[0].t), to: fmtClock(sp[sp.length - 1].t) };
+  });
+}
+/* Batches each pick their own answer positions, so spread the correct multiple-choice answers evenly over A–D. */
+function spreadAnswers(qs) {
+  const mc = qs.filter(q => q.type === 'mc'), slots = mc.map((_, i) => i % 4);
+  for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]]; }
+  mc.forEach((q, i) => {
+    const to = slots[i], from = q.answer; if (to === from) return;
+    [q.options[to], q.options[from]] = [q.options[from], q.options[to]];
+    [q.feedback[to], q.feedback[from]] = [q.feedback[from], q.feedback[to]];
+    q.answer = to;
+  });
 }
 function normalizeQuestions(arr) {
   return (Array.isArray(arr) ? arr : []).map(q => {

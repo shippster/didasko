@@ -4,7 +4,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.9.2';
+const APP_VERSION = '3.10.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -913,7 +913,7 @@ async function generateQuiz() {
   };
   let system = `You are an expert in formative assessment. You write short concept checks that a teacher uses during or right after a lecture to find out what students understand and what to reteach, following research-based practice (Black & Wiliam's assessment for learning, Wiliam's hinge questions, Hattie & Timperley's feedback model).
 Rules:
-- Write exactly ${n} questions, in ${lang}, for ${AUDIENCE[$('#notes-audience').value] || 'students'}.
+- Write exactly {{N}} questions, in ${lang}, for ${AUDIENCE[$('#notes-audience').value] || 'students'}.
 - Focus: ${LEVELS[level] || LEVELS.mixed}.
 ${TYPE_RULES[qtype] || TYPE_RULES.mc}
 - Never write fill-in-the-blank, cloze or "which word completes the sentence" items, and never ask for a word, name, number or date quoted from the lecture. Ask students to explain, predict, compare, classify, apply, or evaluate a claim.
@@ -931,22 +931,56 @@ For each question return:
 Also return "reflection": one exit-ticket question for the end of the quiz that asks students to reflect on their own learning about today's topic.
 Reply with JSON only, in this shape: {"questions":[{"type":"mc","stem":"","options":["","","",""],"answer":0,"feedback":["","","",""],"explanation":"","reflect":"","source":"","level":""${standardsList(L).length ? ',"standard":""' : ''}}],"reflection":""}`;
   const noTr = !speechSegs(L).length;
-  const user = `${lectureHeader(L)}\n\n<transcript>\n${noTr ? '(none — write every question from the materials)' : transcriptForPrompt(L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`;
   if (noTr) system += '\nThere is no lecture transcript for this session: base every question on the materials, and use the material’s file name as "source".';
+  /* Speed: the AI writes a quiz about as fast as it can type, so a 10-question quiz is written as a few small batches
+     side by side, each about one part of the lecture (which also keeps them from repeating each other). */
+  const batches = quizBatches(L, n, noTr);
+  const userFor = b => `${lectureHeader(L)}\n\n<transcript>\n${noTr ? '(none — write every question from the materials)' : transcriptForPrompt(b.segs ? { ...L, segments: b.segs } : L)}\n</transcript>${mat.text ? `\n\n<materials>\n${mat.text}\n</materials>` : ''}`
+    + (batches.length > 1 ? `\n\nThis transcript is part ${b.i + 1} of ${batches.length} of the lecture (${b.from}–${b.to}). The other parts get their own questions, so write your ${b.m} questions about the ideas in this part only${mat.text ? ', drawing on the materials where they relate to it' : ''}.` : '');
+  const written = batches.map(() => 0);
+  const progress = () => { const k = written.reduce((a, b) => a + b, 0); $('#quiz-status-text').textContent = k ? `Writing question ${Math.min(k, n)} of ${n}…` : 'Reading the lecture…'; };
   quizBusy = true; setQuizBusy(true);
   try {
-    const text = await callAI({
-      system, user, images: mat.images, maxTokens: 12000, json: true,
-      onText: t => { const k = (t.match(/"stem"\s*:/g) || []).length; $('#quiz-status-text').textContent = k ? `Writing question ${Math.min(k, n)} of ${n}…` : 'Reading the lecture…'; }
-    });
-    const j = parseJson(text);
-    const qs = normalizeQuestions(j.questions);
-    if (!qs.length) throw new Error('The AI didn’t return any usable questions. Try again.');
-    L.quiz = { questions: qs, at: Date.now(), lang, type: qtype, level, reflection: String(j.reflection || '').trim() || DEFAULT_REFLECTION };
+    const results = await Promise.allSettled(batches.map(b => withRetry(() => callAI({
+      system: system.replace('{{N}}', b.m), user: userFor(b), images: mat.images, maxTokens: Math.min(12000, 1500 + b.m * 1100), json: true, think: 'low',
+      onText: t => { written[b.i] = (t.match(/"stem"\s*:/g) || []).length; progress(); }
+    }).then(parseJson))));
+    const ok = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    const qs = normalizeQuestions(ok.flatMap(j => j.questions || []));
+    if (!qs.length) throw (results.find(r => r.status === 'rejected')?.reason || new Error('The AI didn’t return any usable questions. Try again.'));
+    if (batches.length > 1) spreadAnswers(qs);
+    L.quiz = { questions: qs, at: Date.now(), lang, type: qtype, level, reflection: String(ok.map(j => j.reflection).find(r => String(r || '').trim()) || '').trim() || DEFAULT_REFLECTION };
     S.ui.practice = {};
-    toast(`${qs.length} questions ready`);
+    const failed = results.find(r => r.status === 'rejected');
+    toast(failed ? `${qs.length} questions ready — one part of the lecture couldn’t be written (${failed.reason?.message || 'error'}). Generate again to retry.` : `${qs.length} questions ready`, failed ? 7000 : 3000);
   } catch (e) { toast(e.message, 5000); }
   finally { quizBusy = false; setQuizBusy(false); saveSoon(); renderQuiz(); renderBadges(); }
+}
+/* Split a quiz into batches that can be written side by side, each about a stretch of the lecture with roughly the
+   same amount of talk. Short quizzes, materials-only quizzes and one-at-a-time services stay a single request. */
+function quizBatches(L, n, noTr) {
+  const k = noTr || n < 6 ? 1 : Math.min(aiParallel(), Math.ceil(n / 3));
+  if (k < 2) return [{ i: 0, m: n, segs: null }];
+  const segs = L.segments, total = speechSegs(L).reduce((a, s) => a + words(s.text), 0) || 1;
+  const parts = Array.from({ length: k }, () => []); let acc = 0;
+  segs.forEach(s => { const p = Math.min(k - 1, Math.floor(acc / total * k)); parts[p].push(s); if (s.kind === 'speech') acc += words(s.text); });
+  const live = parts.filter(p => p.some(s => s.kind === 'speech'));
+  if (live.length < 2) return [{ i: 0, m: n, segs: null }];
+  return live.map((p, i) => {
+    const sp = p.filter(s => s.kind === 'speech');
+    return { i, m: Math.floor(n / live.length) + (i < n % live.length ? 1 : 0), segs: p, from: fmtClock(sp[0].t), to: fmtClock(sp[sp.length - 1].t) };
+  });
+}
+/* Batches each pick their own answer positions, so spread the correct multiple-choice answers evenly over A–D. */
+function spreadAnswers(qs) {
+  const mc = qs.filter(q => q.type === 'mc'), slots = mc.map((_, i) => i % 4);
+  for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]]; }
+  mc.forEach((q, i) => {
+    const to = slots[i], from = q.answer; if (to === from) return;
+    [q.options[to], q.options[from]] = [q.options[from], q.options[to]];
+    [q.feedback[to], q.feedback[from]] = [q.feedback[from], q.feedback[to]];
+    q.answer = to;
+  });
 }
 function normalizeQuestions(arr) {
   return (Array.isArray(arr) ? arr : []).map(q => {
@@ -1702,7 +1736,7 @@ const PROVIDERS = {
   groq: {
     label: 'Groq (fast open models)', kind: 'openai', base: 'https://api.groq.com/openai/v1', key: true, keyHint: 'gsk_…', keyUrl: 'https://console.groq.com/keys',
     main: '', fast: '', models: [], vision: false, jsonMode: true,
-    note: 'Free tier with rate limits. Tap Refresh to list the current models.'
+    note: 'Free tier with rate limits. Tap Refresh to list the current models. With Groq chosen, recordings are transcribed by Groq’s Whisper — the fastest option.'
   },
   ollama: {
     label: 'Ollama (free, on your computer)', kind: 'openai', base: 'http://localhost:11434/v1', key: false, editBase: true,
@@ -1792,17 +1826,30 @@ function freeConsent() {
       });
   });
 }
-async function callFree({ system, user, imgs, maxTokens, onText, signal, json }) {
+async function callFree({ system, user, imgs, maxTokens, onText, signal, json, think }) {
   if (!(await freeConsent())) throw new Error('Nothing was sent. Connect your own AI key in Settings → AI model, or choose the free AI when you’re ready.');
   const { AI, ai } = await freeSdk();
   const generationConfig = { maxOutputTokens: Math.max(maxTokens * 2, 8192) };
   if (json) generationConfig.responseMimeType = 'application/json';
-  const model = AI.getGenerativeModel(ai, { model: freeCfg().freeAI.model || PROVIDERS.free.main, systemInstruction: system, generationConfig });
+  const modelName = freeCfg().freeAI.model || PROVIDERS.free.main;
+  const tc = geminiThinking(modelName, think); if (tc) generationConfig.thinkingConfig = tc;
   const parts = imgs.map(im => ({ inlineData: { mimeType: im.mime, data: im.data } }));
   parts.push({ text: user });
   const req = { contents: [{ role: 'user', parts }] };
   const opts = signal ? { signal } : undefined;
   const txt = r => { try { return r.text(); } catch { return ''; } };
+  try { return await freeRun(AI, ai, modelName, system, generationConfig, req, opts, onText, signal, txt); }
+  catch (e) {
+    // An SDK or model that doesn't accept the thinking setting: try once without it.
+    if (generationConfig.thinkingConfig && !signal?.aborted && /think/i.test(String(e?.message || ''))) {
+      delete generationConfig.thinkingConfig;
+      return freeRun(AI, ai, modelName, system, generationConfig, req, opts, onText, signal, txt);
+    }
+    throw e;
+  }
+}
+async function freeRun(AI, ai, modelName, system, generationConfig, req, opts, onText, signal, txt) {
+  const model = AI.getGenerativeModel(ai, { model: modelName, systemInstruction: system, generationConfig });
   try {
     if (!onText) {
       const r = await model.generateContent(req, opts);
@@ -1886,13 +1933,67 @@ async function failIfBad(res) {
   if (res.ok) return;
   let m = '';
   try { const j = await res.json(); m = j.error?.message || j.message || (Array.isArray(j) && j[0]?.error?.message) || ''; } catch { /* ignore */ }
-  throw new Error(aiErr(res.status, m));
+  const err = new Error(aiErr(res.status, m)); err.status = res.status; throw err;
 }
-async function callAI({ system, user, images = [], maxTokens = 4000, fast = false, onText, signal, json = false }) {
+
+/* ---- Speed ----
+   Most of the waiting is the model writing (or "thinking" before it writes). Gemini 3 models think at the highest
+   level unless told otherwise, so transcription and quizzes ask for little or no thinking, and long jobs are split
+   into parts that run side by side. */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+/* How many requests to send at once. Shared, local and rate-limited services get fewer. */
+function aiParallel() {
+  const id = aiId(), k = prov().kind;
+  if (k === 'chrome' || k === 'sample' || k === 'free' || id === 'ollama' || id === 'custom') return 1;
+  if (id === 'groq') return 2;
+  return 4;
+}
+/* Run fn over items, at most `limit` at a time, keeping the order. Stops starting new items after the first error. */
+async function runPool(items, limit, fn) {
+  const out = new Array(items.length); let next = 0, err = null;
+  const worker = async () => {
+    while (!err && next < items.length) { const i = next++; try { out[i] = await fn(items[i], i); } catch (e) { err = err || e; } }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  if (err) throw err;
+  return out;
+}
+/* Wait and try again when the service says it's busy or rate-limited (common when parts run side by side). */
+async function withRetry(fn, signal, waits = [4000, 12000, 25000]) {
+  for (let a = 0; ; a++) {
+    try { return await fn(); }
+    catch (e) {
+      if (signal?.aborted || a >= waits.length || !(e.status === 429 || e.status >= 500)) throw e;
+      await sleep(waits[a]);
+      if (signal?.aborted) throw e;
+    }
+  }
+}
+/* Gemini's thinking setting for a model: 2.5 models take a token budget, Gemini 3 and later take a level.
+   think: 'off' (transcribing) or 'low' (quizzes). */
+function geminiThinking(model, think) {
+  if (!think) return null;
+  const m = String(model || '').toLowerCase(), v = m.match(/gemini-(\d+)(?:\.(\d+))?/);
+  if (!v) return null;
+  if (+v[1] === 2 && v[2] === '5') return { thinkingBudget: /pro/.test(m) ? 128 : 0 };
+  if (+v[1] >= 3) return { thinkingLevel: think === 'off' && !/pro/.test(m) ? 'minimal' : 'low' };
+  return null;
+}
+/* POST to an AI service. If it rejects a speed setting it doesn't support (400), drop that setting and try once more. */
+async function postAI(url, headers, body, signal, strip) {
+  const send = () => aiFetch(url, { method: 'POST', headers, body: JSON.stringify(body) }, signal);
+  let res = await send();
+  if (res.status === 400 && strip) {
+    const t = await res.clone().text().catch(() => '');
+    if (/think|reasoning|video_?metadata|fps/i.test(t) && strip(body)) res = await send();
+  }
+  return res;
+}
+async function callAI({ system, user, images = [], maxTokens = 4000, fast = false, onText, signal, json = false, think }) {
   if (!aiReady()) throw new Error('NO_AI');
   const p = prov(), model = aiModel(fast), key = aiKey();
   const imgs = p.vision ? images.slice(0, 8) : [];
-  if (p.kind === 'free') return callFree({ system, user, imgs, maxTokens, onText, signal, json });
+  if (p.kind === 'free') return callFree({ system, user, imgs, maxTokens, onText, signal, json, think });
 
   if (p.kind === 'anthropic') {
     const content = imgs.map(im => ({ type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } }));
@@ -1928,7 +2029,11 @@ async function callAI({ system, user, images = [], maxTokens = 4000, fast = fals
     const body = { model, messages: [{ role: 'system', content: system }, { role: 'user', content: userContent }], stream: !!onText };
     body[p.maxField || 'max_tokens'] = maxTokens;
     if (json && p.jsonMode) body.response_format = { type: 'json_object' };
-    const res = await aiFetch(url, { method: 'POST', headers, body: JSON.stringify(body) }, signal);
+    // Less reasoning before answering. Only services known to accept the setting get it; others ignore `think`.
+    const pid = S.settings.ai.provider;
+    if (think && pid === 'openai') body.reasoning_effort = 'low';
+    if (think && pid === 'openrouter') body.reasoning = { effort: 'low' };
+    const res = await postAI(url, headers, body, signal, b => { const had = 'reasoning_effort' in b || 'reasoning' in b; delete b.reasoning_effort; delete b.reasoning; return had; });
     await failIfBad(res);
     if (!onText) { const j = await res.json(); return j.choices?.[0]?.message?.content || ''; }
     let text = '';
@@ -1944,10 +2049,11 @@ async function callAI({ system, user, images = [], maxTokens = 4000, fast = fals
     parts.push({ text: user });
     const body = { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts }], generationConfig: { maxOutputTokens: Math.max(maxTokens * 2, 8192) } };
     if (json) body.generationConfig.responseMimeType = 'application/json';
+    const tc = geminiThinking(model, think); if (tc) body.generationConfig.thinkingConfig = tc;
     const base = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`;
-    const res = await aiFetch(onText ? `${base}:streamGenerateContent?alt=sse` : `${base}:generateContent`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body)
-    }, signal);
+    const res = await postAI(onText ? `${base}:streamGenerateContent?alt=sse` : `${base}:generateContent`,
+      { 'content-type': 'application/json', 'x-goog-api-key': key }, body, signal,
+      b => { const had = !!b.generationConfig.thinkingConfig; delete b.generationConfig.thinkingConfig; return had; });
     await failIfBad(res);
     const pick = j => (j.candidates?.[0]?.content?.parts || []).filter(x => x.text && !x.thought).map(x => x.text).join('');
     if (!onText) { const j = await res.json(); const t = pick(j); if (!t && j.promptFeedback?.blockReason) throw new Error('Gemini declined this request (' + j.promptFeedback.blockReason + ').'); return t; }
@@ -3181,13 +3287,17 @@ const extOf = n => (String(n).split('.').pop() || '').toLowerCase();
 const isMediaFile = f => !!MEDIA_EXT[extOf(f.name)] || /^(audio|video)\//.test(f.type || '');
 const YT_RE = /^(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{6,})/i;
 const youTubeId = u => (String(u || '').trim().match(YT_RE) || [])[1] || '';
+/* Groq runs Whisper large-v3-turbo many times faster than real time, on a free tier, so a Groq key is used for recordings. */
+const GROQ_WHISPER = 'whisper-large-v3-turbo';
+const groqKey = () => S.settings.ai.keys.groq || '';
 function transcriber() {
+  if (S.settings.ai.provider === 'groq' && groqKey()) return 'groq';
   if (!aiReady()) return null;
   if (prov().kind === 'gemini' || prov().kind === 'free') return 'gemini';
   if (aiId() === 'openai') return 'openai';
   return null;
 }
-const NEEDS_TRANSCRIBER = 'Transcribing a recording needs Gemini or ChatGPT. Choose one in Settings → AI model (Gemini has a free tier), or import a transcript file instead.';
+const NEEDS_TRANSCRIBER = 'Transcribing a recording needs Gemini, ChatGPT or Groq. Choose one in Settings → AI model (Gemini and Groq have free tiers; Groq is the fastest), or import a transcript file instead.';
 const NEEDS_GEMINI_VIDEO = 'Video links need your own Gemini key (Settings → AI model; Gemini has a free tier). Or open the video on YouTube, choose “Show transcript”, copy it, and use Import transcript.';
 const MEDIA = { busy: false, ctl: null };
 function setMediaStatus(text) {
@@ -3240,11 +3350,12 @@ async function decodedParts(file, secondsPerPart) {
   return { parts, duration: len / rate };
 }
 async function transcribePart(kind, blob, mime, signal) {
-  if (kind === 'openai') {
+  if (kind === 'openai' || kind === 'groq') {
     const fd = new FormData();
     fd.append('file', blob, 'part.' + (Object.keys(MEDIA_EXT).find(k => MEDIA_EXT[k] === mime) || 'mp3'));
-    fd.append('model', 'whisper-1'); fd.append('response_format', 'verbose_json');
-    const res = await aiFetch(`${aiBase()}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${aiKey()}` }, body: fd }, signal);
+    fd.append('model', kind === 'groq' ? GROQ_WHISPER : 'whisper-1'); fd.append('response_format', 'verbose_json');
+    const url = kind === 'groq' ? `${(S.settings.ai.bases.groq || PROVIDERS.groq.base).replace(/\/+$/, '')}/audio/transcriptions` : `${aiBase()}/audio/transcriptions`;
+    const res = await aiFetch(url, { method: 'POST', headers: { Authorization: `Bearer ${kind === 'groq' ? groqKey() : aiKey()}` }, body: fd }, signal);
     await failIfBad(res);
     const j = await res.json();
     return (j.segments || []).map(s => ({ t: Math.round((s.start || 0) * 1000), text: String(s.text || '').trim() })).filter(s => s.text)
@@ -3252,7 +3363,7 @@ async function transcribePart(kind, blob, mime, signal) {
   }
   const data = await blobB64(blob);
   const out = await callAI({
-    signal, maxTokens: 16000, images: [{ mime, data, name: 'recording' }],
+    signal, maxTokens: 16000, think: 'off', images: [{ mime, data, name: 'recording' }],
     system: 'You are a careful transcriber of lectures and classroom recordings. You write what was said, accurately, in the language spoken.',
     user: 'Transcribe this recording. Remove filler words (um, uh) and false starts, but keep every idea and keep the speaker’s wording. Write one line per sentence or short passage, each line starting with its timestamp from the start of this clip in [m:ss] form, for example "[3:07] Today we look at…". If there are several speakers, start each line after the timestamp with a short label such as "Student:" for anyone who is not the main speaker. Output the transcript lines only.'
   });
@@ -3263,27 +3374,43 @@ async function transcribeFile(file, L, quiet) {
   if (MEDIA.busy) { toast('A recording is already being transcribed.'); return false; }
   MEDIA.busy = true; MEDIA.ctl = new AbortController();
   const ext = extOf(file.name), mime = file.type && /^(audio|video)\//.test(file.type) ? file.type : MEDIA_EXT[ext] || 'audio/mpeg';
-  const cap = usingFree() ? 10 * 1048576 : kind === 'gemini' ? 14 * 1048576 : 24 * 1048576;
+  const free = kind === 'gemini' && usingFree();
+  const cap = free ? 10 * 1048576 : kind === 'gemini' ? 14 * 1048576 : 24 * 1048576;
+  /* Speed: a model writes a transcript about as fast for a 5-minute clip as for the first 5 minutes of an hour, so
+     long recordings are cut into short parts that are transcribed side by side. The shared free AI keeps the old
+     one-at-a-time behavior so it doesn't use up everyone's allowance. */
+  const secs = free ? 0 : kind === 'gemini' ? 300 : 600;
+  const parallel = kind === 'groq' ? 3 : kind === 'openai' ? 4 : aiParallel();
   const label = file.name.length > 40 ? file.name.slice(0, 37) + '…' : file.name;
+  const job = new AbortController(); MEDIA.ctl.signal.addEventListener('abort', () => job.abort());
   try {
     setMediaStatus(`Preparing ${label}…`);
     let parts, duration = await mediaDuration(file);
-    if (file.size <= cap) parts = [{ blob: file, offsetMs: 0, mime }];
-    else if (ext === 'mp3' || mime === 'audio/mpeg') {
-      const raw = await mp3Parts(file, cap);
+    const short = !secs || !duration || duration <= secs * 1.2;
+    const isMp3 = ext === 'mp3' || mime === 'audio/mpeg';
+    if (file.size <= cap && short) parts = [{ blob: file, offsetMs: 0, mime }];
+    else if (isMp3) {
+      const bytesPerPart = secs && duration ? Math.floor(file.size / duration * secs) : cap;
+      const raw = await mp3Parts(file, Math.min(cap, bytesPerPart));
       const secPerByte = duration ? duration / file.size : 1 / 16000; // 128 kbps if the length is unknown
       parts = raw.map(p => ({ blob: p.blob, offsetMs: Math.round(p.start * secPerByte * 1000), mime: 'audio/mpeg' }));
     } else {
       setMediaStatus(`Converting ${label} for transcription…`);
-      const d = await decodedParts(file, usingFree() ? 300 : kind === 'gemini' ? 420 : 720);
+      const d = await decodedParts(file, secs || 300);
       parts = d.parts.map(p => ({ ...p, mime: 'audio/wav' })); duration = duration || d.duration;
     }
-    const lines = [];
-    for (const [i, p] of parts.entries()) {
-      setMediaStatus(parts.length > 1 ? `Transcribing part ${i + 1} of ${parts.length}…` : `Transcribing ${label}…`);
-      const rows = await transcribePart(kind, p.blob, p.mime, MEDIA.ctl.signal);
-      rows.forEach(r => lines.push({ t: p.offsetMs + r.t, text: r.text }));
-    }
+    let done = 0;
+    const status = () => setMediaStatus(parts.length > 1 ? `Transcribing ${label}: ${done} of ${parts.length} parts done…` : `Transcribing ${label}…`);
+    status();
+    let results;
+    try {
+      results = await runPool(parts, parallel, async p => {
+        const rows = await withRetry(() => transcribePart(kind, p.blob, p.mime, job.signal), job.signal);
+        done++; status();
+        return rows.map(r => ({ t: p.offsetMs + r.t, text: r.text }));
+      });
+    } catch (e) { job.abort(); throw e; }
+    const lines = results.flat();
     if (!lines.length) throw new Error('No speech was found in this recording.');
     const base = speechSegs(L).length ? elapsed() + 2000 : 0;
     lines.forEach(r => addSpeech(r.text, base + r.t));
@@ -3307,12 +3434,26 @@ async function transcribeYouTube(url, L, quiet) {
   try {
     setMediaStatus('Watching the video and writing the transcript… long videos can take a few minutes.');
     const prompt = 'Transcribe this video. On the first line write "TITLE: " and the video’s title; on the second line write "SPEAKER: " and the main speaker’s or channel’s name; on the third line write "YEAR: " and the year it was published if you know it, otherwise leave it blank. Then write the transcript: remove filler words and false starts but keep every idea and the speaker’s wording, one line per sentence or short passage, each starting with its timestamp in [m:ss] or [h:mm:ss] form. Output nothing else.';
-    const body = { contents: [{ role: 'user', parts: [{ fileData: { fileUri: watch, mimeType: 'video/*' } }, { text: prompt }] }], generationConfig: { maxOutputTokens: 32768, mediaResolution: 'MEDIA_RESOLUTION_LOW' } };
-    const res = await aiFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(aiModel(false))}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': aiKey() }, body: JSON.stringify(body) }, MEDIA.ctl.signal);
-    await failIfBad(res);
-    const j = await res.json();
-    const text = (j.candidates?.[0]?.content?.parts || []).filter(x => x.text && !x.thought).map(x => x.text).join('');
-    if (!text.trim()) throw new Error(j.promptFeedback?.blockReason ? `Gemini declined this video (${j.promptFeedback.blockReason}).` : 'Gemini couldn’t read this video. It must be public, and very long videos may need to be shortened.');
+    /* Speed: no thinking before writing, and one video frame every 10 seconds (a transcript comes from the audio;
+       the default is a frame every second). The response streams, so the status shows how far Gemini has got. */
+    const model = aiModel(false);
+    const body = { contents: [{ role: 'user', parts: [{ fileData: { fileUri: watch, mimeType: 'video/*' }, videoMetadata: { fps: 0.1 } }, { text: prompt }] }], generationConfig: { maxOutputTokens: 32768, mediaResolution: 'MEDIA_RESOLUTION_LOW' } };
+    const tc = geminiThinking(model, 'off'); if (tc) body.generationConfig.thinkingConfig = tc;
+    const strip = b => { const p0 = b.contents[0].parts[0], had = !!(p0.videoMetadata || b.generationConfig.thinkingConfig); delete p0.videoMetadata; delete b.generationConfig.thinkingConfig; return had; };
+    const res = await withRetry(async () => {
+      const r = await postAI(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, { 'content-type': 'application/json', 'x-goog-api-key': aiKey() }, body, MEDIA.ctl.signal, strip);
+      await failIfBad(r); return r;
+    }, MEDIA.ctl.signal);
+    let text = '', block = '';
+    await readSSE(res, ev => {
+      if (ev.promptFeedback?.blockReason) block = ev.promptFeedback.blockReason;
+      const d = (ev.candidates?.[0]?.content?.parts || []).filter(x => x.text && !x.thought).map(x => x.text).join('');
+      if (!d) return;
+      text += d;
+      const last = [...text.matchAll(/\[(\d+:\d{2}(?::\d{2})?)\]/g)].pop();
+      if (last) setMediaStatus(`Writing the transcript… reached ${last[1]} of the video.`);
+    });
+    if (!text.trim()) throw new Error(block ? `Gemini declined this video (${block}).` : 'Gemini couldn’t read this video. It must be public, and very long videos may need to be shortened.');
     const meta = {}; const body2 = text.replace(/^\s*(TITLE|SPEAKER|YEAR):[ \t]*(.*)$/gim, (_, k, v) => { meta[k.toUpperCase()] = v.trim(); return ''; });
     const rows = parseTimed(body2.replace(/^\s*\n/gm, ''));
     if (rows.length < 2) throw new Error('Gemini didn’t return a transcript for this video. Check that it’s public and try again.');

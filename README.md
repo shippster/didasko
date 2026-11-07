@@ -9,7 +9,7 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 | Area | Features |
 |---|---|
 | **Home dashboard** | Opens first: a big **New lecture** button (title, course and speaking language, then captions start), a *Continue* shortcut, totals (lectures, time captioned, words, live quizzes run), a short setup checklist, and a searchable list of **past lectures** grouped by date and color-coded by course, each with one-tap Captions / Notes / Quiz. |
-| **Start from anything** | A lecture doesn’t have to be live. **New lecture → Start from** offers a live lecture, a **recording** (MP3, M4A, WAV or video — transcribed with timestamps by Gemini or ChatGPT/Whisper; long recordings are split automatically), a **YouTube link** (Gemini watches the public video and writes the transcript; the video is cited as the source), or a **paper or reading** (notes and quizzes are written from the material alone and cite it). |
+| **Start from anything** | A lecture doesn’t have to be live. **New lecture → Start from** offers a live lecture, a **recording** (MP3, M4A, WAV or video — transcribed with timestamps by Gemini, ChatGPT/Whisper or Groq/Whisper; long recordings are split into short parts transcribed side by side), a **YouTube link** (Gemini watches the public video and writes the transcript; the video is cited as the source), or a **paper or reading** (notes and quizzes are written from the material alone and cite it). |
 | **Live captions** | The stage shows **exactly two rolling lines**, like broadcast captions — nothing else — while the full transcript keeps recording. High-contrast "chalkboard" stage, projector mode, key-point and new-topic markers, translation as its own two-line track. |
 | **Students' devices** | **Share captions** creates a 6-letter code, link and QR code. Students scan it — no account, no install — and pick **their own translation language**. The presenter's device translates each language that students choose. Show the QR on the caption screen for latecomers. |
 | **Faithful notes** | Every output organizes and cleans up only what is in the transcript and the imported files — regrouped by theme, rewritten into clear sentences — with no added facts, examples or elaboration. Length follows the sources. |
@@ -26,6 +26,8 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 ## Version
 
 The version number is shown next to the Didasko name in the top bar, at the bottom of Settings, and on students' screens. It is set in one place, `APP_VERSION` at the top of `src/main.js`. **Bump it with every update**, then run `python3 build.py` — the build also updates the cache name in `sw.js` so installed copies pick up the new version.
+
+**3.10.0** — faster transcription and quizzes. Recordings are cut into 5–10 minute parts transcribed side by side (with automatic retry when a service is busy); choosing **Groq** transcribes recordings with Whisper large-v3-turbo, the fastest option. Gemini no longer “thinks” before transcribing, and YouTube videos are read at one frame every 10 seconds with live progress (“reached 12:40”). Quizzes of 6+ questions are written in parallel batches, one per part of the lecture, with thinking set to low; correct answers are spread evenly over A–D.
 
 **3.9.2** — more space between the view and layout buttons (48px tall, 16px apart) for easier tapping.
 

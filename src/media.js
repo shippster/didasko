@@ -7,13 +7,17 @@ const extOf = n => (String(n).split('.').pop() || '').toLowerCase();
 const isMediaFile = f => !!MEDIA_EXT[extOf(f.name)] || /^(audio|video)\//.test(f.type || '');
 const YT_RE = /^(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{6,})/i;
 const youTubeId = u => (String(u || '').trim().match(YT_RE) || [])[1] || '';
+/* Groq runs Whisper large-v3-turbo many times faster than real time, on a free tier, so a Groq key is used for recordings. */
+const GROQ_WHISPER = 'whisper-large-v3-turbo';
+const groqKey = () => S.settings.ai.keys.groq || '';
 function transcriber() {
+  if (S.settings.ai.provider === 'groq' && groqKey()) return 'groq';
   if (!aiReady()) return null;
   if (prov().kind === 'gemini' || prov().kind === 'free') return 'gemini';
   if (aiId() === 'openai') return 'openai';
   return null;
 }
-const NEEDS_TRANSCRIBER = 'Transcribing a recording needs Gemini or ChatGPT. Choose one in Settings → AI model (Gemini has a free tier), or import a transcript file instead.';
+const NEEDS_TRANSCRIBER = 'Transcribing a recording needs Gemini, ChatGPT or Groq. Choose one in Settings → AI model (Gemini and Groq have free tiers; Groq is the fastest), or import a transcript file instead.';
 const NEEDS_GEMINI_VIDEO = 'Video links need your own Gemini key (Settings → AI model; Gemini has a free tier). Or open the video on YouTube, choose “Show transcript”, copy it, and use Import transcript.';
 const MEDIA = { busy: false, ctl: null };
 function setMediaStatus(text) {
@@ -66,11 +70,12 @@ async function decodedParts(file, secondsPerPart) {
   return { parts, duration: len / rate };
 }
 async function transcribePart(kind, blob, mime, signal) {
-  if (kind === 'openai') {
+  if (kind === 'openai' || kind === 'groq') {
     const fd = new FormData();
     fd.append('file', blob, 'part.' + (Object.keys(MEDIA_EXT).find(k => MEDIA_EXT[k] === mime) || 'mp3'));
-    fd.append('model', 'whisper-1'); fd.append('response_format', 'verbose_json');
-    const res = await aiFetch(`${aiBase()}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${aiKey()}` }, body: fd }, signal);
+    fd.append('model', kind === 'groq' ? GROQ_WHISPER : 'whisper-1'); fd.append('response_format', 'verbose_json');
+    const url = kind === 'groq' ? `${(S.settings.ai.bases.groq || PROVIDERS.groq.base).replace(/\/+$/, '')}/audio/transcriptions` : `${aiBase()}/audio/transcriptions`;
+    const res = await aiFetch(url, { method: 'POST', headers: { Authorization: `Bearer ${kind === 'groq' ? groqKey() : aiKey()}` }, body: fd }, signal);
     await failIfBad(res);
     const j = await res.json();
     return (j.segments || []).map(s => ({ t: Math.round((s.start || 0) * 1000), text: String(s.text || '').trim() })).filter(s => s.text)
@@ -78,7 +83,7 @@ async function transcribePart(kind, blob, mime, signal) {
   }
   const data = await blobB64(blob);
   const out = await callAI({
-    signal, maxTokens: 16000, images: [{ mime, data, name: 'recording' }],
+    signal, maxTokens: 16000, think: 'off', images: [{ mime, data, name: 'recording' }],
     system: 'You are a careful transcriber of lectures and classroom recordings. You write what was said, accurately, in the language spoken.',
     user: 'Transcribe this recording. Remove filler words (um, uh) and false starts, but keep every idea and keep the speaker’s wording. Write one line per sentence or short passage, each line starting with its timestamp from the start of this clip in [m:ss] form, for example "[3:07] Today we look at…". If there are several speakers, start each line after the timestamp with a short label such as "Student:" for anyone who is not the main speaker. Output the transcript lines only.'
   });
@@ -89,27 +94,43 @@ async function transcribeFile(file, L, quiet) {
   if (MEDIA.busy) { toast('A recording is already being transcribed.'); return false; }
   MEDIA.busy = true; MEDIA.ctl = new AbortController();
   const ext = extOf(file.name), mime = file.type && /^(audio|video)\//.test(file.type) ? file.type : MEDIA_EXT[ext] || 'audio/mpeg';
-  const cap = usingFree() ? 10 * 1048576 : kind === 'gemini' ? 14 * 1048576 : 24 * 1048576;
+  const free = kind === 'gemini' && usingFree();
+  const cap = free ? 10 * 1048576 : kind === 'gemini' ? 14 * 1048576 : 24 * 1048576;
+  /* Speed: a model writes a transcript about as fast for a 5-minute clip as for the first 5 minutes of an hour, so
+     long recordings are cut into short parts that are transcribed side by side. The shared free AI keeps the old
+     one-at-a-time behavior so it doesn't use up everyone's allowance. */
+  const secs = free ? 0 : kind === 'gemini' ? 300 : 600;
+  const parallel = kind === 'groq' ? 3 : kind === 'openai' ? 4 : aiParallel();
   const label = file.name.length > 40 ? file.name.slice(0, 37) + '…' : file.name;
+  const job = new AbortController(); MEDIA.ctl.signal.addEventListener('abort', () => job.abort());
   try {
     setMediaStatus(`Preparing ${label}…`);
     let parts, duration = await mediaDuration(file);
-    if (file.size <= cap) parts = [{ blob: file, offsetMs: 0, mime }];
-    else if (ext === 'mp3' || mime === 'audio/mpeg') {
-      const raw = await mp3Parts(file, cap);
+    const short = !secs || !duration || duration <= secs * 1.2;
+    const isMp3 = ext === 'mp3' || mime === 'audio/mpeg';
+    if (file.size <= cap && short) parts = [{ blob: file, offsetMs: 0, mime }];
+    else if (isMp3) {
+      const bytesPerPart = secs && duration ? Math.floor(file.size / duration * secs) : cap;
+      const raw = await mp3Parts(file, Math.min(cap, bytesPerPart));
       const secPerByte = duration ? duration / file.size : 1 / 16000; // 128 kbps if the length is unknown
       parts = raw.map(p => ({ blob: p.blob, offsetMs: Math.round(p.start * secPerByte * 1000), mime: 'audio/mpeg' }));
     } else {
       setMediaStatus(`Converting ${label} for transcription…`);
-      const d = await decodedParts(file, usingFree() ? 300 : kind === 'gemini' ? 420 : 720);
+      const d = await decodedParts(file, secs || 300);
       parts = d.parts.map(p => ({ ...p, mime: 'audio/wav' })); duration = duration || d.duration;
     }
-    const lines = [];
-    for (const [i, p] of parts.entries()) {
-      setMediaStatus(parts.length > 1 ? `Transcribing part ${i + 1} of ${parts.length}…` : `Transcribing ${label}…`);
-      const rows = await transcribePart(kind, p.blob, p.mime, MEDIA.ctl.signal);
-      rows.forEach(r => lines.push({ t: p.offsetMs + r.t, text: r.text }));
-    }
+    let done = 0;
+    const status = () => setMediaStatus(parts.length > 1 ? `Transcribing ${label}: ${done} of ${parts.length} parts done…` : `Transcribing ${label}…`);
+    status();
+    let results;
+    try {
+      results = await runPool(parts, parallel, async p => {
+        const rows = await withRetry(() => transcribePart(kind, p.blob, p.mime, job.signal), job.signal);
+        done++; status();
+        return rows.map(r => ({ t: p.offsetMs + r.t, text: r.text }));
+      });
+    } catch (e) { job.abort(); throw e; }
+    const lines = results.flat();
     if (!lines.length) throw new Error('No speech was found in this recording.');
     const base = speechSegs(L).length ? elapsed() + 2000 : 0;
     lines.forEach(r => addSpeech(r.text, base + r.t));
@@ -133,12 +154,26 @@ async function transcribeYouTube(url, L, quiet) {
   try {
     setMediaStatus('Watching the video and writing the transcript… long videos can take a few minutes.');
     const prompt = 'Transcribe this video. On the first line write "TITLE: " and the video’s title; on the second line write "SPEAKER: " and the main speaker’s or channel’s name; on the third line write "YEAR: " and the year it was published if you know it, otherwise leave it blank. Then write the transcript: remove filler words and false starts but keep every idea and the speaker’s wording, one line per sentence or short passage, each starting with its timestamp in [m:ss] or [h:mm:ss] form. Output nothing else.';
-    const body = { contents: [{ role: 'user', parts: [{ fileData: { fileUri: watch, mimeType: 'video/*' } }, { text: prompt }] }], generationConfig: { maxOutputTokens: 32768, mediaResolution: 'MEDIA_RESOLUTION_LOW' } };
-    const res = await aiFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(aiModel(false))}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': aiKey() }, body: JSON.stringify(body) }, MEDIA.ctl.signal);
-    await failIfBad(res);
-    const j = await res.json();
-    const text = (j.candidates?.[0]?.content?.parts || []).filter(x => x.text && !x.thought).map(x => x.text).join('');
-    if (!text.trim()) throw new Error(j.promptFeedback?.blockReason ? `Gemini declined this video (${j.promptFeedback.blockReason}).` : 'Gemini couldn’t read this video. It must be public, and very long videos may need to be shortened.');
+    /* Speed: no thinking before writing, and one video frame every 10 seconds (a transcript comes from the audio;
+       the default is a frame every second). The response streams, so the status shows how far Gemini has got. */
+    const model = aiModel(false);
+    const body = { contents: [{ role: 'user', parts: [{ fileData: { fileUri: watch, mimeType: 'video/*' }, videoMetadata: { fps: 0.1 } }, { text: prompt }] }], generationConfig: { maxOutputTokens: 32768, mediaResolution: 'MEDIA_RESOLUTION_LOW' } };
+    const tc = geminiThinking(model, 'off'); if (tc) body.generationConfig.thinkingConfig = tc;
+    const strip = b => { const p0 = b.contents[0].parts[0], had = !!(p0.videoMetadata || b.generationConfig.thinkingConfig); delete p0.videoMetadata; delete b.generationConfig.thinkingConfig; return had; };
+    const res = await withRetry(async () => {
+      const r = await postAI(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, { 'content-type': 'application/json', 'x-goog-api-key': aiKey() }, body, MEDIA.ctl.signal, strip);
+      await failIfBad(r); return r;
+    }, MEDIA.ctl.signal);
+    let text = '', block = '';
+    await readSSE(res, ev => {
+      if (ev.promptFeedback?.blockReason) block = ev.promptFeedback.blockReason;
+      const d = (ev.candidates?.[0]?.content?.parts || []).filter(x => x.text && !x.thought).map(x => x.text).join('');
+      if (!d) return;
+      text += d;
+      const last = [...text.matchAll(/\[(\d+:\d{2}(?::\d{2})?)\]/g)].pop();
+      if (last) setMediaStatus(`Writing the transcript… reached ${last[1]} of the video.`);
+    });
+    if (!text.trim()) throw new Error(block ? `Gemini declined this video (${block}).` : 'Gemini couldn’t read this video. It must be public, and very long videos may need to be shortened.');
     const meta = {}; const body2 = text.replace(/^\s*(TITLE|SPEAKER|YEAR):[ \t]*(.*)$/gim, (_, k, v) => { meta[k.toUpperCase()] = v.trim(); return ''; });
     const rows = parseTimed(body2.replace(/^\s*\n/gm, ''));
     if (rows.length < 2) throw new Error('Gemini didn’t return a transcript for this video. Check that it’s public and try again.');

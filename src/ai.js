@@ -35,7 +35,7 @@ const PROVIDERS = {
   groq: {
     label: 'Groq (fast open models)', kind: 'openai', base: 'https://api.groq.com/openai/v1', key: true, keyHint: 'gsk_…', keyUrl: 'https://console.groq.com/keys',
     main: '', fast: '', models: [], vision: false, jsonMode: true,
-    note: 'Free tier with rate limits. Tap Refresh to list the current models.'
+    note: 'Free tier with rate limits. Tap Refresh to list the current models. With Groq chosen, recordings are transcribed by Groq’s Whisper — the fastest option.'
   },
   ollama: {
     label: 'Ollama (free, on your computer)', kind: 'openai', base: 'http://localhost:11434/v1', key: false, editBase: true,
@@ -125,17 +125,30 @@ function freeConsent() {
       });
   });
 }
-async function callFree({ system, user, imgs, maxTokens, onText, signal, json }) {
+async function callFree({ system, user, imgs, maxTokens, onText, signal, json, think }) {
   if (!(await freeConsent())) throw new Error('Nothing was sent. Connect your own AI key in Settings → AI model, or choose the free AI when you’re ready.');
   const { AI, ai } = await freeSdk();
   const generationConfig = { maxOutputTokens: Math.max(maxTokens * 2, 8192) };
   if (json) generationConfig.responseMimeType = 'application/json';
-  const model = AI.getGenerativeModel(ai, { model: freeCfg().freeAI.model || PROVIDERS.free.main, systemInstruction: system, generationConfig });
+  const modelName = freeCfg().freeAI.model || PROVIDERS.free.main;
+  const tc = geminiThinking(modelName, think); if (tc) generationConfig.thinkingConfig = tc;
   const parts = imgs.map(im => ({ inlineData: { mimeType: im.mime, data: im.data } }));
   parts.push({ text: user });
   const req = { contents: [{ role: 'user', parts }] };
   const opts = signal ? { signal } : undefined;
   const txt = r => { try { return r.text(); } catch { return ''; } };
+  try { return await freeRun(AI, ai, modelName, system, generationConfig, req, opts, onText, signal, txt); }
+  catch (e) {
+    // An SDK or model that doesn't accept the thinking setting: try once without it.
+    if (generationConfig.thinkingConfig && !signal?.aborted && /think/i.test(String(e?.message || ''))) {
+      delete generationConfig.thinkingConfig;
+      return freeRun(AI, ai, modelName, system, generationConfig, req, opts, onText, signal, txt);
+    }
+    throw e;
+  }
+}
+async function freeRun(AI, ai, modelName, system, generationConfig, req, opts, onText, signal, txt) {
+  const model = AI.getGenerativeModel(ai, { model: modelName, systemInstruction: system, generationConfig });
   try {
     if (!onText) {
       const r = await model.generateContent(req, opts);
@@ -219,13 +232,67 @@ async function failIfBad(res) {
   if (res.ok) return;
   let m = '';
   try { const j = await res.json(); m = j.error?.message || j.message || (Array.isArray(j) && j[0]?.error?.message) || ''; } catch { /* ignore */ }
-  throw new Error(aiErr(res.status, m));
+  const err = new Error(aiErr(res.status, m)); err.status = res.status; throw err;
 }
-async function callAI({ system, user, images = [], maxTokens = 4000, fast = false, onText, signal, json = false }) {
+
+/* ---- Speed ----
+   Most of the waiting is the model writing (or "thinking" before it writes). Gemini 3 models think at the highest
+   level unless told otherwise, so transcription and quizzes ask for little or no thinking, and long jobs are split
+   into parts that run side by side. */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+/* How many requests to send at once. Shared, local and rate-limited services get fewer. */
+function aiParallel() {
+  const id = aiId(), k = prov().kind;
+  if (k === 'chrome' || k === 'sample' || k === 'free' || id === 'ollama' || id === 'custom') return 1;
+  if (id === 'groq') return 2;
+  return 4;
+}
+/* Run fn over items, at most `limit` at a time, keeping the order. Stops starting new items after the first error. */
+async function runPool(items, limit, fn) {
+  const out = new Array(items.length); let next = 0, err = null;
+  const worker = async () => {
+    while (!err && next < items.length) { const i = next++; try { out[i] = await fn(items[i], i); } catch (e) { err = err || e; } }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  if (err) throw err;
+  return out;
+}
+/* Wait and try again when the service says it's busy or rate-limited (common when parts run side by side). */
+async function withRetry(fn, signal, waits = [4000, 12000, 25000]) {
+  for (let a = 0; ; a++) {
+    try { return await fn(); }
+    catch (e) {
+      if (signal?.aborted || a >= waits.length || !(e.status === 429 || e.status >= 500)) throw e;
+      await sleep(waits[a]);
+      if (signal?.aborted) throw e;
+    }
+  }
+}
+/* Gemini's thinking setting for a model: 2.5 models take a token budget, Gemini 3 and later take a level.
+   think: 'off' (transcribing) or 'low' (quizzes). */
+function geminiThinking(model, think) {
+  if (!think) return null;
+  const m = String(model || '').toLowerCase(), v = m.match(/gemini-(\d+)(?:\.(\d+))?/);
+  if (!v) return null;
+  if (+v[1] === 2 && v[2] === '5') return { thinkingBudget: /pro/.test(m) ? 128 : 0 };
+  if (+v[1] >= 3) return { thinkingLevel: think === 'off' && !/pro/.test(m) ? 'minimal' : 'low' };
+  return null;
+}
+/* POST to an AI service. If it rejects a speed setting it doesn't support (400), drop that setting and try once more. */
+async function postAI(url, headers, body, signal, strip) {
+  const send = () => aiFetch(url, { method: 'POST', headers, body: JSON.stringify(body) }, signal);
+  let res = await send();
+  if (res.status === 400 && strip) {
+    const t = await res.clone().text().catch(() => '');
+    if (/think|reasoning|video_?metadata|fps/i.test(t) && strip(body)) res = await send();
+  }
+  return res;
+}
+async function callAI({ system, user, images = [], maxTokens = 4000, fast = false, onText, signal, json = false, think }) {
   if (!aiReady()) throw new Error('NO_AI');
   const p = prov(), model = aiModel(fast), key = aiKey();
   const imgs = p.vision ? images.slice(0, 8) : [];
-  if (p.kind === 'free') return callFree({ system, user, imgs, maxTokens, onText, signal, json });
+  if (p.kind === 'free') return callFree({ system, user, imgs, maxTokens, onText, signal, json, think });
 
   if (p.kind === 'anthropic') {
     const content = imgs.map(im => ({ type: 'image', source: { type: 'base64', media_type: im.mime, data: im.data } }));
@@ -261,7 +328,11 @@ async function callAI({ system, user, images = [], maxTokens = 4000, fast = fals
     const body = { model, messages: [{ role: 'system', content: system }, { role: 'user', content: userContent }], stream: !!onText };
     body[p.maxField || 'max_tokens'] = maxTokens;
     if (json && p.jsonMode) body.response_format = { type: 'json_object' };
-    const res = await aiFetch(url, { method: 'POST', headers, body: JSON.stringify(body) }, signal);
+    // Less reasoning before answering. Only services known to accept the setting get it; others ignore `think`.
+    const pid = S.settings.ai.provider;
+    if (think && pid === 'openai') body.reasoning_effort = 'low';
+    if (think && pid === 'openrouter') body.reasoning = { effort: 'low' };
+    const res = await postAI(url, headers, body, signal, b => { const had = 'reasoning_effort' in b || 'reasoning' in b; delete b.reasoning_effort; delete b.reasoning; return had; });
     await failIfBad(res);
     if (!onText) { const j = await res.json(); return j.choices?.[0]?.message?.content || ''; }
     let text = '';
@@ -277,10 +348,11 @@ async function callAI({ system, user, images = [], maxTokens = 4000, fast = fals
     parts.push({ text: user });
     const body = { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts }], generationConfig: { maxOutputTokens: Math.max(maxTokens * 2, 8192) } };
     if (json) body.generationConfig.responseMimeType = 'application/json';
+    const tc = geminiThinking(model, think); if (tc) body.generationConfig.thinkingConfig = tc;
     const base = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`;
-    const res = await aiFetch(onText ? `${base}:streamGenerateContent?alt=sse` : `${base}:generateContent`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body)
-    }, signal);
+    const res = await postAI(onText ? `${base}:streamGenerateContent?alt=sse` : `${base}:generateContent`,
+      { 'content-type': 'application/json', 'x-goog-api-key': key }, body, signal,
+      b => { const had = !!b.generationConfig.thinkingConfig; delete b.generationConfig.thinkingConfig; return had; });
     await failIfBad(res);
     const pick = j => (j.candidates?.[0]?.content?.parts || []).filter(x => x.text && !x.thought).map(x => x.text).join('');
     if (!onText) { const j = await res.json(); const t = pick(j); if (!t && j.promptFeedback?.blockReason) throw new Error('Gemini declined this request (' + j.promptFeedback.blockReason + ').'); return t; }
