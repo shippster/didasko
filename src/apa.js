@@ -48,7 +48,7 @@ function fileCite(f) {
   const c = f.cite || {};
   const title = (c.title || f.name.replace(/\.[a-z0-9]+$/i, '')).trim();
   const kind = c.kind || FILE_KIND[f.kind] || 'document';
-  return { authors: splitNames(c.authors), year: (c.year || '').trim() || 'n.d.', title, kind, source: (c.source || '').trim(), url: (c.url || '').trim() };
+  return { authors: splitNames(c.authors), year: (c.year || '').trim() || 'n.d.', title, kind, source: (c.source || '').trim(), url: (c.url || '').trim(), desc: (c.desc || '').trim() };
 }
 function fileRef(f, titleOverride) {
   const c = fileCite(f);
@@ -60,7 +60,7 @@ function fileRef(f, titleOverride) {
     if (c.url) r += ` ${c.url}`;
     return r;
   }
-  return apaRef({ authors: c.authors, date: c.year, title: t, desc: KIND_DESC[c.kind], source: c.source, url: c.url });
+  return apaRef({ authors: c.authors, date: c.year, title: t, desc: (c.kind === 'slides' && c.desc) || KIND_DESC[c.kind], source: c.source, url: c.url });
 }
 function fileInText(f) {
   const c = fileCite(f);

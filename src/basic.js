@@ -1,7 +1,8 @@
 /* ================= Basic view =================
-   A very simple start: record, add a transcript, or upload a video/audio file → then make notes or a quiz.
+   A very simple start: record, add supporting materials (slides, readings, a transcript, or a link to them), or upload a video/audio file → then make notes or a quiz.
    "Advanced mode" is the full app; each view links to the other. The choice is remembered (S.settings.uiMode). */
 const BASIC = { step: 'start', roller: null, timer: null, editing: false, adding: false };
+const hasMaterial = L => L.files.some(f => f.text || f.image);
 const isBasic = () => S.settings.uiMode !== 'advanced';
 
 function enterBasic(save = true) {
@@ -29,25 +30,25 @@ function basicGo(step) {
   BASIC.step = step; closeBasicEditor();
   clearInterval(BASIC.timer);
   const box = $('#basic-main');
-  const L = S.lecture, hasContent = !L.sample && (speechSegs(L).length || L.notes || L.quiz);
+  const L = S.lecture, hasContent = !L.sample && (speechSegs(L).length || L.files.length || L.notes || L.quiz);
   const replaceNote = libraryLocked() && hasContent
     ? `<p class="b-note">Starting something new replaces “${esc(L.title)}” on this device. ${cloudConfigured() ? '<button class="linklike" data-signin>Sign in</button> to keep every lecture.' : ''}</p>` : '';
   const canRecord = SR && !IS_ARTIFACT;
   if (step === 'start' || step === 'next') BASIC.adding = false;
   const add = BASIC.adding, addTo = add ? ` to “${esc(L.title)}”` : '';
   if (step === 'start') {
-    const resume = !L.sample && speechSegs(L).length;
+    const resume = !L.sample && (speechSegs(L).length || hasMaterial(L));
     box.innerHTML = `
       <h1 class="b-h1">What would you like to do?</h1>
       <div class="b-choices">
         <button class="b-choice" id="b-rec" ${canRecord ? '' : 'aria-disabled="true"'}><span class="b-ico rec">${icon('mic')}</span><span><b>Start recording</b><small>${canRecord ? 'Live captions as you teach' : 'Needs Chrome, Edge or Safari'}</small></span></button>
-        <button class="b-choice" id="b-tr"><span class="b-ico">${icon('notes')}</span><span><b>Add a transcript</b><small>A file, pasted text or a YouTube link</small></span></button>
+        <button class="b-choice" id="b-tr"><span class="b-ico">${icon('notes')}</span><span><b>Add supporting materials</b><small>Slides, readings, a transcript or a link</small></span></button>
         <button class="b-choice" id="b-media"><span class="b-ico">${icon('upload')}</span><span><b>Upload video or audio</b><small>We’ll turn it into a transcript</small></span></button>
       </div>
       ${replaceNote}
       ${resume ? `<button class="b-resume" id="b-resume">Continue with “${esc(L.title)}” <span aria-hidden="true">→</span></button>` : ''}`;
-    $('#b-rec').onclick = () => canRecord ? basicStartRecording() : toast('Live recording works in Chrome, Edge or Safari. You can still add a transcript or upload a recording.', 5000);
-    $('#b-tr').onclick = () => basicGo('transcript');
+    $('#b-rec').onclick = () => canRecord ? basicStartRecording() : toast('Live recording works in Chrome, Edge or Safari. You can still add supporting materials or upload a recording.', 5000);
+    $('#b-tr').onclick = () => basicGo('materials');
     $('#b-media').onclick = basicPickMedia;
     if ($('#b-resume')) $('#b-resume').onclick = () => basicGo('next');
   } else if (step === 'record') {
@@ -63,23 +64,25 @@ function basicGo(step) {
     $('#b-stop').onclick = basicStopRecording;
     basicRecState(); drawBasicCaptions(false);
     BASIC.timer = setInterval(() => { const c = $('#b-clock'); if (c) c.textContent = fmtClock(elapsed()); }, 500);
-  } else if (step === 'transcript') {
+  } else if (step === 'materials') {
     box.innerHTML = `
       <button class="b-back" id="b-back"><span aria-hidden="true">←</span> Back</button>
-      <h1 class="b-h1">Add a transcript${addTo}</h1>
-      ${add ? '<p class="b-sub">It’s added after what’s already there, so the notes and quiz cover everything.</p>' : ''}
+      <h1 class="b-h1">Add supporting materials${addTo}</h1>
+      <p class="b-sub">${add ? 'Slides and links are added as materials; a transcript is added after what’s already there. The notes and quiz cover everything.' : 'Slides, readings or a transcript. Didasko writes notes and a quiz from them.'}</p>
       <label class="b-drop" id="b-drop" tabindex="0">
-        <input type="file" id="b-file" accept=".txt,.vtt,.srt,.md,.docx,.pdf,audio/*,video/*,.mp3,.m4a,.wav,.mp4,.mov,.webm" hidden>
+        <input type="file" id="b-file" accept=".pptx,.pdf,.docx,.txt,.md,.vtt,.srt,audio/*,video/*,.mp3,.m4a,.wav,.mp4,.mov,.webm" hidden>
         <span class="b-ico">${icon('upload')}</span>
         <b>Drop a file here or tap to choose</b>
-        <small>Transcript files: .txt, .vtt, .srt, .docx or .pdf</small>
+        <small>Slides (.pptx), readings or transcripts (.pdf, .docx, .txt, .vtt, .srt)</small>
       </label>
       <div class="b-or"><span>or</span></div>
-      <label class="field"><span>Paste a YouTube link</span><div class="row b-link"><input id="b-url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off"><button class="btn primary" id="b-url-go">Add</button></div></label>
-      <details class="b-paste"><summary>Paste transcript text instead</summary>
+      <label class="field"><span>Paste a link</span><div class="row b-link"><input id="b-url" type="url" inputmode="url" placeholder="Slides, Docs or YouTube link" autocomplete="off"><button class="btn primary" id="b-url-go">Add</button></div></label>
+      <p class="b-note b-hint">For Google Slides, Docs or Sheets, set sharing to “Anyone with the link” first. Links to PDFs and some web pages work too.</p>
+      <details class="b-paste"><summary>Paste text instead</summary>
         <textarea id="b-text" placeholder="Paste a transcript…"></textarea>
         <button class="btn primary" id="b-text-go">Add text</button>
       </details>
+      ${filesLocked() ? `<p class="b-note">Slides and links need a free account; transcripts don’t. <button class="linklike" data-signin>Sign in</button></p>` : ''}
       ${add ? '' : replaceNote}`;
     $('#b-back').onclick = () => basicGo(add ? 'next' : 'start');
     const drop = $('#b-drop');
@@ -95,32 +98,34 @@ function basicGo(step) {
     box.innerHTML = `<div class="b-working"><span class="spinner"></span><h1 class="b-h1" id="b-work-title">Working on it…</h1><p class="b-sub" id="b-work-text">This can take a minute or two for long recordings.</p><button class="btn ghost" id="b-cancel">Cancel</button></div>`;
     $('#b-cancel').onclick = () => { MEDIA.ctl?.abort(); basicGo(add ? 'next' : 'start'); };
   } else if (step === 'next') {
-    const n = speechSegs(L).length, words = speechWords(L);
+    const n = speechSegs(L).length, mats = L.files.filter(f => f.text || f.image);
+    const count = n ? speechWords(L) : mats.reduce((t, f) => t + words(f.text || ''), 0);
     box.innerHTML = `
-      <span class="b-done">${icon('spark')} Transcript ready</span>
+      <span class="b-done">${icon('spark')} ${n ? 'Transcript ready' : 'Materials ready'}</span>
       <h1 class="b-h1">Next step</h1>
-      <p class="b-sub"><b>${esc(L.title)}</b> · ${words.toLocaleString()} words${L.ms ? ` · ${fmtClock(L.ms)}` : ''}</p>
+      <p class="b-sub"><b>${esc(L.title)}</b> · ${count.toLocaleString()} words${n && L.ms ? ` · ${fmtClock(L.ms)}` : ''}${n && mats.length ? ` · ${mats.length} supporting material${mats.length > 1 ? 's' : ''}` : ''}</p>
       <div class="b-choices two">
-        <button class="b-choice big" id="b-quiz"><span class="b-ico">${icon('quiz')}</span><span><b>Create quiz</b><small>Multiple-choice questions from this lecture</small></span></button>
+        <button class="b-choice big" id="b-quiz"><span class="b-ico">${icon('quiz')}</span><span><b>Create quiz</b><small>Multiple-choice questions from ${n ? 'this lecture' : 'these materials'}</small></span></button>
         <button class="b-choice big" id="b-notes"><span class="b-ico">${icon('notes')}</span><span><b>Create notes</b><small>Organized, well-formatted lecture notes</small></span></button>
       </div>
       <div class="b-more">
         <span class="b-more-h">Add more to this lecture</span>
         <div class="b-more-row">
           <button class="b-mini" id="b-more-rec" ${canRecord ? '' : 'aria-disabled="true"'}>${icon('mic')}<span>Record more</span></button>
-          <button class="b-mini" id="b-more-tr">${icon('notes')}<span>Add a transcript</span></button>
+          <button class="b-mini" id="b-more-tr">${icon('notes')}<span>Add supporting materials</span></button>
           <button class="b-mini" id="b-more-media">${icon('upload')}<span>Upload video or audio</span></button>
         </div>
       </div>
-      <div class="b-links"><button class="linklike" id="b-edit">${icon('edit')}Review or fix the transcript</button><button class="linklike" id="b-new">Start something new</button></div>
+      ${mats.length ? `<ul class="b-mats">${mats.map(f => `<li>${icon('files')}<span>${esc(fileCite(f).title)}</span><small>${esc(f.meta || '')}</small></li>`).join('')}</ul>` : ''}
+      <div class="b-links">${n ? `<button class="linklike" id="b-edit">${icon('edit')}Review or fix the transcript</button>` : '<span></span>'}<button class="linklike" id="b-new">Start something new</button></div>
       <div id="b-editor" hidden></div>`;
-    if (!n) { $('#b-quiz').disabled = $('#b-notes').disabled = true; }
+    if (!n && !mats.length) { $('#b-quiz').disabled = $('#b-notes').disabled = true; }
     $('#b-quiz').onclick = () => { saveBasicEditor(); enterAdvanced('quiz', false); generateQuiz(); };
     $('#b-notes').onclick = () => { saveBasicEditor(); enterAdvanced('notes', false); S.ui.notesTab = 'notes'; renderNotesArea(); generateNotes(); };
-    $('#b-edit').onclick = toggleBasicEditor;
+    if ($('#b-edit')) $('#b-edit').onclick = toggleBasicEditor;
     $('#b-new').onclick = () => basicGo('start');
     $('#b-more-rec').onclick = () => { saveBasicEditor(); canRecord ? basicRecordMore() : toast('Live recording works in Chrome, Edge or Safari.', 5000); };
-    $('#b-more-tr').onclick = () => { saveBasicEditor(); BASIC.adding = true; basicGo('transcript'); };
+    $('#b-more-tr').onclick = () => { saveBasicEditor(); BASIC.adding = true; basicGo('materials'); };
     $('#b-more-media').onclick = () => { saveBasicEditor(); basicPickMedia(true); };
   }
   $$('[data-signin]', box).forEach(b => b.onclick = () => openAccountSheet());
@@ -185,11 +190,31 @@ async function basicTranscribeMedia(file) {
   basicGo(ok || add ? 'next' : 'start');
 }
 
-/* ---- Transcript: file, link or pasted text ---- */
+/* ---- Supporting materials: a file, a link or pasted text ----
+   Slides and links become cited materials (like the Files tab); transcript files, pasted text and YouTube links
+   become (or, when adding to a lecture, extend) the transcript. */
+const isSlidesFile = f => /\.pptx$/i.test(f.name);
+async function basicAddMaterial(make, label) {
+  if (filesLocked()) { toast('Slides and links need a free account. Sign in to add them.', 5000); openAccountSheet(); return; }
+  const add = BASIC.adding, ctl = new AbortController();
+  MEDIA.ctl = ctl;
+  basicGo('working'); $('#b-work-title').textContent = label; basicStatus('This usually takes a few seconds.');
+  let f = null;
+  try { f = await make(ctl.signal); }
+  catch (e) { if (!ctl.signal.aborted) toast(e.message || 'Couldn’t read that.', 8000); }
+  finally { if (MEDIA.ctl === ctl) MEDIA.ctl = null; }
+  if (BASIC.step !== 'working') return; // cancelled
+  if (!f) { BASIC.adding = add; basicGo('materials'); return; }
+  if (!add) await basicNewLecture(fileCite(f).title, true);
+  S.lecture.files.push(f); saveSoon(); renderAll();
+  if (aiReady() && f.text) detectCitation(f, { quiet: true });
+  basicGo('next');
+}
 const isTranscriptFile = f => /\.(txt|vtt|srt|md|docx|pdf|html?)$/i.test(f.name);
 async function basicAddFile(file) {
   if (isMediaFile(file)) { basicTranscribeMedia(file); return; }
-  if (!isTranscriptFile(file)) { toast('Choose a transcript file (.txt, .vtt, .srt, .docx or .pdf), or a video or audio file.', 5000); return; }
+  if (isSlidesFile(file)) { basicAddMaterial(() => extractFile(file), `Reading ${file.name.length > 40 ? file.name.slice(0, 37) + '…' : file.name}`); return; }
+  if (!isTranscriptFile(file)) { toast('Choose slides (.pptx), a reading or transcript (.pdf, .docx, .txt, .vtt, .srt), or a video or audio file.', 5000); return; }
   let text = '';
   try {
     if (/\.(txt|vtt|srt|md)$/i.test(file.name)) text = await file.text();
@@ -199,7 +224,7 @@ async function basicAddFile(file) {
 }
 async function basicAddText(text, title) {
   const rows = parseTimed(text || '');
-  if (!rows.length) { toast('That file or text doesn’t contain a transcript.'); return; }
+  if (!rows.length) { toast('That file or text doesn’t contain any text.'); return; }
   const add = BASIC.adding && speechSegs(S.lecture).length;
   if (!BASIC.adding) await basicNewLecture(title, true);
   const base = add ? elapsed() + 2000 : 0;
@@ -211,7 +236,7 @@ async function basicAddText(text, title) {
 }
 async function basicAddLink(url) {
   if (!url) { toast('Paste a link first.'); return; }
-  if (!youTubeId(url)) { toast('Paste a YouTube link. For other sites, download the transcript and add the file.', 5000); return; }
+  if (!youTubeId(url)) { basicAddMaterial(signal => fetchLinkMaterial(url, signal), isGoogleFileLink(url) ? 'Reading your Google file' : 'Reading the link'); return; }
   if (!aiReady() || prov().kind !== 'gemini') { toast(NEEDS_GEMINI_VIDEO, 8000); return; }
   const add = BASIC.adding;
   if (!add) await basicNewLecture(undefined, true);
@@ -219,7 +244,7 @@ async function basicAddLink(url) {
   const ok = await transcribeYouTube(url, S.lecture, true);
   if (BASIC.step !== 'working') return;
   if (!ok && add) BASIC.adding = true;
-  basicGo(ok ? 'next' : 'transcript');
+  basicGo(ok ? 'next' : 'materials');
 }
 function basicStatus(text) {
   const t = $('#b-work-text'); if (t && text) t.textContent = text;

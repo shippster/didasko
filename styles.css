@@ -906,6 +906,13 @@ body.basic-mode { background: var(--bg); }
 .b-or::before, .b-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .b-link { flex-wrap: nowrap; gap: 8px; }
 .b-link input { flex: 1; min-width: 0; }
+.b-hint { margin-top: 8px; }
+.b-mats { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; }
+.b-mats li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); min-width: 0; }
+.b-mats .i { width: 18px; height: 18px; flex: none; color: var(--muted); }
+.b-mats span { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.b-mats small { margin-left: auto; color: var(--muted); white-space: nowrap; flex: none; }
+@media (max-width: 480px) { .b-mats small { display: none; } }
 .b-paste { margin-top: 16px; }
 .b-paste summary { cursor: pointer; color: var(--accent); font-weight: 700; padding: 6px 0; }
 .b-paste textarea { width: 100%; min-height: 30vh; margin: 8px 0; }

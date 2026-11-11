@@ -4,7 +4,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.11.0';
+const APP_VERSION = '3.12.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -1229,13 +1229,13 @@ async function addFiles(list) {
 function renderFiles() {
   const fs = S.lecture.files, box = $('#file-list');
   const locked = filesLocked();
-  $('#drop').hidden = locked; $('#paste-material').hidden = locked;
+  $('#drop').hidden = locked; $('#paste-material').hidden = locked; $('#add-link').hidden = locked;
   if (locked) {
     box.innerHTML = `<div class="panel empty"><h3>Sign in to add lecture files</h3><p>Uploading slides, papers, readings and photos — and saving a library of lectures you can open on any device — needs a free account. You can still transcribe a recording or a YouTube video without one.</p><div class="row" style="justify-content:center"><button class="btn primary" data-signin>${icon('user')}Sign in or create an account</button></div></div>`;
     return;
   }
   $('#files-summary').textContent = fs.length ? `${fs.length} source${fs.length > 1 ? 's' : ''} · ${fs.reduce((n, f) => n + words(f.text), 0).toLocaleString()} words of material · each one is cited in the notes` : '';
-  if (!fs.length) { box.innerHTML = `<div class="panel empty"><h3>No materials yet</h3><p>Add a paper, a reading, your slides or a photo of the whiteboard — or transcribe a recording or YouTube video. Didasko can write notes and quizzes from these alone or alongside a live lecture, and cites each one.</p></div>`; return; }
+  if (!fs.length) { box.innerHTML = `<div class="panel empty"><h3>No materials yet</h3><p>Add a paper, a reading, your slides (a file or a Google Slides link) or a photo of the whiteboard — or transcribe a recording or YouTube video. Didasko can write notes and quizzes from these alone or alongside a live lecture, and cites each one.</p></div>`; return; }
   box.innerHTML = fs.map(f => `<div class="file" data-fid="${f.id}">
     <div class="ftype">${f.image ? `<img src="${f.image}" alt="">` : esc(f.kind)}</div>
     <div style="min-width:0"><div class="fname" title="${esc(f.name)}">${esc(f.name)}</div><div class="fmeta">${esc(f.meta)} · ${fmtBytes(f.size)}</div></div>
@@ -1508,6 +1508,7 @@ function bind() {
   drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
   document.addEventListener('paste', e => { if (S.view !== 'files' || !e.clipboardData?.files?.length) return; addFiles(e.clipboardData.files); });
   $('#paste-material').onclick = openPasteMaterial;
+  $('#add-link').onclick = openLinkSheet;
   $('#add-recording').onclick = () => pickRecording();
   $('#add-video').onclick = () => openVideoSheet();
   $('#file-list').addEventListener('change', e => {
@@ -2200,7 +2201,7 @@ function fileCite(f) {
   const c = f.cite || {};
   const title = (c.title || f.name.replace(/\.[a-z0-9]+$/i, '')).trim();
   const kind = c.kind || FILE_KIND[f.kind] || 'document';
-  return { authors: splitNames(c.authors), year: (c.year || '').trim() || 'n.d.', title, kind, source: (c.source || '').trim(), url: (c.url || '').trim() };
+  return { authors: splitNames(c.authors), year: (c.year || '').trim() || 'n.d.', title, kind, source: (c.source || '').trim(), url: (c.url || '').trim(), desc: (c.desc || '').trim() };
 }
 function fileRef(f, titleOverride) {
   const c = fileCite(f);
@@ -2212,7 +2213,7 @@ function fileRef(f, titleOverride) {
     if (c.url) r += ` ${c.url}`;
     return r;
   }
-  return apaRef({ authors: c.authors, date: c.year, title: t, desc: KIND_DESC[c.kind], source: c.source, url: c.url });
+  return apaRef({ authors: c.authors, date: c.year, title: t, desc: (c.kind === 'slides' && c.desc) || KIND_DESC[c.kind], source: c.source, url: c.url });
 }
 function fileInText(f) {
   const c = fileCite(f);
@@ -3496,6 +3497,116 @@ function materialsAsLecture(L) {
   return { ...L, segments, _cite: fs[0] ? fileInText(fs[0]) : '' };
 }
 
+/* ================= Supporting materials from a link =================
+   Google Slides, Docs and Sheets shared as "Anyone with the link" can be read in the browser through Google's export
+   addresses (slides come as .pptx so speaker notes are kept). Other addresses work when the site allows other pages to read it. */
+const GOOGLE_FILE_RE = /docs\.google\.com\/(presentation|document|spreadsheets)\/(?:u\/\d+\/)?d\/(e\/)?([\w-]{15,})/i;
+const DRIVE_FILE_RE = /drive\.google\.com\/(?:file\/d\/|open\?(?:.*&)?id=|uc\?(?:.*&)?id=)([\w-]{15,})/i;
+const LINK_TYPES = {
+  'application/pdf': 'pdf', 'text/plain': 'txt', 'text/markdown': 'md', 'text/csv': 'csv', 'text/html': 'html', 'text/vtt': 'vtt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif'
+};
+const LINK_EXTS = ['pdf', 'docx', 'pptx', 'txt', 'md', 'csv', 'vtt', 'srt', 'html', 'htm', 'jpg', 'jpeg', 'png', 'webp', 'gif'];
+const isGoogleFileLink = u => GOOGLE_FILE_RE.test(String(u || '')) || DRIVE_FILE_RE.test(String(u || ''));
+function linkPlan(u) {
+  const href = u.href, g = href.match(GOOGLE_FILE_RE);
+  if (g) {
+    const [, type, published, id] = g, base = `https://docs.google.com/${type}/d/${id}`;
+    const label = { presentation: 'Google Slides', document: 'Google Docs', spreadsheets: 'Google Sheets' }[type];
+    if (published) return { error: `That is a “Publish to the web” link. In ${label}, tap Share → Copy link and paste that link instead.` };
+    if (type === 'presentation') return { google: true, label, citeUrl: base, cite: { kind: 'slides', desc: 'Google Slides' }, tries: [['pptx', `${base}/export/pptx`], ['txt', `${base}/export/txt`]] };
+    if (type === 'document') return { google: true, label, citeUrl: base, cite: { kind: 'document' }, tries: [['docx', `${base}/export?format=docx`], ['txt', `${base}/export?format=txt`]] };
+    const gid = (href.match(/[#?&]gid=(\d+)/) || [])[1];
+    return { google: true, label, citeUrl: base, cite: { kind: 'dataset' }, tries: [['csv', `${base}/export?format=csv${gid ? `&gid=${gid}` : ''}`]] };
+  }
+  const d = href.match(DRIVE_FILE_RE);
+  if (d) return { google: true, label: 'Google Drive', citeUrl: `https://drive.google.com/file/d/${d[1]}/view`, cite: {}, tries: [['', `https://drive.google.com/uc?export=download&id=${d[1]}`]] };
+  return { label: 'Web', citeUrl: href, cite: {}, tries: [['', href]] };
+}
+function linkFileName(res, u, plan) {
+  const cd = res.headers.get('content-disposition') || '';
+  let name = '';
+  const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i), plain = cd.match(/filename="?([^";]+)"?/i);
+  try { if (star) name = decodeURIComponent(star[1].trim()); } catch { /* fall through */ }
+  if (!name && plain) name = plain[1].trim();
+  if (!name && !plan.google) { try { name = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || ''); } catch { /* keep empty */ } }
+  return name.replace(/\.[a-z0-9]{2,5}$/i, '').trim();
+}
+async function fetchLinkMaterial(raw, signal) {
+  let url = String(raw || '').trim();
+  if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
+  let u; try { u = new URL(url); } catch { u = null; }
+  if (!u || !u.hostname.includes('.')) throw new Error('That doesn’t look like a link. Paste the full address, starting with https://');
+  const plan = linkPlan(u);
+  if (plan.error) throw new Error(plan.error);
+  let res = null, ext = '';
+  for (const [want, addr] of plan.tries) {
+    try {
+      const r = await fetch(addr, { credentials: 'omit', signal });
+      const type = (r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      if (!r.ok || (plan.google && type === 'text/html')) continue; // a private file answers with Google's sign-in page
+      const pathExt = extOf(u.pathname);
+      res = r; ext = want || LINK_TYPES[type] || (LINK_EXTS.includes(pathExt) ? pathExt : ''); break;
+    } catch (e) { if (signal?.aborted) throw e; }
+  }
+  if (!res) throw new Error(plan.google
+    ? `Didasko couldn’t open that ${plan.label} file. Tap Share, set General access to “Anyone with the link”, then try again — or download the file and add it here.`
+    : 'Didasko can’t read that page directly — most websites don’t allow it. Download the file, or copy the text and paste it here instead.');
+  if (!ext) throw new Error('That link isn’t a document Didasko can read. Use a link to slides, a document, a PDF or a web page.');
+  const blob = await res.blob();
+  if (blob.size > 60 * 1048576) throw new Error('That file is larger than 60 MB.');
+  let title = linkFileName(res, u, plan), file;
+  if (ext === 'html' || ext === 'htm') {
+    const doc = new DOMParser().parseFromString(await blob.text(), 'text/html');
+    title = (doc.title || '').trim() || title;
+    doc.querySelectorAll('script,style,noscript,template,svg,nav,header,footer,aside,form').forEach(n => n.remove());
+    const text = (doc.querySelector('main, article') || doc.body)?.textContent || '';
+    file = new File([text.replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n')], `${title || u.hostname}.txt`, { type: 'text/plain' });
+  } else file = new File([blob], `${title || plan.label}.${ext}`, { type: blob.type });
+  title = title || (plan.google ? plan.label : u.hostname);
+  const f = await extractFile(file);
+  if (!f.text && !f.image) throw new Error('No text was found at that link.');
+  if (ext === 'html' || ext === 'htm') { f.kind = 'html'; f.name = `${title}.html`; }
+  f.url = plan.citeUrl;
+  f.meta = `${plan.label} link · ${f.meta}`;
+  // Google's exported copies carry export details, not the real author or date, so only the title and link are kept for those.
+  f.cite = plan.google ? { ...plan.cite, title, url: plan.citeUrl } : { ...(f.cite || {}), ...plan.cite, title: f.cite?.title || title, url: plan.citeUrl };
+  return f;
+}
+/* Fetch a link and add it to this lecture's materials. Returns the new material, or null (with a message shown) when it fails. */
+async function addLinkMaterial(url, quiet) {
+  const ctl = new AbortController(); if (!MEDIA.ctl) MEDIA.ctl = ctl;
+  if (!quiet) toast('Reading the link…', 20000);
+  try {
+    const f = await fetchLinkMaterial(url, ctl.signal);
+    S.lecture.files.push(f); saveSoon(); renderFiles(); renderBadges();
+    if (!quiet) toast(`Added ${f.name}`);
+    if (aiReady() && f.text) detectCitation(f, { quiet: true }).then(() => { if (S.view === 'files') renderFiles(); });
+    return f;
+  } catch (e) {
+    if (!ctl.signal.aborted) toast(e.message || 'Couldn’t read that link.', 8000);
+    return null;
+  } finally { if (MEDIA.ctl === ctl) MEDIA.ctl = null; }
+}
+function openLinkSheet() {
+  openSheet('Add a link', `
+    <p class="small muted" style="margin:0">Paste a link to Google Slides, Google Docs or Google Sheets (shared as “Anyone with the link”), or to a PDF or web page. Didasko reads the text and cites the link in your notes.</p>
+    <label class="field"><span>Link</span><input id="lk-url" type="url" inputmode="url" placeholder="https://docs.google.com/presentation/d/…" autocomplete="off"></label>
+    <div class="row"><button class="btn primary" id="lk-ok">${icon('plus')}Add link</button><button class="btn ghost" data-close>Cancel</button></div>`,
+    sh => {
+      const go = async () => {
+        const v = $('#lk-url', sh).value.trim(); if (!v) { toast('Paste a link first.'); return; }
+        if (youTubeId(v)) { closeSheet(); openVideoSheet(); const y = $('#yt-url'); if (y) y.value = v; return; }
+        $('#lk-ok', sh).disabled = true;
+        const f = await addLinkMaterial(v);
+        if (f) closeSheet(); else if ($('#lk-ok', sh)) $('#lk-ok', sh).disabled = false;
+      };
+      $('#lk-ok', sh).onclick = go; $('#lk-url', sh).onkeydown = e => { if (e.key === 'Enter') go(); };
+    });
+}
+
 /* ================= Cloud: Firebase accounts, lecture library, newsletter ================= */
 const CFG = window.DIDASKO_CONFIG || {};
 const PMODE = new URLSearchParams(location.search).has('join');
@@ -4156,9 +4267,10 @@ function openNameSheet() {
 }
 
 /* ================= Basic view =================
-   A very simple start: record, add a transcript, or upload a video/audio file → then make notes or a quiz.
+   A very simple start: record, add supporting materials (slides, readings, a transcript, or a link to them), or upload a video/audio file → then make notes or a quiz.
    "Advanced mode" is the full app; each view links to the other. The choice is remembered (S.settings.uiMode). */
 const BASIC = { step: 'start', roller: null, timer: null, editing: false, adding: false };
+const hasMaterial = L => L.files.some(f => f.text || f.image);
 const isBasic = () => S.settings.uiMode !== 'advanced';
 
 function enterBasic(save = true) {
@@ -4186,25 +4298,25 @@ function basicGo(step) {
   BASIC.step = step; closeBasicEditor();
   clearInterval(BASIC.timer);
   const box = $('#basic-main');
-  const L = S.lecture, hasContent = !L.sample && (speechSegs(L).length || L.notes || L.quiz);
+  const L = S.lecture, hasContent = !L.sample && (speechSegs(L).length || L.files.length || L.notes || L.quiz);
   const replaceNote = libraryLocked() && hasContent
     ? `<p class="b-note">Starting something new replaces “${esc(L.title)}” on this device. ${cloudConfigured() ? '<button class="linklike" data-signin>Sign in</button> to keep every lecture.' : ''}</p>` : '';
   const canRecord = SR && !IS_ARTIFACT;
   if (step === 'start' || step === 'next') BASIC.adding = false;
   const add = BASIC.adding, addTo = add ? ` to “${esc(L.title)}”` : '';
   if (step === 'start') {
-    const resume = !L.sample && speechSegs(L).length;
+    const resume = !L.sample && (speechSegs(L).length || hasMaterial(L));
     box.innerHTML = `
       <h1 class="b-h1">What would you like to do?</h1>
       <div class="b-choices">
         <button class="b-choice" id="b-rec" ${canRecord ? '' : 'aria-disabled="true"'}><span class="b-ico rec">${icon('mic')}</span><span><b>Start recording</b><small>${canRecord ? 'Live captions as you teach' : 'Needs Chrome, Edge or Safari'}</small></span></button>
-        <button class="b-choice" id="b-tr"><span class="b-ico">${icon('notes')}</span><span><b>Add a transcript</b><small>A file, pasted text or a YouTube link</small></span></button>
+        <button class="b-choice" id="b-tr"><span class="b-ico">${icon('notes')}</span><span><b>Add supporting materials</b><small>Slides, readings, a transcript or a link</small></span></button>
         <button class="b-choice" id="b-media"><span class="b-ico">${icon('upload')}</span><span><b>Upload video or audio</b><small>We’ll turn it into a transcript</small></span></button>
       </div>
       ${replaceNote}
       ${resume ? `<button class="b-resume" id="b-resume">Continue with “${esc(L.title)}” <span aria-hidden="true">→</span></button>` : ''}`;
-    $('#b-rec').onclick = () => canRecord ? basicStartRecording() : toast('Live recording works in Chrome, Edge or Safari. You can still add a transcript or upload a recording.', 5000);
-    $('#b-tr').onclick = () => basicGo('transcript');
+    $('#b-rec').onclick = () => canRecord ? basicStartRecording() : toast('Live recording works in Chrome, Edge or Safari. You can still add supporting materials or upload a recording.', 5000);
+    $('#b-tr').onclick = () => basicGo('materials');
     $('#b-media').onclick = basicPickMedia;
     if ($('#b-resume')) $('#b-resume').onclick = () => basicGo('next');
   } else if (step === 'record') {
@@ -4220,23 +4332,25 @@ function basicGo(step) {
     $('#b-stop').onclick = basicStopRecording;
     basicRecState(); drawBasicCaptions(false);
     BASIC.timer = setInterval(() => { const c = $('#b-clock'); if (c) c.textContent = fmtClock(elapsed()); }, 500);
-  } else if (step === 'transcript') {
+  } else if (step === 'materials') {
     box.innerHTML = `
       <button class="b-back" id="b-back"><span aria-hidden="true">←</span> Back</button>
-      <h1 class="b-h1">Add a transcript${addTo}</h1>
-      ${add ? '<p class="b-sub">It’s added after what’s already there, so the notes and quiz cover everything.</p>' : ''}
+      <h1 class="b-h1">Add supporting materials${addTo}</h1>
+      <p class="b-sub">${add ? 'Slides and links are added as materials; a transcript is added after what’s already there. The notes and quiz cover everything.' : 'Slides, readings or a transcript. Didasko writes notes and a quiz from them.'}</p>
       <label class="b-drop" id="b-drop" tabindex="0">
-        <input type="file" id="b-file" accept=".txt,.vtt,.srt,.md,.docx,.pdf,audio/*,video/*,.mp3,.m4a,.wav,.mp4,.mov,.webm" hidden>
+        <input type="file" id="b-file" accept=".pptx,.pdf,.docx,.txt,.md,.vtt,.srt,audio/*,video/*,.mp3,.m4a,.wav,.mp4,.mov,.webm" hidden>
         <span class="b-ico">${icon('upload')}</span>
         <b>Drop a file here or tap to choose</b>
-        <small>Transcript files: .txt, .vtt, .srt, .docx or .pdf</small>
+        <small>Slides (.pptx), readings or transcripts (.pdf, .docx, .txt, .vtt, .srt)</small>
       </label>
       <div class="b-or"><span>or</span></div>
-      <label class="field"><span>Paste a YouTube link</span><div class="row b-link"><input id="b-url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off"><button class="btn primary" id="b-url-go">Add</button></div></label>
-      <details class="b-paste"><summary>Paste transcript text instead</summary>
+      <label class="field"><span>Paste a link</span><div class="row b-link"><input id="b-url" type="url" inputmode="url" placeholder="Slides, Docs or YouTube link" autocomplete="off"><button class="btn primary" id="b-url-go">Add</button></div></label>
+      <p class="b-note b-hint">For Google Slides, Docs or Sheets, set sharing to “Anyone with the link” first. Links to PDFs and some web pages work too.</p>
+      <details class="b-paste"><summary>Paste text instead</summary>
         <textarea id="b-text" placeholder="Paste a transcript…"></textarea>
         <button class="btn primary" id="b-text-go">Add text</button>
       </details>
+      ${filesLocked() ? `<p class="b-note">Slides and links need a free account; transcripts don’t. <button class="linklike" data-signin>Sign in</button></p>` : ''}
       ${add ? '' : replaceNote}`;
     $('#b-back').onclick = () => basicGo(add ? 'next' : 'start');
     const drop = $('#b-drop');
@@ -4252,32 +4366,34 @@ function basicGo(step) {
     box.innerHTML = `<div class="b-working"><span class="spinner"></span><h1 class="b-h1" id="b-work-title">Working on it…</h1><p class="b-sub" id="b-work-text">This can take a minute or two for long recordings.</p><button class="btn ghost" id="b-cancel">Cancel</button></div>`;
     $('#b-cancel').onclick = () => { MEDIA.ctl?.abort(); basicGo(add ? 'next' : 'start'); };
   } else if (step === 'next') {
-    const n = speechSegs(L).length, words = speechWords(L);
+    const n = speechSegs(L).length, mats = L.files.filter(f => f.text || f.image);
+    const count = n ? speechWords(L) : mats.reduce((t, f) => t + words(f.text || ''), 0);
     box.innerHTML = `
-      <span class="b-done">${icon('spark')} Transcript ready</span>
+      <span class="b-done">${icon('spark')} ${n ? 'Transcript ready' : 'Materials ready'}</span>
       <h1 class="b-h1">Next step</h1>
-      <p class="b-sub"><b>${esc(L.title)}</b> · ${words.toLocaleString()} words${L.ms ? ` · ${fmtClock(L.ms)}` : ''}</p>
+      <p class="b-sub"><b>${esc(L.title)}</b> · ${count.toLocaleString()} words${n && L.ms ? ` · ${fmtClock(L.ms)}` : ''}${n && mats.length ? ` · ${mats.length} supporting material${mats.length > 1 ? 's' : ''}` : ''}</p>
       <div class="b-choices two">
-        <button class="b-choice big" id="b-quiz"><span class="b-ico">${icon('quiz')}</span><span><b>Create quiz</b><small>Multiple-choice questions from this lecture</small></span></button>
+        <button class="b-choice big" id="b-quiz"><span class="b-ico">${icon('quiz')}</span><span><b>Create quiz</b><small>Multiple-choice questions from ${n ? 'this lecture' : 'these materials'}</small></span></button>
         <button class="b-choice big" id="b-notes"><span class="b-ico">${icon('notes')}</span><span><b>Create notes</b><small>Organized, well-formatted lecture notes</small></span></button>
       </div>
       <div class="b-more">
         <span class="b-more-h">Add more to this lecture</span>
         <div class="b-more-row">
           <button class="b-mini" id="b-more-rec" ${canRecord ? '' : 'aria-disabled="true"'}>${icon('mic')}<span>Record more</span></button>
-          <button class="b-mini" id="b-more-tr">${icon('notes')}<span>Add a transcript</span></button>
+          <button class="b-mini" id="b-more-tr">${icon('notes')}<span>Add supporting materials</span></button>
           <button class="b-mini" id="b-more-media">${icon('upload')}<span>Upload video or audio</span></button>
         </div>
       </div>
-      <div class="b-links"><button class="linklike" id="b-edit">${icon('edit')}Review or fix the transcript</button><button class="linklike" id="b-new">Start something new</button></div>
+      ${mats.length ? `<ul class="b-mats">${mats.map(f => `<li>${icon('files')}<span>${esc(fileCite(f).title)}</span><small>${esc(f.meta || '')}</small></li>`).join('')}</ul>` : ''}
+      <div class="b-links">${n ? `<button class="linklike" id="b-edit">${icon('edit')}Review or fix the transcript</button>` : '<span></span>'}<button class="linklike" id="b-new">Start something new</button></div>
       <div id="b-editor" hidden></div>`;
-    if (!n) { $('#b-quiz').disabled = $('#b-notes').disabled = true; }
+    if (!n && !mats.length) { $('#b-quiz').disabled = $('#b-notes').disabled = true; }
     $('#b-quiz').onclick = () => { saveBasicEditor(); enterAdvanced('quiz', false); generateQuiz(); };
     $('#b-notes').onclick = () => { saveBasicEditor(); enterAdvanced('notes', false); S.ui.notesTab = 'notes'; renderNotesArea(); generateNotes(); };
-    $('#b-edit').onclick = toggleBasicEditor;
+    if ($('#b-edit')) $('#b-edit').onclick = toggleBasicEditor;
     $('#b-new').onclick = () => basicGo('start');
     $('#b-more-rec').onclick = () => { saveBasicEditor(); canRecord ? basicRecordMore() : toast('Live recording works in Chrome, Edge or Safari.', 5000); };
-    $('#b-more-tr').onclick = () => { saveBasicEditor(); BASIC.adding = true; basicGo('transcript'); };
+    $('#b-more-tr').onclick = () => { saveBasicEditor(); BASIC.adding = true; basicGo('materials'); };
     $('#b-more-media').onclick = () => { saveBasicEditor(); basicPickMedia(true); };
   }
   $$('[data-signin]', box).forEach(b => b.onclick = () => openAccountSheet());
@@ -4342,11 +4458,31 @@ async function basicTranscribeMedia(file) {
   basicGo(ok || add ? 'next' : 'start');
 }
 
-/* ---- Transcript: file, link or pasted text ---- */
+/* ---- Supporting materials: a file, a link or pasted text ----
+   Slides and links become cited materials (like the Files tab); transcript files, pasted text and YouTube links
+   become (or, when adding to a lecture, extend) the transcript. */
+const isSlidesFile = f => /\.pptx$/i.test(f.name);
+async function basicAddMaterial(make, label) {
+  if (filesLocked()) { toast('Slides and links need a free account. Sign in to add them.', 5000); openAccountSheet(); return; }
+  const add = BASIC.adding, ctl = new AbortController();
+  MEDIA.ctl = ctl;
+  basicGo('working'); $('#b-work-title').textContent = label; basicStatus('This usually takes a few seconds.');
+  let f = null;
+  try { f = await make(ctl.signal); }
+  catch (e) { if (!ctl.signal.aborted) toast(e.message || 'Couldn’t read that.', 8000); }
+  finally { if (MEDIA.ctl === ctl) MEDIA.ctl = null; }
+  if (BASIC.step !== 'working') return; // cancelled
+  if (!f) { BASIC.adding = add; basicGo('materials'); return; }
+  if (!add) await basicNewLecture(fileCite(f).title, true);
+  S.lecture.files.push(f); saveSoon(); renderAll();
+  if (aiReady() && f.text) detectCitation(f, { quiet: true });
+  basicGo('next');
+}
 const isTranscriptFile = f => /\.(txt|vtt|srt|md|docx|pdf|html?)$/i.test(f.name);
 async function basicAddFile(file) {
   if (isMediaFile(file)) { basicTranscribeMedia(file); return; }
-  if (!isTranscriptFile(file)) { toast('Choose a transcript file (.txt, .vtt, .srt, .docx or .pdf), or a video or audio file.', 5000); return; }
+  if (isSlidesFile(file)) { basicAddMaterial(() => extractFile(file), `Reading ${file.name.length > 40 ? file.name.slice(0, 37) + '…' : file.name}`); return; }
+  if (!isTranscriptFile(file)) { toast('Choose slides (.pptx), a reading or transcript (.pdf, .docx, .txt, .vtt, .srt), or a video or audio file.', 5000); return; }
   let text = '';
   try {
     if (/\.(txt|vtt|srt|md)$/i.test(file.name)) text = await file.text();
@@ -4356,7 +4492,7 @@ async function basicAddFile(file) {
 }
 async function basicAddText(text, title) {
   const rows = parseTimed(text || '');
-  if (!rows.length) { toast('That file or text doesn’t contain a transcript.'); return; }
+  if (!rows.length) { toast('That file or text doesn’t contain any text.'); return; }
   const add = BASIC.adding && speechSegs(S.lecture).length;
   if (!BASIC.adding) await basicNewLecture(title, true);
   const base = add ? elapsed() + 2000 : 0;
@@ -4368,7 +4504,7 @@ async function basicAddText(text, title) {
 }
 async function basicAddLink(url) {
   if (!url) { toast('Paste a link first.'); return; }
-  if (!youTubeId(url)) { toast('Paste a YouTube link. For other sites, download the transcript and add the file.', 5000); return; }
+  if (!youTubeId(url)) { basicAddMaterial(signal => fetchLinkMaterial(url, signal), isGoogleFileLink(url) ? 'Reading your Google file' : 'Reading the link'); return; }
   if (!aiReady() || prov().kind !== 'gemini') { toast(NEEDS_GEMINI_VIDEO, 8000); return; }
   const add = BASIC.adding;
   if (!add) await basicNewLecture(undefined, true);
@@ -4376,7 +4512,7 @@ async function basicAddLink(url) {
   const ok = await transcribeYouTube(url, S.lecture, true);
   if (BASIC.step !== 'working') return;
   if (!ok && add) BASIC.adding = true;
-  basicGo(ok ? 'next' : 'transcript');
+  basicGo(ok ? 'next' : 'materials');
 }
 function basicStatus(text) {
   const t = $('#b-work-text'); if (t && text) t.textContent = text;

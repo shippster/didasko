@@ -214,3 +214,113 @@ function materialsAsLecture(L) {
   const segments = fs.flatMap(f => sentencesOf(f.text.replace(/\n+/g, '. ')).filter(t => words(t) > 5).map(t => ({ id: uid(), kind: 'speech', t: 0, text: t, tr: {}, key: false })));
   return { ...L, segments, _cite: fs[0] ? fileInText(fs[0]) : '' };
 }
+
+/* ================= Supporting materials from a link =================
+   Google Slides, Docs and Sheets shared as "Anyone with the link" can be read in the browser through Google's export
+   addresses (slides come as .pptx so speaker notes are kept). Other addresses work when the site allows other pages to read it. */
+const GOOGLE_FILE_RE = /docs\.google\.com\/(presentation|document|spreadsheets)\/(?:u\/\d+\/)?d\/(e\/)?([\w-]{15,})/i;
+const DRIVE_FILE_RE = /drive\.google\.com\/(?:file\/d\/|open\?(?:.*&)?id=|uc\?(?:.*&)?id=)([\w-]{15,})/i;
+const LINK_TYPES = {
+  'application/pdf': 'pdf', 'text/plain': 'txt', 'text/markdown': 'md', 'text/csv': 'csv', 'text/html': 'html', 'text/vtt': 'vtt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif'
+};
+const LINK_EXTS = ['pdf', 'docx', 'pptx', 'txt', 'md', 'csv', 'vtt', 'srt', 'html', 'htm', 'jpg', 'jpeg', 'png', 'webp', 'gif'];
+const isGoogleFileLink = u => GOOGLE_FILE_RE.test(String(u || '')) || DRIVE_FILE_RE.test(String(u || ''));
+function linkPlan(u) {
+  const href = u.href, g = href.match(GOOGLE_FILE_RE);
+  if (g) {
+    const [, type, published, id] = g, base = `https://docs.google.com/${type}/d/${id}`;
+    const label = { presentation: 'Google Slides', document: 'Google Docs', spreadsheets: 'Google Sheets' }[type];
+    if (published) return { error: `That is a “Publish to the web” link. In ${label}, tap Share → Copy link and paste that link instead.` };
+    if (type === 'presentation') return { google: true, label, citeUrl: base, cite: { kind: 'slides', desc: 'Google Slides' }, tries: [['pptx', `${base}/export/pptx`], ['txt', `${base}/export/txt`]] };
+    if (type === 'document') return { google: true, label, citeUrl: base, cite: { kind: 'document' }, tries: [['docx', `${base}/export?format=docx`], ['txt', `${base}/export?format=txt`]] };
+    const gid = (href.match(/[#?&]gid=(\d+)/) || [])[1];
+    return { google: true, label, citeUrl: base, cite: { kind: 'dataset' }, tries: [['csv', `${base}/export?format=csv${gid ? `&gid=${gid}` : ''}`]] };
+  }
+  const d = href.match(DRIVE_FILE_RE);
+  if (d) return { google: true, label: 'Google Drive', citeUrl: `https://drive.google.com/file/d/${d[1]}/view`, cite: {}, tries: [['', `https://drive.google.com/uc?export=download&id=${d[1]}`]] };
+  return { label: 'Web', citeUrl: href, cite: {}, tries: [['', href]] };
+}
+function linkFileName(res, u, plan) {
+  const cd = res.headers.get('content-disposition') || '';
+  let name = '';
+  const star = cd.match(/filename\*=(?:UTF-8'')?([^;]+)/i), plain = cd.match(/filename="?([^";]+)"?/i);
+  try { if (star) name = decodeURIComponent(star[1].trim()); } catch { /* fall through */ }
+  if (!name && plain) name = plain[1].trim();
+  if (!name && !plan.google) { try { name = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || ''); } catch { /* keep empty */ } }
+  return name.replace(/\.[a-z0-9]{2,5}$/i, '').trim();
+}
+async function fetchLinkMaterial(raw, signal) {
+  let url = String(raw || '').trim();
+  if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
+  let u; try { u = new URL(url); } catch { u = null; }
+  if (!u || !u.hostname.includes('.')) throw new Error('That doesn’t look like a link. Paste the full address, starting with https://');
+  const plan = linkPlan(u);
+  if (plan.error) throw new Error(plan.error);
+  let res = null, ext = '';
+  for (const [want, addr] of plan.tries) {
+    try {
+      const r = await fetch(addr, { credentials: 'omit', signal });
+      const type = (r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      if (!r.ok || (plan.google && type === 'text/html')) continue; // a private file answers with Google's sign-in page
+      const pathExt = extOf(u.pathname);
+      res = r; ext = want || LINK_TYPES[type] || (LINK_EXTS.includes(pathExt) ? pathExt : ''); break;
+    } catch (e) { if (signal?.aborted) throw e; }
+  }
+  if (!res) throw new Error(plan.google
+    ? `Didasko couldn’t open that ${plan.label} file. Tap Share, set General access to “Anyone with the link”, then try again — or download the file and add it here.`
+    : 'Didasko can’t read that page directly — most websites don’t allow it. Download the file, or copy the text and paste it here instead.');
+  if (!ext) throw new Error('That link isn’t a document Didasko can read. Use a link to slides, a document, a PDF or a web page.');
+  const blob = await res.blob();
+  if (blob.size > 60 * 1048576) throw new Error('That file is larger than 60 MB.');
+  let title = linkFileName(res, u, plan), file;
+  if (ext === 'html' || ext === 'htm') {
+    const doc = new DOMParser().parseFromString(await blob.text(), 'text/html');
+    title = (doc.title || '').trim() || title;
+    doc.querySelectorAll('script,style,noscript,template,svg,nav,header,footer,aside,form').forEach(n => n.remove());
+    const text = (doc.querySelector('main, article') || doc.body)?.textContent || '';
+    file = new File([text.replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n')], `${title || u.hostname}.txt`, { type: 'text/plain' });
+  } else file = new File([blob], `${title || plan.label}.${ext}`, { type: blob.type });
+  title = title || (plan.google ? plan.label : u.hostname);
+  const f = await extractFile(file);
+  if (!f.text && !f.image) throw new Error('No text was found at that link.');
+  if (ext === 'html' || ext === 'htm') { f.kind = 'html'; f.name = `${title}.html`; }
+  f.url = plan.citeUrl;
+  f.meta = `${plan.label} link · ${f.meta}`;
+  // Google's exported copies carry export details, not the real author or date, so only the title and link are kept for those.
+  f.cite = plan.google ? { ...plan.cite, title, url: plan.citeUrl } : { ...(f.cite || {}), ...plan.cite, title: f.cite?.title || title, url: plan.citeUrl };
+  return f;
+}
+/* Fetch a link and add it to this lecture's materials. Returns the new material, or null (with a message shown) when it fails. */
+async function addLinkMaterial(url, quiet) {
+  const ctl = new AbortController(); if (!MEDIA.ctl) MEDIA.ctl = ctl;
+  if (!quiet) toast('Reading the link…', 20000);
+  try {
+    const f = await fetchLinkMaterial(url, ctl.signal);
+    S.lecture.files.push(f); saveSoon(); renderFiles(); renderBadges();
+    if (!quiet) toast(`Added ${f.name}`);
+    if (aiReady() && f.text) detectCitation(f, { quiet: true }).then(() => { if (S.view === 'files') renderFiles(); });
+    return f;
+  } catch (e) {
+    if (!ctl.signal.aborted) toast(e.message || 'Couldn’t read that link.', 8000);
+    return null;
+  } finally { if (MEDIA.ctl === ctl) MEDIA.ctl = null; }
+}
+function openLinkSheet() {
+  openSheet('Add a link', `
+    <p class="small muted" style="margin:0">Paste a link to Google Slides, Google Docs or Google Sheets (shared as “Anyone with the link”), or to a PDF or web page. Didasko reads the text and cites the link in your notes.</p>
+    <label class="field"><span>Link</span><input id="lk-url" type="url" inputmode="url" placeholder="https://docs.google.com/presentation/d/…" autocomplete="off"></label>
+    <div class="row"><button class="btn primary" id="lk-ok">${icon('plus')}Add link</button><button class="btn ghost" data-close>Cancel</button></div>`,
+    sh => {
+      const go = async () => {
+        const v = $('#lk-url', sh).value.trim(); if (!v) { toast('Paste a link first.'); return; }
+        if (youTubeId(v)) { closeSheet(); openVideoSheet(); const y = $('#yt-url'); if (y) y.value = v; return; }
+        $('#lk-ok', sh).disabled = true;
+        const f = await addLinkMaterial(v);
+        if (f) closeSheet(); else if ($('#lk-ok', sh)) $('#lk-ok', sh).disabled = false;
+      };
+      $('#lk-ok', sh).onclick = go; $('#lk-url', sh).onkeydown = e => { if (e.key === 'Enter') go(); };
+    });
+}

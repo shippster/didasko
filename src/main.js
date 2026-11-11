@@ -1,7 +1,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.11.0';
+const APP_VERSION = '3.12.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -1226,13 +1226,13 @@ async function addFiles(list) {
 function renderFiles() {
   const fs = S.lecture.files, box = $('#file-list');
   const locked = filesLocked();
-  $('#drop').hidden = locked; $('#paste-material').hidden = locked;
+  $('#drop').hidden = locked; $('#paste-material').hidden = locked; $('#add-link').hidden = locked;
   if (locked) {
     box.innerHTML = `<div class="panel empty"><h3>Sign in to add lecture files</h3><p>Uploading slides, papers, readings and photos — and saving a library of lectures you can open on any device — needs a free account. You can still transcribe a recording or a YouTube video without one.</p><div class="row" style="justify-content:center"><button class="btn primary" data-signin>${icon('user')}Sign in or create an account</button></div></div>`;
     return;
   }
   $('#files-summary').textContent = fs.length ? `${fs.length} source${fs.length > 1 ? 's' : ''} · ${fs.reduce((n, f) => n + words(f.text), 0).toLocaleString()} words of material · each one is cited in the notes` : '';
-  if (!fs.length) { box.innerHTML = `<div class="panel empty"><h3>No materials yet</h3><p>Add a paper, a reading, your slides or a photo of the whiteboard — or transcribe a recording or YouTube video. Didasko can write notes and quizzes from these alone or alongside a live lecture, and cites each one.</p></div>`; return; }
+  if (!fs.length) { box.innerHTML = `<div class="panel empty"><h3>No materials yet</h3><p>Add a paper, a reading, your slides (a file or a Google Slides link) or a photo of the whiteboard — or transcribe a recording or YouTube video. Didasko can write notes and quizzes from these alone or alongside a live lecture, and cites each one.</p></div>`; return; }
   box.innerHTML = fs.map(f => `<div class="file" data-fid="${f.id}">
     <div class="ftype">${f.image ? `<img src="${f.image}" alt="">` : esc(f.kind)}</div>
     <div style="min-width:0"><div class="fname" title="${esc(f.name)}">${esc(f.name)}</div><div class="fmeta">${esc(f.meta)} · ${fmtBytes(f.size)}</div></div>
@@ -1505,6 +1505,7 @@ function bind() {
   drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
   document.addEventListener('paste', e => { if (S.view !== 'files' || !e.clipboardData?.files?.length) return; addFiles(e.clipboardData.files); });
   $('#paste-material').onclick = openPasteMaterial;
+  $('#add-link').onclick = openLinkSheet;
   $('#add-recording').onclick = () => pickRecording();
   $('#add-video').onclick = () => openVideoSheet();
   $('#file-list').addEventListener('change', e => {
