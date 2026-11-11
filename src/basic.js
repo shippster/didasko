@@ -33,7 +33,7 @@ function basicGo(step) {
   const L = S.lecture, hasContent = !L.sample && (speechSegs(L).length || L.files.length || L.notes || L.quiz);
   const replaceNote = libraryLocked() && hasContent
     ? `<p class="b-note">Starting something new replaces “${esc(L.title)}” on this device. ${cloudConfigured() ? '<button class="linklike" data-signin>Sign in</button> to keep every lecture.' : ''}</p>` : '';
-  const canRecord = SR && !IS_ARTIFACT;
+  const canRecord = !IS_ARTIFACT && (SR || useAiListen());
   if (step === 'start' || step === 'next') BASIC.adding = false;
   const add = BASIC.adding, addTo = add ? ` to “${esc(L.title)}”` : '';
   if (step === 'start') {
@@ -45,9 +45,12 @@ function basicGo(step) {
         <button class="b-choice" id="b-tr"><span class="b-ico">${icon('notes')}</span><span><b>Add supporting materials</b><small>Slides, readings, a transcript or a link</small></span></button>
         <button class="b-choice" id="b-media"><span class="b-ico">${icon('upload')}</span><span><b>Upload video or audio</b><small>We’ll turn it into a transcript</small></span></button>
       </div>
+      ${IS_ARTIFACT ? '' : `<label class="switch b-multi"><input type="checkbox" id="b-multi" ${multiLangOn() ? 'checked' : ''}> Speaker switches between languages</label>
+      <p class="b-note b-hint" id="b-multi-note" ${multiLangOn() ? '' : 'hidden'}>Recording listens in every language at once, using your AI service. Captions run a few seconds behind.</p>`}
       ${replaceNote}
       ${resume ? `<button class="b-resume" id="b-resume">Continue with “${esc(L.title)}” <span aria-hidden="true">→</span></button>` : ''}`;
     $('#b-rec').onclick = () => canRecord ? basicStartRecording() : toast('Live recording works in Chrome, Edge or Safari. You can still add supporting materials or upload a recording.', 5000);
+    if ($('#b-multi')) $('#b-multi').onchange = e => { setMultiLang(e.target.checked); basicGo('start'); };
     $('#b-tr').onclick = () => basicGo('materials');
     $('#b-media').onclick = basicPickMedia;
     if ($('#b-resume')) $('#b-resume').onclick = () => basicGo('next');
@@ -55,6 +58,7 @@ function basicGo(step) {
     box.innerHTML = `
       <div class="b-rec-head"><span class="b-live ${S.rec.running ? 'on' : ''}" id="b-live">${S.rec.running ? '● Recording' : 'Paused'}</span><span class="b-clock mono" id="b-clock">0:00</span></div>
       <div class="b-stage"><div class="b-cap" id="b-cap"></div><p class="b-cap-empty" id="b-cap-empty">Start speaking — your words appear here.</p></div>
+      ${useAiListen() ? '<p class="b-note b-ai" id="b-ai" role="status">Listening in every language. Captions appear a few seconds after you speak.</p>' : ''}
       <div class="b-rec-ctl">
         <button class="btn b-big" id="b-pause">${icon(S.rec.running ? 'pause' : 'mic')}<span>${S.rec.running ? 'Pause' : 'Resume'}</span></button>
         <button class="btn primary b-big b-stop" id="b-stop">${icon('stop')}<span>Stop</span></button>
@@ -104,6 +108,7 @@ function basicGo(step) {
       <span class="b-done">${icon('spark')} ${n ? 'Transcript ready' : 'Materials ready'}</span>
       <h1 class="b-h1">Next step</h1>
       <p class="b-sub"><b>${esc(L.title)}</b> · ${count.toLocaleString()} words${n && L.ms ? ` · ${fmtClock(L.ms)}` : ''}${n && mats.length ? ` · ${mats.length} supporting material${mats.length > 1 ? 's' : ''}` : ''}</p>
+      <label class="field b-lang"><span>Write the notes and quiz in</span><select id="b-lang">${outLangOptions()}</select></label>
       <div class="b-choices two">
         <button class="b-choice big" id="b-quiz"><span class="b-ico">${icon('quiz')}</span><span><b>Create quiz</b><small>Multiple-choice questions from ${n ? 'this lecture' : 'these materials'}</small></span></button>
         <button class="b-choice big" id="b-notes"><span class="b-ico">${icon('notes')}</span><span><b>Create notes</b><small>Organized, well-formatted lecture notes</small></span></button>
@@ -120,8 +125,8 @@ function basicGo(step) {
       <div class="b-links">${n ? `<button class="linklike" id="b-edit">${icon('edit')}Review or fix the transcript</button>` : '<span></span>'}<button class="linklike" id="b-new">Start something new</button></div>
       <div id="b-editor" hidden></div>`;
     if (!n && !mats.length) { $('#b-quiz').disabled = $('#b-notes').disabled = true; }
-    $('#b-quiz').onclick = () => { saveBasicEditor(); enterAdvanced('quiz', false); generateQuiz(); };
-    $('#b-notes').onclick = () => { saveBasicEditor(); enterAdvanced('notes', false); S.ui.notesTab = 'notes'; renderNotesArea(); generateNotes(); };
+    $('#b-quiz').onclick = () => { const lang = $('#b-lang').value; saveBasicEditor(); enterAdvanced('quiz', false); $('#quiz-lang').value = lang; generateQuiz(); };
+    $('#b-notes').onclick = () => { const lang = $('#b-lang').value; saveBasicEditor(); enterAdvanced('notes', false); S.ui.notesTab = 'notes'; renderNotesArea(); $('#notes-lang').value = lang; generateNotes(); };
     if ($('#b-edit')) $('#b-edit').onclick = toggleBasicEditor;
     $('#b-new').onclick = () => basicGo('start');
     $('#b-more-rec').onclick = () => { saveBasicEditor(); canRecord ? basicRecordMore() : toast('Live recording works in Chrome, Edge or Safari.', 5000); };
@@ -168,8 +173,13 @@ function drawBasicCaptions(animate) {
   const e = $('#b-cap-empty'); if (e) e.hidden = !!(speechSegs(S.lecture).length || S.rec.interim);
   basicRecState();
 }
-function basicStopRecording() {
+async function basicStopRecording() {
   if (S.rec.running) pauseCaptions(true);
+  if (aiListenPending()) { // the last few seconds are still being written
+    basicGo('working'); $('#b-work-title').textContent = 'Finishing the captions…'; basicStatus('The last few seconds are being written.');
+    await aiListenIdle();
+    if (BASIC.step !== 'working') return;
+  }
   if (!speechSegs(S.lecture).length) { toast('Nothing was captured yet. Check that the microphone is allowed, then try again.', 5000); basicGo('start'); return; }
   basicGo('next');
 }

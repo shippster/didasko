@@ -1,7 +1,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.12.0';
+const APP_VERSION = '3.13.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -72,7 +72,7 @@ const store = (() => {
 
 /* ================= State ================= */
 const guessSrc = () => { const n = navigator.language || 'en-US'; return (SRC_LANGS.find(l => l[0] === n) || SRC_LANGS.find(l => l[0].startsWith(n.split('-')[0])) || SRC_LANGS[0])[0]; };
-const DEFAULT_SETTINGS = { srcLang: guessSrc(), tgtLang: 'off', engine: 'auto', capStep: 3, capMode: 'both', theme: 'system', lastLecture: null, myName: '', institution: '', ai: null };
+const DEFAULT_SETTINGS = { srcLang: guessSrc(), tgtLang: 'off', engine: 'auto', capStep: 3, capMode: 'both', multiLang: false, theme: 'system', lastLecture: null, myName: '', institution: '', ai: null };
 const S = {
   settings: { ...DEFAULT_SETTINGS }, index: [], lecture: null, view: 'home',
   rec: { running: false, interim: '', interimTr: '', startedAt: 0, pendingKey: false },
@@ -318,6 +318,19 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recog = null, restartTimer = null, restarts = 0, wakeLock = null, tick = null;
 async function grabWake() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; } }
 function startCaptions() {
+  if (useAiListen()) { // the speaker switches languages: an AI service listens instead of the browser
+    S.rec.running = true; S.rec.startedAt = Date.now(); restarts = 0;
+    grabWake(); clearInterval(tick); tick = setInterval(renderClock, 1000);
+    renderRecState(); renderCaptions();
+    startAiListen().catch(e => {
+      pauseCaptions(true);
+      if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') showMicBlocked();
+      else if (e?.name === 'NotFoundError') toast('No microphone was found. Plug one in or check your device’s sound settings.', 5000);
+      else toast('Captions couldn’t start: ' + (e?.message || e), 5000);
+    });
+    return;
+  }
+  if (multiLangOn() && SR && !IS_ARTIFACT) toast(`${NEEDS_AI_LISTEN} Captioning in ${srcName(S.settings.srcLang)} only for now.`, 8000);
   if (!SR || IS_ARTIFACT) { showNoSpeech(); return; }
   try {
     recog = new SR();
@@ -359,6 +372,7 @@ function pauseCaptions(silent) {
   setInterim('');
   try { recog && recog.stop(); } catch { /* ignore */ }
   recog = null;
+  stopAiListen();
   try { wakeLock && wakeLock.release(); } catch { /* ignore */ } wakeLock = null;
   clearInterval(tick);
   saveNow(); renderRecState(); renderClock();
@@ -661,7 +675,8 @@ function setEngineNote(html, warn) { const n = $('#engine-note'); n.innerHTML = 
 async function renderEngineNote() {
   const tgt = target();
   let speech;
-  if (IS_ARTIFACT) speech = `<b>Preview mode.</b> The microphone is off inside this preview, so live captions run only in the installed app. Everything else works here — try it with the sample lecture.`;
+  if (useAiListen()) speech = `<b>Listening in every language.</b> The microphone’s sound goes to ${transcriber() === 'groq' ? 'Groq' : transcriber() === 'openai' ? 'ChatGPT (OpenAI)' : 'Gemini'} with your key, which writes the captions a few seconds behind. Nothing is stored.`;
+  else if (IS_ARTIFACT) speech = `<b>Preview mode.</b> The microphone is off inside this preview, so live captions run only in the installed app. Everything else works here — try it with the sample lecture.`;
   else if (!SR) speech = `<b>This browser can’t caption from the microphone.</b> Use Chrome, Edge or Safari, or type and import lines instead.`;
   else speech = `Captions use this browser’s speech recognition${/Chrome|Edg/.test(navigator.userAgent) && !/iPhone|iPad/.test(navigator.userAgent) ? ' (Chrome and Edge send audio to their speech service)' : ''}.`;
   let tr = '';
@@ -670,8 +685,8 @@ async function renderEngineNote() {
     tr = eng === 'device' ? ` Translating to <b>${esc(tgtName(tgt))}</b> on this device.`
       : eng === 'ai' ? ` Translating to <b>${esc(tgtName(tgt))}</b> with ${esc(prov().label.replace(/ \(.*\)$/, ''))}${aiModel(true) && prov().key ? ` (${esc(aiModel(true))})` : ''}.`
       : ` <b>No translator is available for ${esc(tgtName(tgt))}.</b> Choose an AI model in Settings, or use Chrome on a desktop for on-device translation.`;
-    setEngineNote(speech + tr, !eng || (!SR && !IS_ARTIFACT));
-  } else setEngineNote(speech, !SR && !IS_ARTIFACT);
+    setEngineNote(speech + tr, !eng || (!SR && !IS_ARTIFACT && !useAiListen()));
+  } else setEngineNote(speech, !SR && !IS_ARTIFACT && !useAiListen());
 }
 function showNoSpeech() {
   openSheet('Live captions aren’t available here', `
@@ -1331,12 +1346,14 @@ function openPasteMaterial() {
     });
 }
 /* ================= Render everything ================= */
+/* Notes and quizzes are written in English unless the teacher picks another language — whatever language(s) were spoken. */
+const outLangOptions = () => `<option value="en" selected>English</option>` + TGT_LANGS.filter(l => l[0] !== 'off' && l[0] !== 'en').map(([c, l]) => `<option value="${c}">${esc(l)}</option>`).join('') + `<option value="src">Same as the speaking language</option>`;
 function fillLangSelects() {
   const st = S.settings;
   $('#src-lang').innerHTML = SRC_LANGS.map(([c, l]) => `<option value="${c}" ${c === st.srcLang ? 'selected' : ''}>${esc(l)}</option>`).join('');
   $('#tgt-lang').innerHTML = TGT_LANGS.map(([c, l]) => `<option value="${c}" ${c === st.tgtLang ? 'selected' : ''}>${esc(l)}</option>`).join('');
-  const outLangs = `<option value="src">Speaking language</option>` + TGT_LANGS.filter(l => l[0] !== 'off' && l[0] !== 'en').map(([c, l]) => `<option value="${c}">${esc(l)}</option>`).join('') + `<option value="en">English</option>`;
-  $('#notes-lang').innerHTML = outLangs; $('#quiz-lang').innerHTML = outLangs;
+  $('#notes-lang').innerHTML = outLangOptions(); $('#quiz-lang').innerHTML = outLangOptions();
+  renderMultiLang();
 }
 function renderAll() {
   renderModeSwitch();
@@ -1370,6 +1387,7 @@ function bind() {
     S.settings.srcLang = e.target.value; saveSettings(); TR.engineCache.clear(); renderStageMeta(); renderEngineNote(); liveMeta();
     if (S.rec.running) { pauseCaptions(true); startCaptions(); }
   };
+  $('#multi-lang').onchange = e => setMultiLang(e.target.checked);
   $('#tgt-lang').onchange = async e => {
     S.settings.tgtLang = e.target.value; saveSettings(); renderStageMeta(); renderCaptions();
     const tgt = target();

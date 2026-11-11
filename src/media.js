@@ -324,3 +324,102 @@ function openLinkSheet() {
       $('#lk-ok', sh).onclick = go; $('#lk-url', sh).onkeydown = e => { if (e.key === 'Enter') go(); };
     });
 }
+
+/* ================= Listening in every language =================
+   A browser's own speech recognition follows one language at a time, so a speaker who moves between languages
+   (English → Spanish → English) is misheard. With "Speaker switches between languages" on, Didasko records the
+   microphone itself, cuts the sound at natural pauses and sends each short piece to the teacher's transcription
+   service (Groq or ChatGPT Whisper, or Gemini), which writes down whatever language is spoken. Captions arrive a
+   few seconds behind. The sound is not stored. */
+const AICAP = { on: false, kind: null, stream: null, ctx: null, src: null, node: null, mute: null, rate: 16000, buf: [], len: 0, startMs: 0, voiced: 0, quiet: 0, min: 5, max: 12, chain: Promise.resolve(), pending: 0, ctl: null, lastErr: 0 };
+const NEEDS_AI_LISTEN = 'Listening in several languages needs your own Groq, Gemini or ChatGPT key (Settings → AI model; Groq and Gemini have free tiers, and Groq is the fastest).';
+const multiLangOn = () => !!S.settings.multiLang;
+const aiListenReady = () => !IS_ARTIFACT && !!navigator.mediaDevices?.getUserMedia && !!transcriber() && !(transcriber() === 'gemini' && usingFree());
+const useAiListen = () => multiLangOn() && aiListenReady();
+const aiListenPending = () => AICAP.pending > 0;
+const aiListenIdle = () => AICAP.chain;
+const AI_NOISE = /amara\.org|subt[ií]tulos (realizados|por la comunidad)|^\W*$/i;
+const AI_NOISE_SHORT = /^\W*(thank you|thanks for watching|thanks|you|bye|gracias|okay|ok)\W*$/i; // what Whisper writes for a cough or a click
+function setMultiLang(on) {
+  if (on && !aiListenReady()) { toast(IS_ARTIFACT ? 'Live recording runs in the installed app.' : NEEDS_AI_LISTEN, 8000); on = false; }
+  S.settings.multiLang = !!on; saveSettings(); renderMultiLang(); renderEngineNote();
+  if (S.rec.running) { pauseCaptions(true); startCaptions(); }
+  return !!on;
+}
+function renderMultiLang() {
+  const on = multiLangOn();
+  ['#multi-lang', '#b-multi'].forEach(id => { const c = $(id); if (c) c.checked = on; });
+  const n = $('#multi-note'); if (n) n.hidden = !on;
+}
+async function startAiListen() {
+  const A = AICAP, gen = A.gen = (A.gen || 0) + 1;
+  A.kind = transcriber(); A.ctl = new AbortController(); A.buf = []; A.len = 0; A.voiced = 0; A.quiet = 0;
+  A.min = A.kind === 'gemini' ? 10 : 5; A.max = A.kind === 'gemini' ? 20 : 12;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  if (!S.rec.running || gen !== A.gen) { stream.getTracks().forEach(t => t.stop()); return; } // paused or restarted while the permission prompt was open
+  A.stream = stream;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  try { A.ctx = new AC({ sampleRate: 16000 }); } catch { A.ctx = new AC(); }
+  A.rate = A.ctx.sampleRate;
+  if (A.ctx.state === 'suspended') await A.ctx.resume();
+  A.src = A.ctx.createMediaStreamSource(A.stream);
+  try {
+    const code = `class DidaskoTap extends AudioWorkletProcessor { process(inputs) { const c = inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; } } registerProcessor('didasko-tap', DidaskoTap);`;
+    const url = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+    try { await A.ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+    A.node = new AudioWorkletNode(A.ctx, 'didasko-tap');
+    A.node.port.onmessage = e => aiListenFrames(e.data);
+  } catch {
+    A.node = A.ctx.createScriptProcessor(4096, 1, 1); // older browsers
+    A.node.onaudioprocess = e => aiListenFrames(new Float32Array(e.inputBuffer.getChannelData(0)));
+  }
+  A.mute = A.ctx.createGain(); A.mute.gain.value = 0; // keeps the graph running without playing the microphone back
+  A.src.connect(A.node); A.node.connect(A.mute); A.mute.connect(A.ctx.destination);
+  A.on = true;
+}
+function aiListenFrames(f) {
+  const A = AICAP; if (!A.on || !f?.length) return;
+  if (!A.len) A.startMs = elapsed();
+  let sum = 0; for (let i = 0; i < f.length; i++) sum += f[i] * f[i];
+  const dur = f.length / A.rate;
+  if (Math.sqrt(sum / f.length) > 0.012) { A.voiced += dur; A.quiet = 0; } else A.quiet += dur;
+  A.buf.push(f); A.len += f.length;
+  // Before anyone speaks, keep only the last half second so a piece starts just ahead of the first word.
+  while (!A.voiced && A.len / A.rate > 0.5 && A.buf.length > 1) { const d = A.buf.shift(); A.len -= d.length; A.startMs += d.length / A.rate * 1000; }
+  const secs = A.len / A.rate;
+  if (secs >= A.max || (secs >= A.min && A.quiet >= 0.45) || (A.voiced >= 0.4 && A.quiet >= 2)) aiListenCut();
+}
+function aiListenCut() {
+  const A = AICAP, n = A.len; if (!n) return;
+  const voiced = A.voiced, at = Math.round(A.startMs), all = new Float32Array(n);
+  let o = 0; for (const b of A.buf) { all.set(b, o); o += b.length; }
+  A.buf = []; A.len = 0; A.voiced = 0; A.quiet = 0;
+  if (voiced < 0.35) return; // silence or a click: nothing to send
+  const blob = wavBlob(all, A.rate), kind = A.kind, signal = A.ctl.signal;
+  A.pending++; aiListenStatus();
+  const job = withRetry(() => transcribePart(kind, blob, 'audio/wav', signal), signal, [2000, 6000]).then(rows => ({ rows }), error => ({ error }));
+  A.chain = A.chain.then(() => job).then(({ rows, error }) => {
+    A.pending--;
+    if (error) aiListenError(error, signal);
+    else rows.forEach(r => { if (!AI_NOISE.test(r.text) && !(voiced < 1.5 && AI_NOISE_SHORT.test(r.text))) addSpeech(r.text, at + (r.t || 0)); });
+    aiListenStatus();
+  });
+}
+function aiListenError(e, signal) {
+  if (signal?.aborted) return;
+  if (e.status === 401 || e.status === 403 || e.message === 'NO_AI') { if (S.rec.running) pauseCaptions(true); toast(e.message === 'NO_AI' ? NEEDS_AI_LISTEN : `Captions stopped: ${e.message}`, 8000); return; }
+  if (Date.now() - AICAP.lastErr > 20000) { AICAP.lastErr = Date.now(); toast(`A few seconds of captions were missed: ${e.message || 'the transcription service didn’t answer'}`, 5000); }
+}
+function aiListenStatus() {
+  const el = $('#b-ai'); if (el) el.textContent = AICAP.pending ? 'Writing captions…' : 'Listening in every language. Captions appear a few seconds after you speak.';
+}
+/* Stop the microphone. What was said just before is still sent, so its captions arrive a moment later. */
+function stopAiListen(discard) {
+  const A = AICAP;
+  if (A.on && !discard) aiListenCut();
+  A.on = false; A.buf = []; A.len = 0;
+  try { A.node && (A.node.port ? (A.node.port.onmessage = null) : (A.node.onaudioprocess = null)); A.src?.disconnect(); A.node?.disconnect(); A.mute?.disconnect(); } catch { /* already gone */ }
+  try { A.stream?.getTracks().forEach(t => t.stop()); } catch { /* ignore */ }
+  try { A.ctx?.close(); } catch { /* ignore */ }
+  A.stream = A.ctx = A.src = A.node = A.mute = null;
+}

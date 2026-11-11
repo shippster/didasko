@@ -10,7 +10,7 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 |---|---|
 | **Home dashboard** | Opens first: a big **New lecture** button (title, course and speaking language, then captions start), a *Continue* shortcut, totals (lectures, time captioned, words, live quizzes run), a short setup checklist, and a searchable list of **past lectures** grouped by date and color-coded by course, each with one-tap Captions / Notes / Quiz. |
 | **Start from anything** | A lecture doesn’t have to be live. **New lecture → Start from** offers a live lecture, a **recording** (MP3, M4A, WAV or video — transcribed with timestamps by Gemini, ChatGPT/Whisper or Groq/Whisper; long recordings are split into short parts transcribed side by side), a **YouTube link** (Gemini watches the public video and writes the transcript; the video is cited as the source), or a **paper or reading** (notes and quizzes are written from the material alone and cite it). |
-| **Live captions** | The stage shows **exactly two rolling lines**, like broadcast captions — nothing else — while the full transcript keeps recording. High-contrast "chalkboard" stage, projector mode, key-point and new-topic markers, translation as its own two-line track. |
+| **Live captions** | The stage shows **exactly two rolling lines**, like broadcast captions — nothing else — while the full transcript keeps recording. High-contrast "chalkboard" stage, projector mode, key-point and new-topic markers, translation as its own two-line track. For speakers who move between languages, **Speaker switches between languages** has an AI service listen in every language at once. |
 | **Students' devices** | **Share captions** creates a 6-letter code, link and QR code. Students scan it — no account, no install — and pick **their own translation language**. The presenter's device translates each language that students choose. Show the QR on the caption screen for latecomers. |
 | **Faithful notes** | Every output organizes and cleans up only what is in the transcript and the imported files — regrouped by theme, rewritten into clear sentences — with no added facts, examples or elaboration. Length follows the sources. |
 | **Math lectures** | Set **Subject → Mathematics** (Notes tab, Quiz tab or lecture details) and worked problems appear step by step: each step's reason, then the resulting equation on its own centered line (fractions, powers and roots formatted; Word export uses Cambria Math). Quizzes add next-step and find-the-error questions. |
@@ -26,6 +26,8 @@ Live captions, live translation, APA-formatted lecture notes and live formative 
 ## Version
 
 The version number is shown next to the Didasko name in the top bar, at the bottom of Settings, and on students' screens. It is set in one place, `APP_VERSION` at the top of `src/main.js`. **Bump it with every update**, then run `python3 build.py` — the build also updates the cache name in `sw.js` so installed copies pick up the new version.
+
+**3.13.0** — **Lectures in more than one language.** Turn on **Speaker switches between languages** (Basic start screen, or the Captions tab) and Didasko listens in every language at once: it records the microphone, cuts the sound at natural pauses and has the teacher’s own Groq, ChatGPT or Gemini key write the captions in whatever language is spoken, a few seconds behind. Without a key it falls back to the browser’s one-language captions. **Notes and quizzes are now written in English by default**, whatever was spoken; the Next step screen has **Write the notes and quiz in** to pick another language.
 
 **3.12.0** — Basic view: **Add a transcript** is now **Add supporting materials**. It takes slides (.pptx), readings and transcripts, and a pasted **link to Google Slides, Google Docs or Google Sheets** (shared as “Anyone with the link”), a PDF or a web page; slides keep their speaker notes, and each link is cited in the notes. Slides and links are saved as cited materials; transcripts, pasted text and YouTube links become the transcript, as before. The Next step screen lists the materials and works from materials alone. Advanced view: the Files tab has **Add a link**. Slides and links need an account, like other files.
 
@@ -81,6 +83,7 @@ If you change anything in `src/`, run `python3 build.py` to rebuild `app.js`.
 ## Privacy notes for schools
 
 - Speech recognition is provided by the presenter's browser (Chrome and Edge send audio to their speech services; Safari may process on-device).
+- With **Speaker switches between languages** on, the microphone's sound is sent in short pieces to the AI service the teacher chose (Groq, ChatGPT or Gemini), using the teacher's own key. Didasko does not store the sound.
 - Shared captions and quiz answers pass through your Firebase database and can be read by anyone with the session code. Sessions don't contain account details.
 - Transcript and file text go only to the AI service the teacher chose, using the teacher's own key.
 - Check your institution's policy before captioning or recording class discussion that includes students.

@@ -4,7 +4,7 @@
 
 /* ================= Basics ================= */
 // App version: bump this for every update. build.py copies it into sw.js so installed apps refresh.
-const APP_VERSION = '3.12.0';
+const APP_VERSION = '3.13.0';
 const BUILD = document.querySelector('meta[name="didasko:build"]')?.content || 'pwa';
 const IS_ARTIFACT = BUILD === 'artifact';
 const IN_FRAME = (() => { try { return window.top !== window; } catch { return true; } })();
@@ -75,7 +75,7 @@ const store = (() => {
 
 /* ================= State ================= */
 const guessSrc = () => { const n = navigator.language || 'en-US'; return (SRC_LANGS.find(l => l[0] === n) || SRC_LANGS.find(l => l[0].startsWith(n.split('-')[0])) || SRC_LANGS[0])[0]; };
-const DEFAULT_SETTINGS = { srcLang: guessSrc(), tgtLang: 'off', engine: 'auto', capStep: 3, capMode: 'both', theme: 'system', lastLecture: null, myName: '', institution: '', ai: null };
+const DEFAULT_SETTINGS = { srcLang: guessSrc(), tgtLang: 'off', engine: 'auto', capStep: 3, capMode: 'both', multiLang: false, theme: 'system', lastLecture: null, myName: '', institution: '', ai: null };
 const S = {
   settings: { ...DEFAULT_SETTINGS }, index: [], lecture: null, view: 'home',
   rec: { running: false, interim: '', interimTr: '', startedAt: 0, pendingKey: false },
@@ -321,6 +321,19 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recog = null, restartTimer = null, restarts = 0, wakeLock = null, tick = null;
 async function grabWake() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; } }
 function startCaptions() {
+  if (useAiListen()) { // the speaker switches languages: an AI service listens instead of the browser
+    S.rec.running = true; S.rec.startedAt = Date.now(); restarts = 0;
+    grabWake(); clearInterval(tick); tick = setInterval(renderClock, 1000);
+    renderRecState(); renderCaptions();
+    startAiListen().catch(e => {
+      pauseCaptions(true);
+      if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') showMicBlocked();
+      else if (e?.name === 'NotFoundError') toast('No microphone was found. Plug one in or check your device’s sound settings.', 5000);
+      else toast('Captions couldn’t start: ' + (e?.message || e), 5000);
+    });
+    return;
+  }
+  if (multiLangOn() && SR && !IS_ARTIFACT) toast(`${NEEDS_AI_LISTEN} Captioning in ${srcName(S.settings.srcLang)} only for now.`, 8000);
   if (!SR || IS_ARTIFACT) { showNoSpeech(); return; }
   try {
     recog = new SR();
@@ -362,6 +375,7 @@ function pauseCaptions(silent) {
   setInterim('');
   try { recog && recog.stop(); } catch { /* ignore */ }
   recog = null;
+  stopAiListen();
   try { wakeLock && wakeLock.release(); } catch { /* ignore */ } wakeLock = null;
   clearInterval(tick);
   saveNow(); renderRecState(); renderClock();
@@ -664,7 +678,8 @@ function setEngineNote(html, warn) { const n = $('#engine-note'); n.innerHTML = 
 async function renderEngineNote() {
   const tgt = target();
   let speech;
-  if (IS_ARTIFACT) speech = `<b>Preview mode.</b> The microphone is off inside this preview, so live captions run only in the installed app. Everything else works here — try it with the sample lecture.`;
+  if (useAiListen()) speech = `<b>Listening in every language.</b> The microphone’s sound goes to ${transcriber() === 'groq' ? 'Groq' : transcriber() === 'openai' ? 'ChatGPT (OpenAI)' : 'Gemini'} with your key, which writes the captions a few seconds behind. Nothing is stored.`;
+  else if (IS_ARTIFACT) speech = `<b>Preview mode.</b> The microphone is off inside this preview, so live captions run only in the installed app. Everything else works here — try it with the sample lecture.`;
   else if (!SR) speech = `<b>This browser can’t caption from the microphone.</b> Use Chrome, Edge or Safari, or type and import lines instead.`;
   else speech = `Captions use this browser’s speech recognition${/Chrome|Edg/.test(navigator.userAgent) && !/iPhone|iPad/.test(navigator.userAgent) ? ' (Chrome and Edge send audio to their speech service)' : ''}.`;
   let tr = '';
@@ -673,8 +688,8 @@ async function renderEngineNote() {
     tr = eng === 'device' ? ` Translating to <b>${esc(tgtName(tgt))}</b> on this device.`
       : eng === 'ai' ? ` Translating to <b>${esc(tgtName(tgt))}</b> with ${esc(prov().label.replace(/ \(.*\)$/, ''))}${aiModel(true) && prov().key ? ` (${esc(aiModel(true))})` : ''}.`
       : ` <b>No translator is available for ${esc(tgtName(tgt))}.</b> Choose an AI model in Settings, or use Chrome on a desktop for on-device translation.`;
-    setEngineNote(speech + tr, !eng || (!SR && !IS_ARTIFACT));
-  } else setEngineNote(speech, !SR && !IS_ARTIFACT);
+    setEngineNote(speech + tr, !eng || (!SR && !IS_ARTIFACT && !useAiListen()));
+  } else setEngineNote(speech, !SR && !IS_ARTIFACT && !useAiListen());
 }
 function showNoSpeech() {
   openSheet('Live captions aren’t available here', `
@@ -1334,12 +1349,14 @@ function openPasteMaterial() {
     });
 }
 /* ================= Render everything ================= */
+/* Notes and quizzes are written in English unless the teacher picks another language — whatever language(s) were spoken. */
+const outLangOptions = () => `<option value="en" selected>English</option>` + TGT_LANGS.filter(l => l[0] !== 'off' && l[0] !== 'en').map(([c, l]) => `<option value="${c}">${esc(l)}</option>`).join('') + `<option value="src">Same as the speaking language</option>`;
 function fillLangSelects() {
   const st = S.settings;
   $('#src-lang').innerHTML = SRC_LANGS.map(([c, l]) => `<option value="${c}" ${c === st.srcLang ? 'selected' : ''}>${esc(l)}</option>`).join('');
   $('#tgt-lang').innerHTML = TGT_LANGS.map(([c, l]) => `<option value="${c}" ${c === st.tgtLang ? 'selected' : ''}>${esc(l)}</option>`).join('');
-  const outLangs = `<option value="src">Speaking language</option>` + TGT_LANGS.filter(l => l[0] !== 'off' && l[0] !== 'en').map(([c, l]) => `<option value="${c}">${esc(l)}</option>`).join('') + `<option value="en">English</option>`;
-  $('#notes-lang').innerHTML = outLangs; $('#quiz-lang').innerHTML = outLangs;
+  $('#notes-lang').innerHTML = outLangOptions(); $('#quiz-lang').innerHTML = outLangOptions();
+  renderMultiLang();
 }
 function renderAll() {
   renderModeSwitch();
@@ -1373,6 +1390,7 @@ function bind() {
     S.settings.srcLang = e.target.value; saveSettings(); TR.engineCache.clear(); renderStageMeta(); renderEngineNote(); liveMeta();
     if (S.rec.running) { pauseCaptions(true); startCaptions(); }
   };
+  $('#multi-lang').onchange = e => setMultiLang(e.target.checked);
   $('#tgt-lang').onchange = async e => {
     S.settings.tgtLang = e.target.value; saveSettings(); renderStageMeta(); renderCaptions();
     const tgt = target();
@@ -3607,6 +3625,104 @@ function openLinkSheet() {
     });
 }
 
+/* ================= Listening in every language =================
+   A browser's own speech recognition follows one language at a time, so a speaker who moves between languages
+   (English → Spanish → English) is misheard. With "Speaker switches between languages" on, Didasko records the
+   microphone itself, cuts the sound at natural pauses and sends each short piece to the teacher's transcription
+   service (Groq or ChatGPT Whisper, or Gemini), which writes down whatever language is spoken. Captions arrive a
+   few seconds behind. The sound is not stored. */
+const AICAP = { on: false, kind: null, stream: null, ctx: null, src: null, node: null, mute: null, rate: 16000, buf: [], len: 0, startMs: 0, voiced: 0, quiet: 0, min: 5, max: 12, chain: Promise.resolve(), pending: 0, ctl: null, lastErr: 0 };
+const NEEDS_AI_LISTEN = 'Listening in several languages needs your own Groq, Gemini or ChatGPT key (Settings → AI model; Groq and Gemini have free tiers, and Groq is the fastest).';
+const multiLangOn = () => !!S.settings.multiLang;
+const aiListenReady = () => !IS_ARTIFACT && !!navigator.mediaDevices?.getUserMedia && !!transcriber() && !(transcriber() === 'gemini' && usingFree());
+const useAiListen = () => multiLangOn() && aiListenReady();
+const aiListenPending = () => AICAP.pending > 0;
+const aiListenIdle = () => AICAP.chain;
+const AI_NOISE = /amara\.org|subt[ií]tulos (realizados|por la comunidad)|^\W*$/i;
+const AI_NOISE_SHORT = /^\W*(thank you|thanks for watching|thanks|you|bye|gracias|okay|ok)\W*$/i; // what Whisper writes for a cough or a click
+function setMultiLang(on) {
+  if (on && !aiListenReady()) { toast(IS_ARTIFACT ? 'Live recording runs in the installed app.' : NEEDS_AI_LISTEN, 8000); on = false; }
+  S.settings.multiLang = !!on; saveSettings(); renderMultiLang(); renderEngineNote();
+  if (S.rec.running) { pauseCaptions(true); startCaptions(); }
+  return !!on;
+}
+function renderMultiLang() {
+  const on = multiLangOn();
+  ['#multi-lang', '#b-multi'].forEach(id => { const c = $(id); if (c) c.checked = on; });
+  const n = $('#multi-note'); if (n) n.hidden = !on;
+}
+async function startAiListen() {
+  const A = AICAP;
+  A.kind = transcriber(); A.ctl = new AbortController(); A.buf = []; A.len = 0; A.voiced = 0; A.quiet = 0;
+  A.min = A.kind === 'gemini' ? 10 : 5; A.max = A.kind === 'gemini' ? 20 : 12;
+  A.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  if (!S.rec.running) { stopAiListen(true); return; } // paused while the permission prompt was open
+  const AC = window.AudioContext || window.webkitAudioContext;
+  try { A.ctx = new AC({ sampleRate: 16000 }); } catch { A.ctx = new AC(); }
+  A.rate = A.ctx.sampleRate;
+  if (A.ctx.state === 'suspended') await A.ctx.resume();
+  A.src = A.ctx.createMediaStreamSource(A.stream);
+  try {
+    const code = `class DidaskoTap extends AudioWorkletProcessor { process(inputs) { const c = inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; } } registerProcessor('didasko-tap', DidaskoTap);`;
+    const url = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+    try { await A.ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+    A.node = new AudioWorkletNode(A.ctx, 'didasko-tap');
+    A.node.port.onmessage = e => aiListenFrames(e.data);
+  } catch {
+    A.node = A.ctx.createScriptProcessor(4096, 1, 1); // older browsers
+    A.node.onaudioprocess = e => aiListenFrames(new Float32Array(e.inputBuffer.getChannelData(0)));
+  }
+  A.mute = A.ctx.createGain(); A.mute.gain.value = 0; // keeps the graph running without playing the microphone back
+  A.src.connect(A.node); A.node.connect(A.mute); A.mute.connect(A.ctx.destination);
+  A.on = true;
+}
+function aiListenFrames(f) {
+  const A = AICAP; if (!A.on || !f?.length) return;
+  if (!A.len) A.startMs = elapsed();
+  let sum = 0; for (let i = 0; i < f.length; i++) sum += f[i] * f[i];
+  const dur = f.length / A.rate;
+  if (Math.sqrt(sum / f.length) > 0.012) { A.voiced += dur; A.quiet = 0; } else A.quiet += dur;
+  A.buf.push(f); A.len += f.length;
+  // Before anyone speaks, keep only the last half second so a piece starts just ahead of the first word.
+  while (!A.voiced && A.len / A.rate > 0.5 && A.buf.length > 1) { const d = A.buf.shift(); A.len -= d.length; A.startMs += d.length / A.rate * 1000; }
+  const secs = A.len / A.rate;
+  if (secs >= A.max || (secs >= A.min && A.quiet >= 0.45) || (A.voiced >= 0.4 && A.quiet >= 2)) aiListenCut();
+}
+function aiListenCut() {
+  const A = AICAP, n = A.len; if (!n) return;
+  const voiced = A.voiced, at = Math.round(A.startMs), all = new Float32Array(n);
+  let o = 0; for (const b of A.buf) { all.set(b, o); o += b.length; }
+  A.buf = []; A.len = 0; A.voiced = 0; A.quiet = 0;
+  if (voiced < 0.35) return; // silence or a click: nothing to send
+  const blob = wavBlob(all, A.rate), kind = A.kind, signal = A.ctl.signal;
+  A.pending++; aiListenStatus();
+  const job = withRetry(() => transcribePart(kind, blob, 'audio/wav', signal), signal, [2000, 6000]).then(rows => ({ rows }), error => ({ error }));
+  A.chain = A.chain.then(() => job).then(({ rows, error }) => {
+    A.pending--;
+    if (error) aiListenError(error, signal);
+    else rows.forEach(r => { if (!AI_NOISE.test(r.text) && !(voiced < 1.5 && AI_NOISE_SHORT.test(r.text))) addSpeech(r.text, at + (r.t || 0)); });
+    aiListenStatus();
+  });
+}
+function aiListenError(e, signal) {
+  if (signal?.aborted) return;
+  if (e.status === 401 || e.status === 403 || e.message === 'NO_AI') { if (S.rec.running) pauseCaptions(true); toast(e.message === 'NO_AI' ? NEEDS_AI_LISTEN : `Captions stopped: ${e.message}`, 8000); return; }
+  if (Date.now() - AICAP.lastErr > 20000) { AICAP.lastErr = Date.now(); toast(`A few seconds of captions were missed: ${e.message || 'the transcription service didn’t answer'}`, 5000); }
+}
+function aiListenStatus() {
+  const el = $('#b-ai'); if (el) el.textContent = AICAP.pending ? 'Writing captions…' : 'Listening in every language. Captions appear a few seconds after you speak.';
+}
+/* Stop the microphone. What was said just before is still sent, so its captions arrive a moment later. */
+function stopAiListen(discard) {
+  const A = AICAP;
+  if (A.on && !discard) aiListenCut();
+  A.on = false; A.buf = []; A.len = 0;
+  try { A.node && (A.node.port ? (A.node.port.onmessage = null) : (A.node.onaudioprocess = null)); A.src?.disconnect(); A.node?.disconnect(); A.mute?.disconnect(); } catch { /* already gone */ }
+  try { A.stream?.getTracks().forEach(t => t.stop()); } catch { /* ignore */ }
+  try { A.ctx?.close(); } catch { /* ignore */ }
+  A.stream = A.ctx = A.src = A.node = A.mute = null;
+}
+
 /* ================= Cloud: Firebase accounts, lecture library, newsletter ================= */
 const CFG = window.DIDASKO_CONFIG || {};
 const PMODE = new URLSearchParams(location.search).has('join');
@@ -4301,7 +4417,7 @@ function basicGo(step) {
   const L = S.lecture, hasContent = !L.sample && (speechSegs(L).length || L.files.length || L.notes || L.quiz);
   const replaceNote = libraryLocked() && hasContent
     ? `<p class="b-note">Starting something new replaces “${esc(L.title)}” on this device. ${cloudConfigured() ? '<button class="linklike" data-signin>Sign in</button> to keep every lecture.' : ''}</p>` : '';
-  const canRecord = SR && !IS_ARTIFACT;
+  const canRecord = !IS_ARTIFACT && (SR || useAiListen());
   if (step === 'start' || step === 'next') BASIC.adding = false;
   const add = BASIC.adding, addTo = add ? ` to “${esc(L.title)}”` : '';
   if (step === 'start') {
@@ -4313,9 +4429,12 @@ function basicGo(step) {
         <button class="b-choice" id="b-tr"><span class="b-ico">${icon('notes')}</span><span><b>Add supporting materials</b><small>Slides, readings, a transcript or a link</small></span></button>
         <button class="b-choice" id="b-media"><span class="b-ico">${icon('upload')}</span><span><b>Upload video or audio</b><small>We’ll turn it into a transcript</small></span></button>
       </div>
+      ${IS_ARTIFACT ? '' : `<label class="switch b-multi"><input type="checkbox" id="b-multi" ${multiLangOn() ? 'checked' : ''}> Speaker switches between languages</label>
+      <p class="b-note b-hint" id="b-multi-note" ${multiLangOn() ? '' : 'hidden'}>Recording listens in every language at once, using your AI service. Captions run a few seconds behind.</p>`}
       ${replaceNote}
       ${resume ? `<button class="b-resume" id="b-resume">Continue with “${esc(L.title)}” <span aria-hidden="true">→</span></button>` : ''}`;
     $('#b-rec').onclick = () => canRecord ? basicStartRecording() : toast('Live recording works in Chrome, Edge or Safari. You can still add supporting materials or upload a recording.', 5000);
+    if ($('#b-multi')) $('#b-multi').onchange = e => { setMultiLang(e.target.checked); basicGo('start'); };
     $('#b-tr').onclick = () => basicGo('materials');
     $('#b-media').onclick = basicPickMedia;
     if ($('#b-resume')) $('#b-resume').onclick = () => basicGo('next');
@@ -4323,6 +4442,7 @@ function basicGo(step) {
     box.innerHTML = `
       <div class="b-rec-head"><span class="b-live ${S.rec.running ? 'on' : ''}" id="b-live">${S.rec.running ? '● Recording' : 'Paused'}</span><span class="b-clock mono" id="b-clock">0:00</span></div>
       <div class="b-stage"><div class="b-cap" id="b-cap"></div><p class="b-cap-empty" id="b-cap-empty">Start speaking — your words appear here.</p></div>
+      ${useAiListen() ? '<p class="b-note b-ai" id="b-ai" role="status">Listening in every language. Captions appear a few seconds after you speak.</p>' : ''}
       <div class="b-rec-ctl">
         <button class="btn b-big" id="b-pause">${icon(S.rec.running ? 'pause' : 'mic')}<span>${S.rec.running ? 'Pause' : 'Resume'}</span></button>
         <button class="btn primary b-big b-stop" id="b-stop">${icon('stop')}<span>Stop</span></button>
@@ -4372,6 +4492,7 @@ function basicGo(step) {
       <span class="b-done">${icon('spark')} ${n ? 'Transcript ready' : 'Materials ready'}</span>
       <h1 class="b-h1">Next step</h1>
       <p class="b-sub"><b>${esc(L.title)}</b> · ${count.toLocaleString()} words${n && L.ms ? ` · ${fmtClock(L.ms)}` : ''}${n && mats.length ? ` · ${mats.length} supporting material${mats.length > 1 ? 's' : ''}` : ''}</p>
+      <label class="field b-lang"><span>Write the notes and quiz in</span><select id="b-lang">${outLangOptions()}</select></label>
       <div class="b-choices two">
         <button class="b-choice big" id="b-quiz"><span class="b-ico">${icon('quiz')}</span><span><b>Create quiz</b><small>Multiple-choice questions from ${n ? 'this lecture' : 'these materials'}</small></span></button>
         <button class="b-choice big" id="b-notes"><span class="b-ico">${icon('notes')}</span><span><b>Create notes</b><small>Organized, well-formatted lecture notes</small></span></button>
@@ -4388,8 +4509,8 @@ function basicGo(step) {
       <div class="b-links">${n ? `<button class="linklike" id="b-edit">${icon('edit')}Review or fix the transcript</button>` : '<span></span>'}<button class="linklike" id="b-new">Start something new</button></div>
       <div id="b-editor" hidden></div>`;
     if (!n && !mats.length) { $('#b-quiz').disabled = $('#b-notes').disabled = true; }
-    $('#b-quiz').onclick = () => { saveBasicEditor(); enterAdvanced('quiz', false); generateQuiz(); };
-    $('#b-notes').onclick = () => { saveBasicEditor(); enterAdvanced('notes', false); S.ui.notesTab = 'notes'; renderNotesArea(); generateNotes(); };
+    $('#b-quiz').onclick = () => { const lang = $('#b-lang').value; saveBasicEditor(); enterAdvanced('quiz', false); $('#quiz-lang').value = lang; generateQuiz(); };
+    $('#b-notes').onclick = () => { const lang = $('#b-lang').value; saveBasicEditor(); enterAdvanced('notes', false); S.ui.notesTab = 'notes'; renderNotesArea(); $('#notes-lang').value = lang; generateNotes(); };
     if ($('#b-edit')) $('#b-edit').onclick = toggleBasicEditor;
     $('#b-new').onclick = () => basicGo('start');
     $('#b-more-rec').onclick = () => { saveBasicEditor(); canRecord ? basicRecordMore() : toast('Live recording works in Chrome, Edge or Safari.', 5000); };
@@ -4436,8 +4557,13 @@ function drawBasicCaptions(animate) {
   const e = $('#b-cap-empty'); if (e) e.hidden = !!(speechSegs(S.lecture).length || S.rec.interim);
   basicRecState();
 }
-function basicStopRecording() {
+async function basicStopRecording() {
   if (S.rec.running) pauseCaptions(true);
+  if (aiListenPending()) { // the last few seconds are still being written
+    basicGo('working'); $('#b-work-title').textContent = 'Finishing the captions…'; basicStatus('The last few seconds are being written.');
+    await aiListenIdle();
+    if (BASIC.step !== 'working') return;
+  }
   if (!speechSegs(S.lecture).length) { toast('Nothing was captured yet. Check that the microphone is allowed, then try again.', 5000); basicGo('start'); return; }
   basicGo('next');
 }
